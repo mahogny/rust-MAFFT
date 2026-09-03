@@ -66,10 +66,16 @@ Every progressive merge step matches in score and width; every refinement iterat
 | `--auto` (small/medium/large brackets)      | match   | match      | 0    | ✓ byte-exact |
 | `--seed FILE`, `--seedtable FILE`           | match   | match      | 0    | ✓ byte-exact |
 | `--treein`, `--treeout`, `--treein --treeout` | match | match      | 0    | ✓ byte-exact |
-| RNA NW (`--nofft samplerna`)                | 360     | 360        | 0‡   | ✓ byte-exact (case-insensitive) |
+| RNA NW (`--nofft samplerna`)                | 360     | 360        | 0    | ✓ byte-exact |
 | Q-INS-i (`--qinsi samplerna`)               | 360     | 360        | 0‡   | ✓ byte-exact (needs `mxscarnamod`) |
+| `--nuc`, `--amino` (forced sequence type)   | match   | match      | 0    | ✓ byte-exact |
 
-‡ For RNA / Q-INS-i: we uppercase residues; C preserves case. With `diff -i` RNA produces 0 lines.
+‡ Q-INS-i requires the external `mxscarnamod` binary.
+
+Residue case matches C MAFFT: nucleotide output is lowercased and protein
+output uppercased at read time (C `io.c:1462-1467`, `io.c:1755`), driven by
+the detected type or by `--nuc` / `--amino`; `--anysymbol` / `--preservecase`
+keep the input's own case.
 
 ### BBaliBase 3 parity sweep
 

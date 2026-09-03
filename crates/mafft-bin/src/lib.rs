@@ -7,6 +7,9 @@ use mafft_core::{MafftEngine, AlignmentMode};
 use mafft_io::{read_fasta, read_fasta_from_reader, read_fasta_casepreserve, read_fasta_from_reader_casepreserve};
 use mafft_types::{Sequence, SequenceSet, ScoringModel};
 
+pub mod builder;
+pub use builder::Mafft;
+
 /// MAFFT-rs: Multiple sequence alignment (Rust implementation)
 #[derive(Parser, Debug)]
 #[command(name = "mafft-rs", version, about)]
@@ -402,18 +405,19 @@ struct Args {
 
     /// Auto-detect input DNA strand orientation and reverse-complement
     /// sequences on the wrong strand before alignment (matches C
-    /// `--adjustdirection`). Currently accepted at the CLI but the
-    /// k-mer-based detection algorithm (port of
-    /// `mafft-upstream/core/makedirectionlist.c`) is not yet
-    /// implemented. Affects DNA workflows only; protein inputs
-    /// silently bypass it. See `TODO.md`.
+    /// `--adjustdirection`). Implemented: the k-mer-based detection
+    /// algorithm is a port of
+    /// `mafft-upstream/core/makedirectionlist.c` (see
+    /// `mafft_core::adjust_direction`, `TODO.md` R-5, resolved
+    /// 2026-06-03). Affects DNA workflows only; protein inputs
+    /// silently bypass it.
     #[arg(long)]
     adjustdirection: bool,
 
     /// Slower, more accurate variant of `--adjustdirection` (matches
     /// C `--adjustdirectionaccurately`, internally
-    /// `adjustdirection=2`). Same stub status — not yet
-    /// implemented.
+    /// `adjustdirection=2`). Also implemented — it selects the DP
+    /// scorer (`AdjustMode::Dp`) instead of the k-mer one.
     #[arg(long, conflicts_with = "adjustdirection")]
     adjustdirectionaccurately: bool,
 
@@ -514,6 +518,20 @@ struct Args {
     #[arg(long)]
     nomemsave: bool,
 
+    /// Force the input to be treated as nucleotide, overriding the
+    /// ATGC-frequency auto-detection (matches C MAFFT `--nuc` →
+    /// `seqtype="-D"`, `scripts/mafft:547-548`). Mutually exclusive with
+    /// `--amino`.
+    #[arg(long, conflicts_with = "amino")]
+    nuc: bool,
+
+    /// Force the input to be treated as protein, overriding the
+    /// ATGC-frequency auto-detection (matches C MAFFT `--amino` →
+    /// `seqtype="-P"`, `scripts/mafft:549-550`). Mutually exclusive with
+    /// `--nuc`.
+    #[arg(long)]
+    amino: bool,
+
     /// Replicate C MAFFT's static-TLS `reuseprofiles` memoization
     /// (`Salignmm.c:1446-1450`) so tied-DP-cell choices match C
     /// byte-for-byte. Off by default — the stateless progressive
@@ -525,42 +543,44 @@ struct Args {
     c_compat: bool,
 }
 
-/// Print the canonical MAFFT citation block to stdout. Invoked by the
-/// `--cite` flag (an early-exit path in `run()` that prints this and
-/// exits 0).
+/// Write the canonical MAFFT citation block to the output sink. Invoked
+/// by the `--cite` flag (an early-exit path in `run_from()` that writes
+/// this and returns; `run()` then exits 0). The sink is stdout for the
+/// CLI, so the printed bytes are unchanged.
 ///
 /// rust-MAFFT is a port — the science is by Katoh et al. The block
 /// names Katoh & Standley 2013 as the primary citation (canonical for
 /// MAFFT v7, which this is a port of) and points at the docs site for
 /// mode-specific references and BibTeX.
-fn print_citation() {
-    println!("rust-MAFFT v{} — port of MAFFT 7.526", env!("CARGO_PKG_VERSION"));
-    println!();
-    println!("If you use this software in published work, please cite the");
-    println!("original MAFFT paper. The scientific contribution is by");
-    println!("Kazutaka Katoh and colleagues at CBRC; this Rust port preserves");
-    println!("their algorithm byte-for-byte.");
-    println!();
-    println!("  Katoh, K., & Standley, D. M. (2013).");
-    println!("  MAFFT multiple sequence alignment software version 7:");
-    println!("  improvements in performance and usability.");
-    println!("  Molecular Biology and Evolution, 30(4), 772-780.");
-    println!("  doi: 10.1093/molbev/mst010");
-    println!();
-    println!("Mode-specific references (cite additionally when relevant):");
-    println!();
-    println!("  FFT-NS-1/2:        Katoh et al. 2002, NAR 30(14):3059-3066");
-    println!("                     doi: 10.1093/nar/gkf436");
-    println!("  L/G/E-INS-i:       Katoh et al. 2005, NAR 33(2):511-518");
-    println!("                     doi: 10.1093/nar/gki198");
-    println!("  --parttree:        Katoh & Toh 2007, Bioinformatics 23(3):372-374");
-    println!("                     doi: 10.1093/bioinformatics/btl592");
-    println!();
-    println!("Full citation guidance and BibTeX entries:");
-    println!("  https://luksgrin.github.io/rust-MAFFT/citation/");
-    println!();
-    println!("Machine-readable form (CITATION.cff):");
-    println!("  https://github.com/luksgrin/rust-MAFFT/blob/main/CITATION.cff");
+fn print_citation(out: &mut dyn Write) -> io::Result<()> {
+    writeln!(out, "rust-MAFFT v{} — port of MAFFT 7.526", env!("CARGO_PKG_VERSION"))?;
+    writeln!(out)?;
+    writeln!(out, "If you use this software in published work, please cite the")?;
+    writeln!(out, "original MAFFT paper. The scientific contribution is by")?;
+    writeln!(out, "Kazutaka Katoh and colleagues at CBRC; this Rust port preserves")?;
+    writeln!(out, "their algorithm byte-for-byte.")?;
+    writeln!(out)?;
+    writeln!(out, "  Katoh, K., & Standley, D. M. (2013).")?;
+    writeln!(out, "  MAFFT multiple sequence alignment software version 7:")?;
+    writeln!(out, "  improvements in performance and usability.")?;
+    writeln!(out, "  Molecular Biology and Evolution, 30(4), 772-780.")?;
+    writeln!(out, "  doi: 10.1093/molbev/mst010")?;
+    writeln!(out)?;
+    writeln!(out, "Mode-specific references (cite additionally when relevant):")?;
+    writeln!(out)?;
+    writeln!(out, "  FFT-NS-1/2:        Katoh et al. 2002, NAR 30(14):3059-3066")?;
+    writeln!(out, "                     doi: 10.1093/nar/gkf436")?;
+    writeln!(out, "  L/G/E-INS-i:       Katoh et al. 2005, NAR 33(2):511-518")?;
+    writeln!(out, "                     doi: 10.1093/nar/gki198")?;
+    writeln!(out, "  --parttree:        Katoh & Toh 2007, Bioinformatics 23(3):372-374")?;
+    writeln!(out, "                     doi: 10.1093/bioinformatics/btl592")?;
+    writeln!(out)?;
+    writeln!(out, "Full citation guidance and BibTeX entries:")?;
+    writeln!(out, "  https://luksgrin.github.io/rust-MAFFT/citation/")?;
+    writeln!(out)?;
+    writeln!(out, "Machine-readable form (CITATION.cff):")?;
+    writeln!(out, "  https://github.com/luksgrin/rust-MAFFT/blob/main/CITATION.cff")?;
+    Ok(())
 }
 
 /// Apply C MAFFT shell-script defaults based on `argv[0]` basename.
@@ -640,27 +660,180 @@ fn apply_progname_dispatch(progname: &str, args: &mut Args) {
     }
 }
 
+/// Error returned by [`run_from`] wherever [`run`] would call
+/// `std::process::exit(N)`.
+///
+/// It carries the exact stderr text and exit code the CLI uses, so [`run`]
+/// can reproduce the command-line behaviour byte-for-byte while a library
+/// caller gets a value it can inspect instead of a dead process.
+///
+/// A *successful* early exit is reported as an error too: `--pdbidlist`
+/// and `--pdbfilelist` print a message and exit 0 in C MAFFT (and here)
+/// without producing an alignment, so [`MafftError::code`] is `0` while the
+/// call still returns `Err`. `--cite` is the exception — its citation block
+/// is written to the output sink and the call returns `Ok`.
+#[derive(Debug)]
+pub struct MafftError {
+    code: i32,
+    message: String,
+    /// Set only for argv-parsing failures (including `--help` / `--version`),
+    /// so [`run`] can hand the error straight back to clap and get
+    /// byte-identical output, stream selection and exit code.
+    clap: Option<Box<clap::Error>>,
+}
+
+impl MafftError {
+    fn new(code: i32, message: impl Into<String>) -> Self {
+        Self { code, message: message.into(), clap: None }
+    }
+
+    fn from_clap(err: clap::Error) -> Self {
+        Self {
+            code: err.exit_code(),
+            message: err.render().to_string(),
+            clap: Some(Box::new(err)),
+        }
+    }
+
+    /// Exit code the CLI would terminate with for this failure.
+    pub fn code(&self) -> i32 {
+        self.code
+    }
+
+    /// Exact text the CLI would print, without the trailing newline
+    /// `eprintln!` adds. (For argv-parsing failures this is clap's own
+    /// rendered usage/help text, which does carry its own newlines.)
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Reproduce the CLI's reporting exactly and terminate the process.
+    fn report_and_exit(self) -> ! {
+        match self.clap {
+            // `clap::Error::exit` is what `Parser::parse` itself calls, so
+            // `--help` / `--version` / usage errors keep their stream,
+            // colouring and exit code unchanged.
+            Some(e) => e.exit(),
+            None => {
+                eprintln!("{}", self.message);
+                std::process::exit(self.code)
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for MafftError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for MafftError {}
+
+/// Run `f` inside `pool` when `--thread N` built one, otherwise directly
+/// (which leaves rayon's default global pool in charge). See the
+/// `--thread` handling in [`run_from`] for why the pool is local.
+fn in_pool<R: Send>(pool: Option<&rayon::ThreadPool>, f: impl FnOnce() -> R + Send) -> R {
+    match pool {
+        Some(p) => p.install(f),
+        None => f(),
+    }
+}
+
+/// `--nuc` / `--amino`: force the sequence type, overriding the
+/// ATGC-frequency auto-detection in `mafft_io::detect_seq_type`.
+///
+/// Mirrors C MAFFT `scripts/mafft:547-550`, where `--nuc` sets
+/// `seqtype="-D"` and `--amino` sets `seqtype="-P"`; `$seqtype` is then
+/// passed verbatim to every downstream binary (`tbfast`, `pairlocalalign`,
+/// `filter`, `replaceu`, …). Forcing the type is all these flags do — the
+/// only other place `$seqtype` is read is the `--dash` guard at
+/// `scripts/mafft:2441`, and `--dash` is not supported here.
+///
+/// Because `$seqtype` fixes C's `dorp` *before* any sequence is read, the
+/// forced type also drives the residue-case fold C applies at read time
+/// (`io.c:1462-1467`). Re-apply it here so `--nuc` lowercases and
+/// `--amino` uppercases, matching C. `casepreserve` skips that: on the
+/// `--anysymbol` / `--preservecase` path C keeps the original characters
+/// and restores them after alignment.
+///
+/// Inert unless one of the flags is present, so auto-detection and the
+/// reader's own case fold are unchanged for every existing command line.
+fn force_seq_type(mut set: SequenceSet, args: &Args, casepreserve: bool) -> SequenceSet {
+    let forced = if args.nuc {
+        Some(mafft_types::SeqType::Dna)
+    } else if args.amino {
+        Some(mafft_types::SeqType::Protein)
+    } else {
+        None
+    };
+    if let Some(seq_type) = forced {
+        set.seq_type = seq_type;
+        if !casepreserve {
+            mafft_io::apply_case_convention(&mut set);
+        }
+    }
+    set
+}
+
 /// MAFFT-rs CLI entry point.
 ///
-/// Parses `std::env::args()`, runs the alignment per the flags, and writes
-/// the result to stdout (or `--output`). Any error path calls
+/// Parses `std::env::args_os()`, runs the alignment per the flags, and
+/// writes the result to stdout (or `--output`). Any error path calls
 /// `std::process::exit(N)` directly — this function does not return on
 /// failure.
+///
+/// This is a thin wrapper around [`run_from`]: every flag's meaning is
+/// decided there, so the CLI and the library entry point cannot drift.
 ///
 /// Reused by:
 /// * `crates/mafft-bin/src/main.rs` (the `mafft-rs` binary)
 /// * `crates/pymafft` (bundled into the wheel so `pip install pymafft`
 ///   puts `mafft-rs` on `$PATH`)
 pub fn run() {
-    let mut args = Args::parse();
+    let mut stdout = io::stdout();
+    if let Err(e) = run_from(std::env::args_os(), &mut stdout) {
+        e.report_and_exit();
+    }
+}
+
+/// Argv-driven, non-exiting entry point — the library form of [`run`].
+///
+/// `argv` is parsed with exactly the same clap definition as the command
+/// line (`argv[0]` is the program name, as usual), so argv stays the single
+/// source of truth for flag semantics: `--auto` still picks the strategy
+/// from sequence count and length, `--adjustdirection` still runs strand
+/// detection before alignment, and so on. Every failure path that [`run`]
+/// turns into a `std::process::exit(N)` is returned here as a
+/// [`MafftError`] carrying the same message text and the same exit code.
+///
+/// The alignment is written to `out`. `--output FILE` still redirects it to
+/// that file (matching the CLI exactly), in which case `out` receives
+/// nothing. Progress and diagnostic messages still go to stderr, as on the
+/// command line; pass `--quiet` to suppress them.
+///
+/// ```no_run
+/// let mut aligned = Vec::new();
+/// mafft_rs::run_from(
+///     ["mafft-rs", "--auto", "--adjustdirection", "--thread", "1", "--nuc", "in.fasta"],
+///     &mut aligned,
+/// )?;
+/// # Ok::<(), mafft_rs::MafftError>(())
+/// ```
+pub fn run_from<I, T>(argv: I, out: &mut dyn std::io::Write) -> Result<(), MafftError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let mut args = Args::try_parse_from(argv).map_err(MafftError::from_clap)?;
     apply_progname_defaults(&mut args);
 
     // --cite: print the citation block and exit cleanly. Comes before
     // every other flag handler so `--cite` is safe to combine with any
     // input or to invoke without one.
     if args.cite {
-        print_citation();
-        std::process::exit(0);
+        return print_citation(&mut *out)
+            .map_err(|e| MafftError::new(1, format!("Error writing output: {e}")));
     }
 
     // C `scripts/mafft:969-990` disables `--pdbidlist` and
@@ -669,31 +842,37 @@ pub fn run() {
     // behaviour and message verbatim — these flags have been
     // non-functional in upstream MAFFT since 2018.
     if args.pdbidlist.is_some() {
-        eprintln!("--pdbidlist is temporarily unavailable, 2018/Dec.");
-        eprintln!();
-        std::process::exit(0);
+        return Err(MafftError::new(0, "--pdbidlist is temporarily unavailable, 2018/Dec.\n"));
     }
     if args.pdbfilelist.is_some() {
-        eprintln!("--pdbfilelist is temporarily unavailable, 2018/Dec.");
-        eprintln!();
-        std::process::exit(0);
+        return Err(MafftError::new(0, "--pdbfilelist is temporarily unavailable, 2018/Dec.\n"));
     }
 
     // C `scripts/mafft:1807-1810` rejects `--nodeout` combined with
     // `--maxiterate > 0` at the shell-script level (BEFORE any
     // alignment runs). Mirror the early exit and verbatim error.
     if args.nodeout && args.maxiterate.unwrap_or(0) > 0 {
-        eprintln!("The --nodeout option supports only progressive method (--maxiterate 0) for now.");
-        std::process::exit(1);
+        return Err(MafftError::new(1,
+            "The --nodeout option supports only progressive method (--maxiterate 0) for now."));
     }
 
-    // Configure thread pool
-    if args.thread > 0 {
+    // Configure thread pool. This builds a LOCAL rayon pool and installs
+    // the alignment into it (see `in_pool` below) rather than calling
+    // `build_global()`: a process-global pool can only be initialised
+    // once, so a library caller invoking `run_from` repeatedly would have
+    // been stuck with the first call's `--thread` value forever. The
+    // remaining `.ok()` is not the "already initialised" swallow it used
+    // to be — a local `build()` can only fail if the OS refuses to spawn
+    // threads, and falling back to rayon's default pool there is exactly
+    // what the previous code did.
+    let pool = if args.thread > 0 {
         rayon::ThreadPoolBuilder::new()
             .num_threads(args.thread)
-            .build_global()
-            .ok(); // ignore error if pool already initialized
-    }
+            .build()
+            .ok()
+    } else {
+        None
+    };
 
     // Read input. `--anysymbol`/`--preservecase` need every original
     // character preserved (case + non-standard residues) so the
@@ -708,10 +887,8 @@ pub fn run() {
             } else {
                 read_fasta(path)
             };
-            result.unwrap_or_else(|e| {
-                eprintln!("Error reading {}: {e}", path.display());
-                std::process::exit(1);
-            })
+            result.map_err(|e|
+                MafftError::new(1, format!("Error reading {}: {e}", path.display())))?
         }
         None => {
             let stdin = io::stdin();
@@ -721,12 +898,15 @@ pub fn run() {
             } else {
                 read_fasta_from_reader(reader)
             };
-            result.unwrap_or_else(|e| {
-                eprintln!("Error reading stdin: {e}");
-                std::process::exit(1);
-            })
+            result.map_err(|e| MafftError::new(1, format!("Error reading stdin: {e}")))?
         }
     };
+
+    // `--nuc` / `--amino` force the sequence type before anything that
+    // branches on `is_nucleotide()` runs (mirrors C `scripts/mafft:547-550`,
+    // where `$seqtype` is fixed at argument-parsing time). No-op unless one
+    // of the flags was given.
+    let input = force_seq_type(input, &args, anysymbol_read);
 
     // `--adjustdirection` / `--adjustdirectionaccurately`: detect DNA
     // strand orientation and reverse-complement sequences on the
@@ -746,15 +926,14 @@ pub fn run() {
     // addfile is read.
     if let Some(thresh) = args.maxambiguous {
         if !(0.0..=1.0).contains(&thresh) {
-            eprintln!("The argument of --maxambiguous must be between 0.0 and 1.0");
-            std::process::exit(1);
+            return Err(MafftError::new(1,
+                "The argument of --maxambiguous must be between 0.0 and 1.0"));
         }
     }
 
     let user_nseq = input.nseq();
     if user_nseq == 0 {
-        eprintln!("Error: no sequences found in input");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Error: no sequences found in input"));
     }
 
     // `--memsave` gating: C MAFFT rejects `--memsave` for every
@@ -767,40 +946,34 @@ pub fn run() {
         && (args.localpair || args.globalpair || args.genafpair
             || args.qinsi || args.xinsi || args.scarnalike)
     {
-        eprintln!("Impossible");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Impossible"));
     }
     if args.memsave && !args.seed_files.is_empty() {
         // C rejects --seed + --memsave: MSalignmm doesn't accept
         // local-homology constraints (`tbfast.c:1117-1118`).
-        eprintln!("Impossible");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Impossible"));
     }
     if args.memsave && args.seedtable.is_some() {
         // Same gating as --seed + --memsave: hat3.seed is plumbed into
         // tbfast through localhomtable, which `MSalignmm` doesn't read
         // (`tbfast.c:1117-1118`).
-        eprintln!("Impossible");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Impossible"));
     }
     if !args.seed_files.is_empty() && args.seedtable.is_some() {
         // `scripts/mafft:1963-1965`: "Use either one of seedtable and seed.
         // Not both."
-        eprintln!("Use either one of seedtable and seed.  Not both.");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Use either one of seedtable and seed.  Not both."));
     }
     let add_arg = args.add.as_ref().or(args.addfragments.as_ref());
     if args.seedtable.is_some() && add_arg.is_some() {
         // `scripts/mafft:1281-1284`: "Use either ONE of --seed,
         // --seedtable, --addprofile and --add."
-        eprintln!("Impossible");
-        eprintln!("Use either ONE of --seed, --seedtable, --addprofile and --add.");
-        std::process::exit(1);
+        return Err(MafftError::new(1,
+            "Impossible\nUse either ONE of --seed, --seedtable, --addprofile and --add."));
     }
     if args.seedtable.is_some() && (args.parttree || args.dpparttree) {
         // `scripts/mafft:1880-1883`: parttree + seed/seedtable is Impossible.
-        eprintln!("Impossible");
-        std::process::exit(1);
+        return Err(MafftError::new(1, "Impossible"));
     }
 
     // `--seed FILE` (repeatable): read each pre-aligned seed file with
@@ -819,10 +992,8 @@ pub fn run() {
     if !args.seed_files.is_empty() {
         let mut groups: Vec<Vec<Vec<u8>>> = Vec::with_capacity(args.seed_files.len());
         for path in &args.seed_files {
-            let seed_set = read_fasta_casepreserve(path).unwrap_or_else(|e| {
-                eprintln!("Error reading {}: {e}", path.display());
-                std::process::exit(1);
-            });
+            let seed_set = read_fasta_casepreserve(path).map_err(|e|
+                MafftError::new(1, format!("Error reading {}: {e}", path.display())))?;
             groups.push(seed_set.sequences.iter().map(|s| s.data.clone()).collect());
             // Prepend renamed (gap-stripped) seed sequences to the input
             // ahead of the user data — matching C's `multi2hat3s` output
@@ -869,10 +1040,10 @@ pub fn run() {
 
     // Check SCARNA-like mode (requires DASH client — network service)
     if args.scarnalike {
-        eprintln!("SCARNA-like mode requires the DASH structural alignment client.");
-        eprintln!("Install dash_client and ensure it is in your PATH or set MAFFT_BINARIES.");
-        eprintln!("See: https://mafft.cbrc.jp/alignment/software/source.html");
-        std::process::exit(1);
+        return Err(MafftError::new(1,
+            "SCARNA-like mode requires the DASH structural alignment client.\n\
+             Install dash_client and ensure it is in your PATH or set MAFFT_BINARIES.\n\
+             See: https://mafft.cbrc.jp/alignment/software/source.html"));
     }
 
     // `--auto`: pick mode + retree based on input size, mirroring
@@ -969,8 +1140,8 @@ pub fn run() {
         engine.cluster_method = mafft_tree::ClusterMethod::Mix { sueff: 0.0 };
     } else if let Some(s) = args.mixedlinkage {
         if !(0.0..=1.0).contains(&s) {
-            eprintln!("The argument of --mixedlinkage must be between 0.0 and 1.0");
-            std::process::exit(1);
+            return Err(MafftError::new(1,
+                "The argument of --mixedlinkage must be between 0.0 and 1.0"));
         }
         engine.cluster_method = mafft_tree::ClusterMethod::Mix { sueff: s };
     }
@@ -1079,8 +1250,7 @@ pub fn run() {
     }
     if let Some(ref tree_path) = args.treein {
         if !tree_path.exists() {
-            eprintln!("Cannot open {}", tree_path.display());
-            std::process::exit(1);
+            return Err(MafftError::new(1, format!("Cannot open {}", tree_path.display())));
         }
         engine.treein_path = Some(tree_path.clone());
     }
@@ -1142,28 +1312,36 @@ pub fn run() {
         // hand it to the engine like `--seed` would. No sequences are
         // prepended — the file's `i`/`j` reference indices into the user
         // input as supplied.
-        let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
-            eprintln!("Error reading {}: {e}", path.display());
-            std::process::exit(1);
-        });
+        let text = std::fs::read_to_string(path).map_err(|e|
+            MafftError::new(1, format!("Error reading {}: {e}", path.display())))?;
         let seed_table = mafft_align::parse_hat3_seed(&text, total_nseq)
-            .unwrap_or_else(|e| {
-                eprintln!("Error parsing {}: {e}", path.display());
-                std::process::exit(1);
-            });
+            .map_err(|e|
+                MafftError::new(1, format!("Error parsing {}: {e}", path.display())))?;
         if !args.quiet {
             eprintln!("--seedtable: loaded {}", path.display());
         }
         engine.seed_homology = Some(seed_table);
     }
 
-    // Handle --add / --addfragments
+    // Handle --add / --addfragments. The alignment itself (and every
+    // rayon-parallel step it drives) runs inside the local `--thread`
+    // pool; see the `pool` construction above.
     let add_file = args.add.as_ref().or(args.addfragments.as_ref());
-    let mut msa = if let Some(add_path) = add_file {
-        let new_input = read_fasta(add_path).unwrap_or_else(|e| {
-            eprintln!("Error reading {}: {e}", add_path.display());
-            std::process::exit(1);
-        });
+    // The closure below is the previous `let mut msa = ...` block, wrapped
+    // so it can be `install`ed into the local `--thread` pool. Its body is
+    // deliberately left at the original indentation (and `args` / `engine`
+    // / `input` are rebound to shared/exclusive borrows) so this stays a
+    // small, reviewable diff rather than a reindent of ~90 unchanged lines.
+    let (args_ref, engine_ref, input_ref) = (&args, &engine, &mut input);
+    let mut msa = in_pool(pool.as_ref(), move || -> Result<mafft_core::MultipleAlignment, MafftError> {
+        let (args, engine, input) = (args_ref, engine_ref, input_ref);
+        Ok(if let Some(add_path) = add_file {
+        let new_input = read_fasta(add_path).map_err(|e|
+            MafftError::new(1, format!("Error reading {}: {e}", add_path.display())))?;
+        // `--nuc` / `--amino` force the addfile's type too — C passes the
+        // same `$seqtype` to `filter` (`scripts/mafft:1140`) and to every
+        // downstream binary.
+        let new_input = force_seq_type(new_input, args, false);
         // `--maxambiguous F`: drop noisy sequences from the addfile
         // before they reach the alignment. C `scripts/mafft:1132-1140`
         // runs `filter -m F` only on `_addfile`, never on the primary
@@ -1217,7 +1395,7 @@ pub fn run() {
         // Use the with-map variant so we can write the `.map` file
         // below. The keeplength alignment itself is identical.
         if args.keeplength && (args.mapout || args.compactmapout) {
-            let (msa, deletelist) = engine.add_to_alignment_with_map(&input, &new_input);
+            let (msa, deletelist) = engine.add_to_alignment_with_map(input, &new_input);
             // Write .map file alongside the addfile, mirroring C
             // `scripts/mafft:2833-2837` (`cp _deletemap "$addfile.map"`).
             let map_path = {
@@ -1237,7 +1415,7 @@ pub fn run() {
             }
             msa
         } else {
-            engine.add_to_alignment(&input, &new_input, args.keeplength)
+            engine.add_to_alignment(input, &new_input, args.keeplength)
         }
     } else {
         if args.maxambiguous.is_some() && !args.quiet {
@@ -1255,10 +1433,11 @@ pub fn run() {
             } else {
                 AdjustMode::Kmer
             };
-            input = adjust_direction_mode(&input, mode);
+            *input = adjust_direction_mode(input, mode);
         }
-        engine.align(&input)
-    };
+        engine.align(input)
+    })
+    })?;
 
     // --distout: write the engine's distance matrix to `<INPUT>.hat2`,
     // mirroring C MAFFT's `cp $TMPFILE/hat2 $infilename.hat2`
@@ -1507,27 +1686,30 @@ pub fn run() {
         seq_type: input.seq_type,
     };
 
-    // Write output
-    let write_result = match &args.output {
+    // Write output. `--output FILE` still goes to that file, exactly as on
+    // the command line; otherwise the alignment goes to `out` (stdout for
+    // `run`, a caller-supplied sink for a library call).
+    let write_result: Result<(), String> = match &args.output {
         Some(path) => {
-            let file = std::fs::File::create(path).unwrap_or_else(|e| {
-                eprintln!("Error creating {}: {e}", path.display());
-                std::process::exit(1);
-            });
+            let file = std::fs::File::create(path).map_err(|e|
+                MafftError::new(1, format!("Error creating {}: {e}", path.display())))?;
             let mut writer = io::BufWriter::new(file);
             write_output(&output_seqs, &mut writer, &args)
+                .map_err(|e| e.to_string())
+                .and_then(|()| writer.flush().map_err(|e| e.to_string()))
         }
         None => {
-            let stdout = io::stdout();
-            let mut writer = io::BufWriter::new(stdout.lock());
+            let mut writer = io::BufWriter::new(&mut *out);
             write_output(&output_seqs, &mut writer, &args)
+                .map_err(|e| e.to_string())
+                .and_then(|()| writer.flush().map_err(|e| e.to_string()))
         }
     };
 
     if let Err(e) = write_result {
-        eprintln!("Error writing output: {e}");
-        std::process::exit(1);
+        return Err(MafftError::new(1, format!("Error writing output: {e}")));
     }
+    Ok(())
 }
 
 /// `--anysymbol` preprocessor — substitute every character outside
@@ -2278,5 +2460,299 @@ mod tests {
         assert_eq!(a.gop, Some(-1.53));
         assert_eq!(a.gep, Some(0.15));
         assert_eq!(a.gexp, Some(-0.05));
+    }
+
+    // --- `--nuc` / `--amino`, `run_from` and the builder ---------------
+
+    /// Small DNA input written to a unique temp file, so the tests below
+    /// stay self-contained (no fixture files, no CWD assumptions).
+    const DNA_FASTA: &str = "\
+>a
+ATGGCTAGCTTGGACCATTGCAGGTACCCATGGAACTTGGGCCATTAGGCATTGACCTAG
+>b
+ATGGCTAGCTTGGACCATTGCAGGTACCCTTGGAACTTGGCCATTAGGCATTGACCTAGG
+>c
+ATGGCAAGCTTAGACCTTTGCAGGTACGCATGGAACTAGGGCCTTTAGGCATTGACCTAG
+>d
+TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
+";
+
+    fn write_tmp_fasta(tag: &str, body: &str) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("mafft-rs-test-{}-{tag}.fa", std::process::id()));
+        std::fs::write(&path, body).expect("write temp fasta");
+        path
+    }
+
+    fn protein_set() -> SequenceSet {
+        SequenceSet {
+            sequences: vec![Sequence { name: "p".into(), data: b"MKALVWQHY".to_vec() }],
+            seq_type: mafft_types::SeqType::Protein,
+        }
+    }
+
+    fn dna_set() -> SequenceSet {
+        SequenceSet {
+            sequences: vec![Sequence { name: "d".into(), data: b"ACGTACGTAC".to_vec() }],
+            seq_type: mafft_types::SeqType::Dna,
+        }
+    }
+
+    #[test]
+    fn nuc_forces_nucleotide_over_autodetection() {
+        let a = Args::parse_from(["mafft-rs", "--nuc"]);
+        let forced = force_seq_type(protein_set(), &a, false);
+        assert_eq!(forced.seq_type, mafft_types::SeqType::Dna);
+        // C's `dorp` is fixed by `$seqtype` before reading, so the forced
+        // type also drives the read-time case fold (`io.c:1462-1467`).
+        assert_eq!(forced.sequences[0].data, b"mkalvwqhy".to_vec());
+    }
+
+    #[test]
+    fn amino_forces_protein_over_autodetection() {
+        let a = Args::parse_from(["mafft-rs", "--amino"]);
+        let forced = force_seq_type(dna_set(), &a, false);
+        assert_eq!(forced.seq_type, mafft_types::SeqType::Protein);
+        assert_eq!(forced.sequences[0].data, b"ACGTACGTAC".to_vec());
+    }
+
+    #[test]
+    fn without_type_flags_autodetection_is_untouched() {
+        // The flags must be completely inert when absent, so every
+        // existing command line keeps its detected type.
+        let a = Args::parse_from(["mafft-rs"]);
+        let p = force_seq_type(protein_set(), &a, false);
+        let d = force_seq_type(dna_set(), &a, false);
+        assert_eq!(p.seq_type, mafft_types::SeqType::Protein);
+        assert_eq!(d.seq_type, mafft_types::SeqType::Dna);
+        // and the residues are untouched — the reader already folded them
+        assert_eq!(p.sequences[0].data, b"MKALVWQHY".to_vec());
+        assert_eq!(d.sequences[0].data, b"ACGTACGTAC".to_vec());
+    }
+
+    #[test]
+    fn forced_type_does_not_recase_on_the_casepreserve_path() {
+        // `--anysymbol`/`--preservecase` read case-preserving and restore
+        // the originals after alignment, so the forced type must not fold
+        // the residues here (C: `replaceu` + `restoreu`).
+        let a = Args::parse_from(["mafft-rs", "--nuc"]);
+        let kept = force_seq_type(protein_set(), &a, true);
+        assert_eq!(kept.seq_type, mafft_types::SeqType::Dna);
+        assert_eq!(kept.sequences[0].data, b"MKALVWQHY".to_vec());
+    }
+
+    #[test]
+    fn nuc_and_amino_are_mutually_exclusive() {
+        assert!(Args::try_parse_from(["mafft-rs", "--nuc", "--amino"]).is_err());
+    }
+
+    /// `run_from` returns the CLI's error instead of exiting the process.
+    #[test]
+    fn run_from_returns_err_for_nodeout_with_maxiterate() {
+        let mut out = Vec::new();
+        let err = run_from(
+            ["mafft-rs", "--nodeout", "--maxiterate", "5", "unread.fa"],
+            &mut out,
+        ).expect_err("--nodeout with --maxiterate > 0 must fail");
+        assert_eq!(err.code(), 1);
+        assert_eq!(
+            err.message(),
+            "The --nodeout option supports only progressive method (--maxiterate 0) for now."
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn run_from_returns_err_for_unreadable_input() {
+        let mut out = Vec::new();
+        let err = run_from(["mafft-rs", "/nonexistent/mafft-rs-test-input.fa"], &mut out)
+            .expect_err("a missing input file must fail");
+        assert_eq!(err.code(), 1);
+        assert!(
+            err.message().starts_with("Error reading /nonexistent/mafft-rs-test-input.fa: "),
+            "unexpected message: {}", err.message()
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn run_from_returns_err_for_impossible_flag_combination() {
+        // `--memsave` is only rejected once the input has been read, so
+        // point it at a real file.
+        let path = write_tmp_fasta("memsave", DNA_FASTA);
+        let mut out = Vec::new();
+        let err = run_from(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                std::ffi::OsString::from("--memsave"),
+                std::ffi::OsString::from("--localpair"),
+                path.clone().into_os_string(),
+            ],
+            &mut out,
+        ).expect_err("--memsave with --localpair must fail");
+        assert_eq!(err.code(), 1);
+        assert_eq!(err.message(), "Impossible");
+        assert!(out.is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn run_from_returns_err_for_unknown_flag_instead_of_exiting() {
+        let mut out = Vec::new();
+        let err = run_from(["mafft-rs", "--no-such-flag"], &mut out)
+            .expect_err("clap parse failures must be returned, not `exit`ed");
+        assert_eq!(err.code(), 2);
+        assert!(err.message().contains("--no-such-flag"));
+    }
+
+    /// End-to-end: C MAFFT lowercases nucleotide output and uppercases
+    /// protein output, and `--nuc` / `--amino` decide which applies
+    /// (`io.c:1462-1467`, `scripts/mafft:547-550`).
+    #[test]
+    fn output_case_follows_the_c_mafft_convention() {
+        let path = write_tmp_fasta("case", DNA_FASTA);
+        let residues = |argv: &[&str]| -> String {
+            let mut argv: Vec<std::ffi::OsString> =
+                argv.iter().map(std::ffi::OsString::from).collect();
+            argv.push(path.clone().into_os_string());
+            let mut out = Vec::new();
+            run_from(argv, &mut out).expect("alignment should succeed");
+            String::from_utf8(out)
+                .unwrap()
+                .lines()
+                .filter(|l| !l.starts_with('>'))
+                .collect()
+        };
+
+        // Auto-detected nucleotide -> lowercase.
+        let auto = residues(&["mafft-rs", "--quiet"]);
+        assert!(!auto.is_empty());
+        assert!(
+            !auto.chars().any(|c| c.is_ascii_uppercase()),
+            "nucleotide output must be lowercase: {auto}"
+        );
+        // Forced nucleotide -> still lowercase.
+        assert_eq!(residues(&["mafft-rs", "--quiet", "--nuc"]), auto);
+        // Forced protein -> uppercase.
+        let amino = residues(&["mafft-rs", "--quiet", "--amino"]);
+        assert!(
+            !amino.chars().any(|c| c.is_ascii_lowercase()),
+            "protein output must be uppercase: {amino}"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// `--preservecase` keeps the input's own case for nucleotides, so a
+    /// mixed-case input survives the round trip verbatim.
+    #[test]
+    fn preservecase_keeps_input_case_for_nucleotides() {
+        const MIXED: &str = "\
+>a
+ATGGCtagcTTGGACCATTGCAGGTACCCATGGAACTTGGGCCATTAGGCATTGACCTAG
+>b
+ATGGCTAGCTTGGACCATTGCAGGTACCCTTGGAACTTGGCCATTAGGCATTGACCTAGG
+>c
+atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
+";
+        let path = write_tmp_fasta("preservecase", MIXED);
+        let out = Mafft::new().quiet().arg("--preservecase").input(&path).run_to_vec().unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("ATGGCtagcTTGG"), "original case must survive: {text}");
+        assert!(text.contains("atggcaagctta"), "original case must survive: {text}");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn run_from_writes_alignment_to_the_supplied_sink() {
+        let path = write_tmp_fasta("sink", DNA_FASTA);
+        let mut out = Vec::new();
+        run_from(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                std::ffi::OsString::from("--quiet"),
+                path.clone().into_os_string(),
+            ],
+            &mut out,
+        ).expect("alignment should succeed");
+        assert!(out.starts_with(b">"));
+        assert_eq!(out.iter().filter(|&&c| c == b'>').count(), 4);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn amino_changes_the_result_for_nucleotide_looking_input() {
+        // CLUSTAL conservation marks are computed from the sequence type
+        // (`mafft_io::compute_clustal_marks`), so they are a direct,
+        // deterministic read-out of what `--amino` forced.
+        let path = write_tmp_fasta("amino-e2e", DNA_FASTA);
+        let auto = Mafft::new().quiet().format("clustal").input(&path).run_to_vec().unwrap();
+        let forced =
+            Mafft::new().quiet().format("clustal").amino().input(&path).run_to_vec().unwrap();
+        assert!(!auto.is_empty());
+        assert_ne!(
+            auto, forced,
+            "--amino must force the protein scoring path for DNA-looking input"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// The builder is only an argv constructor, so it must agree with the
+    /// equivalent command line byte-for-byte.
+    #[test]
+    fn builder_matches_equivalent_argv() {
+        let path = write_tmp_fasta("builder-e2e", DNA_FASTA);
+        let mut via_argv = Vec::new();
+        run_from(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                std::ffi::OsString::from("--auto"),
+                std::ffi::OsString::from("--adjustdirection"),
+                std::ffi::OsString::from("--thread"),
+                std::ffi::OsString::from("1"),
+                std::ffi::OsString::from("--nuc"),
+                std::ffi::OsString::from("--quiet"),
+                path.clone().into_os_string(),
+            ],
+            &mut via_argv,
+        ).expect("argv run should succeed");
+        let via_builder = Mafft::new()
+            .auto()
+            .adjust_direction()
+            .thread(1)
+            .nuc()
+            .quiet()
+            .input(&path)
+            .run_to_vec()
+            .expect("builder run should succeed");
+        assert!(!via_argv.is_empty());
+        assert_eq!(via_argv, via_builder);
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A library caller may run many alignments in one process; the
+    /// `--thread` pool is local, so repeated calls with different thread
+    /// counts all work and give the same answer.
+    #[test]
+    fn repeated_run_from_calls_honour_thread_counts() {
+        let path = write_tmp_fasta("threads", DNA_FASTA);
+        let mut prev: Option<Vec<u8>> = None;
+        for threads in ["1", "2", "1"] {
+            let mut out = Vec::new();
+            run_from(
+                [
+                    std::ffi::OsString::from("mafft-rs"),
+                    std::ffi::OsString::from("--quiet"),
+                    std::ffi::OsString::from("--thread"),
+                    std::ffi::OsString::from(threads),
+                    path.clone().into_os_string(),
+                ],
+                &mut out,
+            ).expect("alignment should succeed");
+            if let Some(p) = &prev {
+                assert_eq!(p, &out, "thread count must not change the alignment");
+            }
+            prev = Some(out);
+        }
+        std::fs::remove_file(&path).ok();
     }
 }
