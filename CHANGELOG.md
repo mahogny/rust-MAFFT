@@ -28,6 +28,21 @@ public surfaces stable from 0.1.0 anyway.
   to `run_from`, so it cannot drift from the command line.
 - `mafft_io::apply_case_convention`: applies C MAFFT's residue-case fold
   (lowercase nucleotide, uppercase protein) to a parsed `SequenceSet`.
+- Progress sink: `mafft_rs::Progress` (one method, `message(&self, &str)`)
+  with `StderrProgress` (current behaviour) and `SilentProgress`, plus a
+  blanket impl so any `Fn(&str)` is a sink.
+  `mafft_rs::run_from_with_progress(argv, out, &(dyn Progress + Sync))`
+  routes the run's 12 progress messages there instead of stderr, and
+  `Mafft::progress(sink)` does the same for the builder. Both default to
+  stderr, so `run_from`, `run` and the CLI are unchanged. The sink is taken
+  by shared reference and called through `&self`, so one sink can serve a
+  whole worker pool. Only progress is routed — failures come back as
+  `MafftError`, and non-fatal `Warning:` / `Could not …` diagnostics plus
+  `--scoreout`'s score line stay on stderr, so a silent sink cannot hide
+  either a problem or requested output. The sink covers every progress
+  message `mafft-rs` emits; two further lines in `mafft-core` (the
+  Q-INS-i/X-INS-i BPP line and the `--skipiterate` banner) are not routed —
+  see the `progress` module docs for why.
 
 ### Changed
 

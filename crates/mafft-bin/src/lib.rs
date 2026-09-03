@@ -8,7 +8,9 @@ use mafft_io::{read_fasta, read_fasta_from_reader, read_fasta_casepreserve, read
 use mafft_types::{Sequence, SequenceSet, ScoringModel};
 
 pub mod builder;
+pub mod progress;
 pub use builder::Mafft;
+pub use progress::{Progress, SilentProgress, StderrProgress};
 
 /// MAFFT-rs: Multiple sequence alignment (Rust implementation)
 #[derive(Parser, Debug)]
@@ -825,6 +827,46 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    run_from_with_progress(argv, out, &StderrProgress)
+}
+
+/// [`run_from`] with the progress messages redirected to `progress`.
+///
+/// The CLI reports what it is doing on stderr (`mafft-rs v0.1.2`,
+/// `8 sequences (nuc), strategy: FFT-NS-2`, `Alignment: 398 columns`, …).
+/// A caller running thousands of alignments from a worker pool wants those
+/// somewhere other than the user's terminal; pass [`SilentProgress`] to drop
+/// them, or any `Fn(&str)` to forward them into a logger.
+///
+/// `progress` is taken as `&(dyn Progress + Sync)` so a single sink can be
+/// shared by concurrent runs. Messages arrive without a trailing newline.
+///
+/// Only progress is routed. Anything that aborts the run is returned as a
+/// [`MafftError`], and non-fatal `Warning:` / `Could not …` diagnostics stay
+/// on stderr, so a silent sink cannot hide a problem. `--scoreout`'s
+/// `Unweighted sum-of-pairs score = …` line also stays on stderr: it is
+/// output the user explicitly asked for, not progress.
+///
+/// ```no_run
+/// use mafft_rs::SilentProgress;
+///
+/// let mut aligned = Vec::new();
+/// mafft_rs::run_from_with_progress(
+///     ["mafft-rs", "--auto", "--thread", "1", "in.fasta"],
+///     &mut aligned,
+///     &SilentProgress,
+/// )?;
+/// # Ok::<(), mafft_rs::MafftError>(())
+/// ```
+pub fn run_from_with_progress<I, T>(
+    argv: I,
+    out: &mut dyn std::io::Write,
+    progress: &(dyn Progress + Sync),
+) -> Result<(), MafftError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
     let mut args = Args::try_parse_from(argv).map_err(MafftError::from_clap)?;
     apply_progname_defaults(&mut args);
 
@@ -1015,8 +1057,8 @@ where
     }
     let total_nseq = input.nseq();
     if !args.quiet && seed_seq_count > 0 {
-        eprintln!("--seed: {} seed sequences across {} file(s)",
-                  seed_seq_count, args.seed_files.len());
+        progress.message(&format!("--seed: {} seed sequences across {} file(s)",
+                  seed_seq_count, args.seed_files.len()));
     }
 
     // `--anysymbol` / `--preservecase`: snapshot the originals (case and
@@ -1103,8 +1145,8 @@ where
             AlignmentMode::XInsi { .. } => "X-INS-i",
         };
         let seq_type = if input.seq_type.is_nucleotide() { "nuc" } else { "aa" };
-        eprintln!("mafft-rs v{}", env!("CARGO_PKG_VERSION"));
-        eprintln!("{total_nseq} sequences ({seq_type}), strategy: {mode_name}");
+        progress.message(&format!("mafft-rs v{}", env!("CARGO_PKG_VERSION")));
+        progress.message(&format!("{total_nseq} sequences ({seq_type}), strategy: {mode_name}"));
     }
 
     // Build engine. With `--auto`, the retree count comes from the size
@@ -1158,7 +1200,7 @@ where
         || args.gop_lara.is_some()
         || args.gexp_lara.is_some();
     if rna_knob_used && !args.quiet {
-        eprintln!(
+        progress.message(
             "Note: --rop/--rep/--LOP/--LEXP/--GOP/--GEXP only affect C MAFFT's RNA-structure \
              paths (X-INS-i contrafold, Q-INS-i mccaskill, LARA, DAFS), which require external \
              binaries not shipped with rust-MAFFT. Flag values accepted for compatibility but \
@@ -1318,7 +1360,7 @@ where
             .map_err(|e|
                 MafftError::new(1, format!("Error parsing {}: {e}", path.display())))?;
         if !args.quiet {
-            eprintln!("--seedtable: loaded {}", path.display());
+            progress.message(&format!("--seedtable: loaded {}", path.display()));
         }
         engine.seed_homology = Some(seed_table);
     }
@@ -1355,9 +1397,9 @@ where
                 } else {
                     "amino acids"
                 };
-                eprintln!(
+                progress.message(&format!(
                     "\n\nRemoved {dropped} sequence(s) where the frequency of ambiguous {kind} > {thresh:.3}\n\n"
-                );
+                ));
             }
             filtered
         } else {
@@ -1388,7 +1430,7 @@ where
         };
 
         if !args.quiet {
-            eprintln!("Adding {} sequences to existing alignment", new_input.nseq());
+            progress.message(&format!("Adding {} sequences to existing alignment", new_input.nseq()));
         }
         // `--mapout` / `--compactmapout` both imply `--keeplength` in
         // C (`scripts/mafft:699-710` set `-Y` along with `-z`/`-Z`).
@@ -1409,7 +1451,8 @@ where
                 build_full_map(&deletelist, &new_input, &msa, input.nseq())
             };
             match std::fs::write(&map_path, map_content) {
-                Ok(_) if !args.quiet => eprintln!("Wrote insertion map to {}", map_path.display()),
+                Ok(_) if !args.quiet =>
+                    progress.message(&format!("Wrote insertion map to {}", map_path.display())),
                 Ok(_) => {}
                 Err(e) => eprintln!("Warning: could not write {}: {e}", map_path.display()),
             }
@@ -1422,7 +1465,7 @@ where
             // Match C's behaviour: --maxambiguous without --add is a
             // no-op (the filter only runs on the addfile). Warn so
             // users don't expect main-input filtering.
-            eprintln!("Note: --maxambiguous has no effect without --add / --addfragments");
+            progress.message("Note: --maxambiguous has no effect without --add / --addfragments");
         }
         // `--adjustdirection` without `--add`: every sequence is
         // orientation-tested (n_anchor = 0 in the algorithm).
@@ -1470,7 +1513,7 @@ where
                         if let Err(e) = mafft_io::write_hat2(&hat2, &mut f) {
                             eprintln!("Error writing {}: {e}", hat2_path.display());
                         } else if !args.quiet {
-                            eprintln!("Wrote distance matrix to {}", hat2_path.display());
+                            progress.message(&format!("Wrote distance matrix to {}", hat2_path.display()));
                         }
                     }
                     Err(e) => eprintln!("Could not create {}: {e}", hat2_path.display()),
@@ -1490,6 +1533,11 @@ where
     // mirroring C MAFFT's `Unweighted sum-of-pairs score = N.NNNNN`
     // line from the `-S -B` tbfast args (`scripts/mafft:1466-1467`).
     // Computed over the final aligned MSA; gap columns contribute 0.
+    //
+    // NOT routed through the progress sink: this is output the user asked
+    // for with `--scoreout`, not progress, so a silent sink must not be able
+    // to swallow it. Same reasoning as the `Warning:` / `Could not …`
+    // diagnostics below.
     if args.scoreout {
         let scoring_model = if input.seq_type.is_nucleotide() {
             mafft_types::ScoringModel::Dna
@@ -1531,7 +1579,7 @@ where
     }
 
     if !args.quiet {
-        eprintln!("Alignment: {} columns", msa.width());
+        progress.message(&format!("Alignment: {} columns", msa.width()));
     }
 
     // --treeout: write the guide tree to `<INPUT>.tree` in Newick format,
@@ -1665,7 +1713,8 @@ where
                     }
                 }
                 match std::fs::write(&tree_path, newick) {
-                    Ok(_) if !args.quiet => eprintln!("Wrote guide tree to {}", tree_path.display()),
+                    Ok(_) if !args.quiet =>
+                        progress.message(&format!("Wrote guide tree to {}", tree_path.display())),
                     Ok(_) => {}
                     Err(e) => eprintln!("Warning: could not write {}: {e}", tree_path.display()),
                 }
@@ -2726,6 +2775,159 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
             .expect("builder run should succeed");
         assert!(!via_argv.is_empty());
         assert_eq!(via_argv, via_builder);
+        std::fs::remove_file(&path).ok();
+    }
+
+    // --- progress sink --------------------------------------------------
+
+    #[test]
+    fn progress_sink_receives_the_progress_lines() {
+        let path = write_tmp_fasta("progress", DNA_FASTA);
+        let seen = std::sync::Mutex::new(Vec::new());
+        let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
+        let mut out = Vec::new();
+        run_from_with_progress(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                path.clone().into_os_string(),
+            ],
+            &mut out,
+            &sink,
+        ).expect("alignment should succeed");
+        let msgs = seen.lock().unwrap().clone();
+        assert!(
+            msgs.iter().any(|m| m.starts_with("mafft-rs v")),
+            "expected the version banner: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("strategy: FFT-NS-2")),
+            "expected the strategy line: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.starts_with("Alignment: ")),
+            "expected the column count: {msgs:?}"
+        );
+        // Messages arrive without a trailing newline; the sink adds it.
+        assert!(msgs.iter().all(|m| !m.ends_with('\n')), "{msgs:?}");
+        assert!(out.starts_with(b">"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn progress_sink_does_not_change_the_alignment() {
+        let path = write_tmp_fasta("progress-eq", DNA_FASTA);
+        let argv = || {
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                path.clone().into_os_string(),
+            ]
+        };
+        let mut loud = Vec::new();
+        run_from_with_progress(argv(), &mut loud, &StderrProgress).unwrap();
+        let mut silent = Vec::new();
+        run_from_with_progress(argv(), &mut silent, &SilentProgress).unwrap();
+        let mut default = Vec::new();
+        run_from(argv(), &mut default).unwrap();
+        assert_eq!(loud, silent);
+        assert_eq!(loud, default);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn quiet_suppresses_progress_even_with_a_sink() {
+        // `--quiet` gates the messages at source, so a sink sees nothing.
+        let path = write_tmp_fasta("progress-quiet", DNA_FASTA);
+        let seen = std::sync::Mutex::new(Vec::new());
+        let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
+        let mut out = Vec::new();
+        run_from_with_progress(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                std::ffi::OsString::from("--quiet"),
+                path.clone().into_os_string(),
+            ],
+            &mut out,
+            &sink,
+        ).unwrap();
+        assert!(seen.lock().unwrap().is_empty(), "{:?}", seen.lock().unwrap());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn builder_progress_sink_is_used() {
+        let path = write_tmp_fasta("progress-builder", DNA_FASTA);
+        let silent = Mafft::new().progress(SilentProgress).input(&path).run_to_vec().unwrap();
+        let default = Mafft::new().input(&path).run_to_vec().unwrap();
+        assert_eq!(silent, default);
+        assert!(!silent.is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Requirement: only progress is routed. Diagnostics and explicitly
+    /// requested output must stay on stderr so a silent sink cannot hide
+    /// them.
+    #[test]
+    fn sink_receives_progress_but_not_scoreout_or_warnings() {
+        let path = write_tmp_fasta("progress-scope", DNA_FASTA);
+        let seen = std::sync::Mutex::new(Vec::new());
+        let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
+        let mut out = Vec::new();
+        run_from_with_progress(
+            [
+                std::ffi::OsString::from("mafft-rs"),
+                // --scoreout prints a score line; --distout on a
+                // file-backed input succeeds, but --nodeout with
+                // refinement off warns when no matrix is available.
+                std::ffi::OsString::from("--scoreout"),
+                path.clone().into_os_string(),
+            ],
+            &mut out,
+            &sink,
+        ).expect("alignment should succeed");
+        let msgs = seen.lock().unwrap().clone();
+        assert!(msgs.iter().any(|m| m.starts_with("Alignment: ")), "{msgs:?}");
+        assert!(
+            !msgs.iter().any(|m| m.contains("sum-of-pairs score")),
+            "--scoreout output must not go through the progress sink: {msgs:?}"
+        );
+        assert!(
+            !msgs.iter().any(|m| m.starts_with("Warning:")),
+            "warnings must not go through the progress sink: {msgs:?}"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// The intended caller drives one sink from a pool of worker threads.
+    #[test]
+    fn one_sink_serves_concurrent_runs() {
+        let path = write_tmp_fasta("progress-threads", DNA_FASTA);
+        let seen = std::sync::Mutex::new(Vec::new());
+        let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
+        let dynref: &(dyn Progress + Sync) = &sink;
+        let outs: Vec<Vec<u8>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4).map(|_| {
+                let path = path.clone();
+                scope.spawn(move || {
+                    let mut out = Vec::new();
+                    run_from_with_progress(
+                        [
+                            std::ffi::OsString::from("mafft-rs"),
+                            path.into_os_string(),
+                        ],
+                        &mut out,
+                        dynref,
+                    ).expect("alignment should succeed");
+                    out
+                })
+            }).collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        // Every thread produced the same alignment...
+        assert!(outs.iter().all(|o| *o == outs[0]));
+        assert!(!outs[0].is_empty());
+        // ...and every thread's progress reached the one shared sink.
+        let msgs = seen.lock().unwrap();
+        assert_eq!(msgs.iter().filter(|m| m.starts_with("Alignment: ")).count(), 4);
         std::fs::remove_file(&path).ok();
     }
 

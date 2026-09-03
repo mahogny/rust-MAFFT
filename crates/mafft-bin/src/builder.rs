@@ -25,21 +25,38 @@
 
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::Arc;
 
-use crate::{run_from, MafftError};
+use crate::{run_from_with_progress, MafftError, Progress, StderrProgress};
 
 /// Builds a `mafft-rs` argv and runs it in-process via [`crate::run_from`].
 ///
 /// The semantics of every flag are exactly the command line's, including
 /// `--auto`'s size-based strategy choice and `--adjustdirection`'s
 /// pre-alignment strand detection.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Mafft {
     /// argv[0] followed by the flags, in the order they were added.
     argv: Vec<OsString>,
     /// Positional INPUT, appended last so it can never be swallowed by a
     /// preceding value-taking flag.
     input: Option<OsString>,
+    /// Where progress messages go. `None` = stderr, i.e. CLI behaviour.
+    /// Shared (`Arc`) and `Send + Sync` so one builder — or one sink — can
+    /// serve several worker threads.
+    progress: Option<Arc<dyn Progress + Send + Sync>>,
+}
+
+/// Hand-written because `dyn Progress` is not `Debug`; the sink is reported
+/// as present/absent rather than dropping the derive from the whole struct.
+impl std::fmt::Debug for Mafft {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mafft")
+            .field("argv", &self.argv)
+            .field("input", &self.input)
+            .field("progress", &self.progress.as_ref().map(|_| "<custom>").unwrap_or("<stderr>"))
+            .finish()
+    }
 }
 
 impl Default for Mafft {
@@ -51,7 +68,7 @@ impl Default for Mafft {
 impl Mafft {
     /// Start a new invocation. `argv[0]` is `"mafft-rs"`.
     pub fn new() -> Self {
-        Self { argv: vec![OsString::from("mafft-rs")], input: None }
+        Self { argv: vec![OsString::from("mafft-rs")], input: None, progress: None }
     }
 
     // --- escape hatches -------------------------------------------------
@@ -184,6 +201,22 @@ impl Mafft {
         self
     }
 
+    /// Send progress messages to `sink` instead of stderr.
+    ///
+    /// Accepts [`SilentProgress`](crate::SilentProgress) to drop them, or any
+    /// `Fn(&str)` to forward them. Unset, progress goes to stderr, matching
+    /// the command line.
+    ///
+    /// ```no_run
+    /// use mafft_rs::{Mafft, SilentProgress};
+    /// let quiet = Mafft::new().auto().progress(SilentProgress);
+    /// # let _ = quiet;
+    /// ```
+    pub fn progress(mut self, sink: impl Progress + Send + Sync + 'static) -> Self {
+        self.progress = Some(Arc::new(sink));
+        self
+    }
+
     // --- execution ------------------------------------------------------
 
     /// The argv this builder will hand to [`crate::run_from`], including
@@ -199,7 +232,10 @@ impl Mafft {
 
     /// Run the alignment, writing it to `out`.
     pub fn run(&self, out: &mut dyn std::io::Write) -> Result<(), MafftError> {
-        run_from(self.to_argv(), out)
+        match &self.progress {
+            Some(sink) => run_from_with_progress(self.to_argv(), out, &**sink),
+            None => run_from_with_progress(self.to_argv(), out, &StderrProgress),
+        }
     }
 
     /// Run the alignment and return the output bytes (FASTA by default).
