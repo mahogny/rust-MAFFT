@@ -56,6 +56,37 @@ public surfaces stable from 0.1.0 anyway.
 
 ### Fixed
 
+- **DNA pairwise gap penalties were a third of C MAFFT's, so L-INS-i /
+  G-INS-i / E-INS-i diverged on nucleotide input.** C scales the pair-phase
+  gap penalties by `3 * 600/1000` for nucleotide and `600/1000` for protein
+  (`constants.c:316-322` vs `:672-677`), keeping the offset at `1 * 600/1000`;
+  the pair phase here applied the protein factor unconditionally (a variable
+  named `scale_protein`). Gaps were too cheap, so the local/global pairwise
+  step bought extra matches with gaps C refuses, and the `hat3` constraints
+  and final alignment followed. Now `pair_penalty_scales(is_nucleotide)`,
+  with a unit test pinning the `3 *`. Protein and FFT-NS-2 were never
+  affected (protein has no `3 *` in C either; FFT-NS-2 does not use these
+  penalties).
+
+  **DNA pairwise alignments will change.** Any `--localpair`, `--globalpair`,
+  `--genafpair` or `--auto` run on nucleotide input can now produce a
+  different alignment than before. As with the case fold, this is a
+  correction *toward* the C MAFFT 7.526 reference the crate claims
+  byte-identity with, not a behaviour of our own: on 60 synthetic clusters
+  L-INS-1 went from 24/60 to 60/60 byte-identical with C, and on 30
+  clusters evolved from real biological ancestors `--auto` went from 14/30
+  to 30/30. Minimal reproducer: two 15 bp sequences under
+  `--localpair --maxiterate 0` (`crates/mafft-bin/tests/fixtures/dna_pair_gapscale_min.fa`).
+- **Two-sequence inputs were never refined.** Every refinement entry point
+  returned early at `nseq <= 2`. C does not skip a pair: `dvtditr.c:704-708`
+  sets `weight = 0; niter = 1` for `njob == 2`, `tditeration.c:772` then
+  uses uniform weights, and `:1425` gates branch-weight computation on
+  `locnjob > 2`. So a pair is refined exactly once, unweighted — which can
+  change it (e.g. `AA`/`CC` under `--maxiterate 1000`: C gives `aa`/`cc`,
+  we gave `aa-`/`-cc`). Guards relaxed to `nseq < 2` and the iteration cap
+  mirrors `niter = 1`; `BranchWeights` already yielded uniform weights at 2.
+  Affects `--maxiterate N > 0` and every `*-INS-i` mode, including `--auto`,
+  on exactly-two-sequence input, DNA and protein alike.
 - **Nucleotide output case now matches C MAFFT.** DNA/RNA alignments were
   emitted in uppercase; C MAFFT emits them in lowercase. C folds residue
   case as it reads — `io.c:1462-1467` (`load1SeqWithoutName_realloc`) calls
@@ -82,6 +113,16 @@ public surfaces stable from 0.1.0 anyway.
 - `--adjustdirection` / `--adjustdirectionaccurately` help text claimed the
   k-mer strand detection was "not yet implemented"; it has been implemented
   since TODO R-5 (2026-06-03).
+
+### Notes
+
+- Known C-side sensitivity, not a rust-MAFFT bug: C MAFFT 7.526's output
+  can differ between *no* `--thread` flag and `--thread 1` on the same input
+  (seen on one of ~150 nucleotide clusters under `--auto`). rust-MAFFT is
+  stable across thread counts and bit-identical across repeat runs, and
+  matches C's no-`--thread` output in that case. If a parity check against
+  `mafft --thread 1` fails on a single cluster, compare against the
+  no-`--thread` run before assuming a regression.
 
 ## [0.1.2] - 2026-06-10
 

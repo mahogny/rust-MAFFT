@@ -187,7 +187,13 @@ pub fn iterative_refine(
     constraints: Option<&LocalHomologyTable>,
 ) -> usize {
     let nseq = alignment.nseq();
-    if nseq <= 2 || topology.steps.is_empty() {
+    // C refines two sequences too: `dvtditr.c:704-708` sets
+    // `weight = 0; niter = 1` for `njob == 2` rather than skipping, and
+    // `tditeration.c:1425` gates branch-weight computation on
+    // `locnjob > 2`, so the pair is refined once, unweighted.
+    // `BranchWeights` already yields uniform weights at nseq <= 2 and the
+    // engine caps the iteration count, so only the early-return had to go.
+    if nseq < 2 || topology.steps.is_empty() {
         return 0;
     }
 
@@ -1635,7 +1641,8 @@ pub fn bestfirst_refine(
     constraints: Option<&LocalHomologyTable>,
 ) -> usize {
     let nseq = alignment.nseq();
-    if nseq <= 2 || topology.steps.is_empty() {
+    // `nseq == 2` is refined too — see `iterative_refine` (C `dvtditr.c:704-708`).
+    if nseq < 2 || topology.steps.is_empty() {
         return 0;
     }
 
@@ -1946,7 +1953,8 @@ pub fn segmented_iterative_refine(
     constraints: Option<&LocalHomologyTable>,
 ) -> usize {
     let nseq = alignment.nseq();
-    if nseq <= 2 || topology.steps.is_empty() {
+    // `nseq == 2` is refined too — see `iterative_refine` (C `dvtditr.c:704-708`).
+    if nseq < 2 || topology.steps.is_empty() {
         return 0;
     }
 

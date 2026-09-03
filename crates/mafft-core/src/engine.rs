@@ -39,6 +39,25 @@ impl Default for AlignmentMode {
     }
 }
 
+/// Scale factors turning the pair-phase `ppenalty`-style integers
+/// (`lgop * 1000`, …) into DP units: `(gap_scale, offset_scale)`.
+///
+/// Mirrors C `constants.c`. Nucleotide (`:316-322`):
+/// `penalty = (int)( 3 * 600.0/1000.0 * ppenalty + 0.5 )` and likewise
+/// `penalty_ex` / `penalty_OP` / `penalty_dist`, but
+/// `offset = (int)( 1 * 600.0/1000.0 * poffset + 0.5 )`. Protein
+/// (`:672-677`): `600.0/1000.0` for all of them. The `3 *` on nucleotide
+/// gap penalties is load-bearing — without it DNA pairwise gaps cost a
+/// third of C's and L-INS-i / G-INS-i / E-INS-i diverge — so it lives in
+/// one named place with a test pinning it.
+pub fn pair_penalty_scales(is_nucleotide: bool) -> (f64, f64) {
+    if is_nucleotide {
+        (3.0 * 600.0 / 1000.0, 1.0 * 600.0 / 1000.0)
+    } else {
+        (600.0 / 1000.0, 600.0 / 1000.0)
+    }
+}
+
 /// The main MAFFT alignment engine.
 #[derive(Debug, Clone)]
 pub struct MafftEngine {
@@ -543,14 +562,24 @@ impl MafftEngine {
             //   LEXP= 0.0 → ppenalty_EX (skip-gap extend, unused; C
             //               comments out the extension increments).
             let lgop_op: f64 = -6.00;
-            let scale_protein: f64 = 600.0 / 1000.0;
+            // C scales the pair-phase penalties differently for nucleotide
+            // and protein (`constants.c:316-322` vs `:672-677`):
+            //   nucleotide: penalty/penalty_ex/penalty_OP = 3 * 600/1000 * pp
+            //               offset                        = 1 * 600/1000 * po
+            //   protein:    everything                    =     600/1000 * pp
+            // The gap penalties carry the `3 *`; the offset does not (C
+            // writes the `1 *` out explicitly beside the `3 *`s). Applying
+            // the protein factor to DNA made pairwise gaps a third of C's
+            // cost, so L-INS-i / G-INS-i / E-INS-i opened gaps C refused.
+            // Same idiom as the progressive-phase penalties above.
+            let (gap_scale, offset_scale) = pair_penalty_scales(seq_type.is_nucleotide());
             let p_open = cc_int(lgop, 1000.0);
             let p_ext = cc_int(lexp, 1000.0);
             let p_offset = cc_int(laof, 1000.0);
             let p_op = cc_int(lgop_op, 1000.0);
             let mut pair_gap = GapModel::new(
-                cc_scale(p_open, scale_protein) as f64,
-                cc_scale(p_ext, scale_protein) as f64,
+                cc_scale(p_open, gap_scale) as f64,
+                cc_scale(p_ext, gap_scale) as f64,
             );
             // C `constants.c:277-278`: `if (penalty_shift_factor < 10) trywarp = 1`.
             // With `--allowshift`, `spfactor = 2.0` (< 10) → warp DP fires.
@@ -562,8 +591,8 @@ impl MafftEngine {
                 let penalty_shift = (spfactor * pair_gap.open) as i32 as f64;
                 pair_gap.shift = Some(penalty_shift);
             }
-            let pair_op = cc_scale(p_op, scale_protein) as f64;
-            let pair_offset_int: i32 = cc_scale(p_offset, scale_protein);
+            let pair_op = cc_scale(p_op, gap_scale) as f64;
+            let pair_offset_int: i32 = cc_scale(p_offset, offset_scale);
             let nscored = scoring.nscoredalphabets;
             // The DP layer takes f64 matrices (post §9c migration). Build
             // the shifted matrix from `consweight_matrix` (= f64 view of
@@ -1118,6 +1147,10 @@ impl MafftEngine {
                 // iterations (C width 713) instead of stopping at 16 (rust
                 // width 725 before this fix).
                 let iterate_limit = if self.bestfirst { 254 } else { 16 };
+                // `dvtditr.c:704-708`: `if( njob == 2 ) { weight = 0; niter = 1; }`
+                // — a pair is refined exactly once, unweighted (uniform
+                // weights are what `BranchWeights` already returns at 2).
+                let iterate_limit = if nseq == 2 { 1 } else { iterate_limit };
                 let capped_iterations = (*iterations).min(iterate_limit);
                 // C's mafft script always passes -F (use_fft=1) to dvtditr
                 // for refinement (scripts/mafft line 1531: rnaoptit=" -F "),
@@ -1508,6 +1541,25 @@ fn compute_distance_matrix_scoring(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// C `constants.c:316-322` (nucleotide) vs `:672-677` (protein). The
+    /// nucleotide `3 *` on the gap penalties is what keeps DNA L-INS-i /
+    /// G-INS-i / E-INS-i byte-identical to C; the offset stays at `1 *`.
+    #[test]
+    fn pair_penalty_scales_mirror_constants_c() {
+        let (gap, off) = pair_penalty_scales(true);
+        assert_eq!(gap, 3.0 * 600.0 / 1000.0, "nucleotide gap scale must carry C's `3 *`");
+        assert_eq!(off, 600.0 / 1000.0, "nucleotide offset scale is `1 *`, not `3 *`");
+        let (gap, off) = pair_penalty_scales(false);
+        assert_eq!(gap, 600.0 / 1000.0);
+        assert_eq!(off, 600.0 / 1000.0);
+        // Worked values for the L-INS-i defaults (lgop=-2.00 → ppenalty=-2000,
+        // laof=0.100 → poffset=100), rounded the way C's `(int)(x + 0.5)` does:
+        let cc = |pp: i32, sc: f64| ((sc * pp as f64) + 0.5) as i32;
+        assert_eq!(cc(-2000, pair_penalty_scales(true).0), -3599);  // C: -3600+0.5 → -3599
+        assert_eq!(cc(-2000, pair_penalty_scales(false).0), -1199);
+        assert_eq!(cc(100, pair_penalty_scales(true).1), 60);
+    }
     use mafft_types::{Sequence, SeqType};
 
     fn make_test_input() -> SequenceSet {
