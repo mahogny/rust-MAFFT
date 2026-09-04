@@ -85,6 +85,16 @@ public surfaces stable from 0.1.0 anyway.
   clusters evolved from real biological ancestors `--auto` went from 14/30
   to 30/30. Minimal reproducer: two 15 bp sequences under
   `--localpair --maxiterate 0` (`crates/mafft-bin/tests/fixtures/dna_pair_gapscale_min.fa`).
+- Two latent instances of the per-alphabet-constant class, found by the
+  audit recorded under Notes rather than by a parity failure. Neither was
+  reachable from the engine, so no output changes: `GapModel::default()` was
+  protein-shaped *and* arithmetically wrong (`-918`; C truncates toward zero,
+  giving `-917`) and is now correct and documented as protein-only; and the
+  **public** `FftAlignParams::dna()` inherited that protein gap default
+  instead of DNA's `-2753`, which would have mis-scaled gaps for any
+  downstream caller using it. `GapPenalties::default()` holds unscaled
+  `ppenalty`-style units unlike every other `GapPenalties` in the tree; it is
+  unused, and now says so.
 - **`--thread N` (N >= 1) now uses C's `athread` convergence rule.** C picks
   its refinement implementation on `nthread > 0` (`tditeration.c:1433`) and
   the two do not converge alike: the single-threaded path tests
@@ -165,6 +175,18 @@ public surfaces stable from 0.1.0 anyway.
   since TODO R-5 (2026-06-03).
 
 ### Notes
+
+- **Per-alphabet constant audit.** Three bugs were found reactively where a
+  constant correct for one alphabet was applied on a path serving both
+  (`scale_protein` in the pair phase, the `dndpre` offset, and the two latent
+  ones above). Every value in the translation deriving from C's
+  `constants()`, `DNA.h`, `blosum.c` or `JTT.c` has now been enumerated and
+  checked against *both* C branches (nucleotide `constants.c:296-326`,
+  protein `:664-682` / `:895-910`) — 17 live sites, all correct.
+  `mafft_scoring::penalties` carries a test asserting every one of them for
+  both alphabets at once, including that the `offset*` values take C's `1 *`
+  factor on the nucleotide branch while the gap penalties take `3 *`, so a
+  future edit cannot give one alphabet the other's constant unnoticed.
 
 - C MAFFT 7.526 genuinely produces different output for *no* `--thread` than
   for `--thread 1` — it selects a different refinement implementation on
