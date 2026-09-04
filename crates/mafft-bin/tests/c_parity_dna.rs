@@ -87,6 +87,30 @@ fn auto_refines_a_pair_like_c() {
     );
 }
 
+/// The 120-sequence FFT-NS-i case that exposed the `dndpre` offset bug.
+///
+/// C's `dndpre` writes the refinement-tree distances with its DEFAULT
+/// `poffset`, which differs by alphabet (`DEFAULTOFS_N = -369` vs
+/// `DEFAULTOFS_B = -123`). Using the protein shift for DNA changed those
+/// distances, which swapped two UPGMA merges, which changed the group on 131
+/// of 237 refinement branches. This input is large enough for `--auto` to
+/// select FFT-NS-i, which is the regime that matters when aligning a gene
+/// family across a few hundred genomes.
+///
+/// Run without `--thread`: C takes its single-threaded `TreeDependentIteration`
+/// path there. With `--thread 1` C runs `athread` instead, whose convergence
+/// semantics differ (it records convergence but does not stop), and rust does
+/// not model that yet — so this pins the deterministic path we do model.
+#[test]
+fn fftnsi_120seq_dna_matches_c() {
+    let f = fixtures();
+    expect_identical(
+        &["--adjustdirection", "--nuc", "--retree", "2", "--maxiterate", "2"],
+        &f.join("mtb_cds_120x1400.fa"),
+        &f.join("mtb_cds_120x1400.fftnsi.expected"),
+    );
+}
+
 /// Differential test on realistic clusters under the pipeline invocation
 /// `--auto --adjustdirection --thread 1 --nuc`. Every cluster must be
 /// byte-identical to C MAFFT 7.526.

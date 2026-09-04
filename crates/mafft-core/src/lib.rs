@@ -19,5 +19,5 @@ pub mod external;
 
 pub use progressive::{progressive_align, progressive_align_partial, progressive_align_unweighted, progressive_align_with_weights_override, MultipleAlignment, StepTrace};
 pub use refinement::{iterative_refine, RefinementParams};
-pub use engine::{MafftEngine, AlignmentMode, pair_penalty_scales};
+pub use engine::{MafftEngine, AlignmentMode, pair_penalty_scales, dndpre_offset_shift};
 pub use add::{add_sequences, add_sequences_keeplength, add_sequences_keeplength_with_map};

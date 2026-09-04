@@ -85,6 +85,27 @@ public surfaces stable from 0.1.0 anyway.
   clusters evolved from real biological ancestors `--auto` went from 14/30
   to 30/30. Minimal reproducer: two 15 bp sequences under
   `--localpair --maxiterate 0` (`crates/mafft-bin/tests/fixtures/dna_pair_gapscale_min.fa`).
+- **DNA refinement guide trees used the protein `dndpre` offset, reordering
+  UPGMA merges.** For modes with no `pairlocalalign` step (FFT-NS-i and
+  friends) the refinement tree is rebuilt the way C's `dndpre` does. C's
+  script does not pass `-h` to that `dndpre` call, so `constants()` uses its
+  DEFAULT `poffset` — and the alphabets do not share one: `DEFAULTOFS_N =
+  -369` (`DNA.h:3`) gives a matrix shift of 220, `DEFAULTOFS_B = -123`
+  (`blosum.c:3`) gives 73. The shift was hardcoded to the protein 73.
+
+  On DNA that produced refinement distances differing from C's `hat2`
+  outright (on a 120-sequence 1.4 kb input, leaf pair (0,58): C 0.253, ours
+  0.307), which swapped two UPGMA merges, which changed the group on 131 of
+  237 refinement branches and so the final alignment. Now
+  `dndpre_offset_shift(is_nucleotide)`, with a unit test pinning both values
+  against the C constants.
+
+  **DNA output changes for FFT-NS-i and any refinement mode without a
+  pairwise phase.** Byte-parity with C MAFFT 7.526 over BAliBASE `bali2dna`
+  (141 real DNA benchmark sets) under `--maxiterate 2` goes **67/141 → 132/141**,
+  and the 120-sequence reproducer becomes byte-identical. Protein is
+  unaffected (it already used 73), as are FFT-NS-2 and `--localpair`, which
+  never reach this path.
 - **Two-sequence inputs were never refined.** Every refinement entry point
   returned early at `nseq <= 2`. C does not skip a pair: `dvtditr.c:704-708`
   sets `weight = 0; niter = 1` for `njob == 2`, `tditeration.c:772` then

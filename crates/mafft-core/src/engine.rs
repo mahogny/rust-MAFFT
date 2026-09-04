@@ -39,6 +39,30 @@ impl Default for AlignmentMode {
     }
 }
 
+/// Matrix shift applied when rebuilding the refinement-tree distances the
+/// way C's `dndpre` does, for the modes that have no `pairlocalalign` step
+/// (FFT-NS-i and friends).
+///
+/// `scripts/mafft` does NOT pass `-h` to the `dndpre` invocation that writes
+/// `hat2` for `dvtditr`, so C's `constants()` falls back to its per-alphabet
+/// DEFAULT `poffset` — and the two alphabets do not share one:
+///
+/// | alphabet   | default `poffset`          | `offset = (int)(600/1000 * poffset + 0.5)` | shift |
+/// |------------|----------------------------|--------------------------------------------|-------|
+/// | nucleotide | `DEFAULTOFS_N = -369` (`DNA.h:3`)    | -220                             | 220   |
+/// | protein    | `DEFAULTOFS_B = -123` (`blosum.c:3`) | -73                              | 73    |
+///
+/// The DP matrix is shifted by `-offset`. Using the protein 73 for DNA made
+/// the refinement distances differ from C's `hat2` outright — on
+/// `mtb_cds_120x1400` the leaf pair (0,58) came out 0.307 against C's 0.253 —
+/// which reordered UPGMA merges (steps 10 and 11 swapped), and a swapped
+/// merge changes the group on 131 of 237 refinement branches. DNA FFT-NS-i
+/// byte-parity with C over BAliBASE `bali2dna` went 67/141 → 132/141 when
+/// this was corrected.
+pub fn dndpre_offset_shift(is_nucleotide: bool) -> i32 {
+    if is_nucleotide { 220 } else { 73 }
+}
+
 /// Scale factors turning the pair-phase `ppenalty`-style integers
 /// (`lgop * 1000`, …) into DP units: `(gap_scale, offset_scale)`.
 ///
@@ -1077,8 +1101,8 @@ impl MafftEngine {
                 //
                 // For modes without pairlocalalign (FFT-NS-i, distance="ktuples"),
                 // C's script invokes `dndpre` between tbfast and dvtditr to
-                // recompute distances from the progressive alignment with the
-                // BLOSUM62 default poffset shift. We mirror that path here.
+                // recompute distances from the progressive alignment with
+                // `dndpre`'s DEFAULT poffset shift. We mirror that path here.
                 let dm = if let Some(ref initial_dm) = initial_pairwise_dm {
                     // Mimic hat2 file's `%.3f` rounding so musclesupg sees the
                     // same distances dvtditr sees.
@@ -1092,7 +1116,7 @@ impl MafftEngine {
                     }
                     rounded
                 } else {
-                    let dndpre_offset_shift: i32 = 73;
+                    let dndpre_offset_shift = dndpre_offset_shift(seq_type.is_nucleotide());
                     let mut shifted_matrix: Vec<Vec<i32>> = scoring.substitution_matrix
                         .iter()
                         .map(|row| row.iter().map(|&v| v + dndpre_offset_shift).collect())
@@ -1545,6 +1569,19 @@ mod tests {
     /// C `constants.c:316-322` (nucleotide) vs `:672-677` (protein). The
     /// nucleotide `3 *` on the gap penalties is what keeps DNA L-INS-i /
     /// G-INS-i / E-INS-i byte-identical to C; the offset stays at `1 *`.
+    /// C's `dndpre` default `poffset` differs by alphabet: `DEFAULTOFS_N`
+    /// (`DNA.h:3`) vs `DEFAULTOFS_B` (`blosum.c:3`). Using the protein value
+    /// for DNA silently reorders the refinement guide tree.
+    #[test]
+    fn dndpre_offset_shift_mirrors_constants_c() {
+        // offset = (int)( 600/1000 * poffset + 0.5 ); shift = -offset.
+        let c_offset = |poffset: i32| (0.6 * poffset as f64 + 0.5) as i32;
+        assert_eq!(c_offset(-369), -220, "nucleotide DEFAULTOFS_N");
+        assert_eq!(c_offset(-123), -73, "protein DEFAULTOFS_B");
+        assert_eq!(dndpre_offset_shift(true), 220, "DNA must not use the protein shift");
+        assert_eq!(dndpre_offset_shift(false), 73);
+    }
+
     #[test]
     fn pair_penalty_scales_mirror_constants_c() {
         let (gap, off) = pair_penalty_scales(true);
