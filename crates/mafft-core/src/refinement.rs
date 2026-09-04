@@ -175,6 +175,34 @@ fn build_branch_map(
     branch_map
 }
 
+/// Is `MAFFT_RS_REFINE_STATS` set? When it is, the refinement entry points
+/// print a one-line work summary to stderr.
+///
+/// C's `dvtditr` reports its refinement work directly (`Segment n/N`, then a
+/// `IIII-BBBB-S ... accepted/rejected` line per branch), so the two sides can
+/// be compared cycle-for-cycle. Rust had no equivalent, which made
+/// "did both run the same number of cycles?" unanswerable from outside and
+/// any speed comparison meaningless. Off by default, so CLI output and the
+/// `Progress` sink are unchanged.
+#[derive(Default)]
+struct RefineCounters {
+    /// Branches visited (the re-alignment DP ran). Comparable to the count of
+    /// `IIII-BBBB-S` lines C's `dvtditr` prints.
+    visited: usize,
+    /// Of those, branches whose re-alignment actually changed the columns —
+    /// C prints these as `accepted.`/`rejected.` rather than `identical`.
+    branches: usize,
+    accepted: usize,
+    /// Why the cycle loop ended: `maxiter`, `converged` or `oscillation`.
+    exit: &'static str,
+}
+
+fn refine_stats_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MAFFT_RS_REFINE_STATS").is_some())
+}
+
 /// Iteratively refine a multiple alignment.
 ///
 /// At each tree branch, splits ALL sequences into two groups (subtree vs
@@ -185,6 +213,30 @@ pub fn iterative_refine(
     scoring: &ScoringContext,
     params: &RefinementParams,
     constraints: Option<&LocalHomologyTable>,
+) -> usize {
+    // Thin reporting wrapper so every exit path (max-iterations, convergence,
+    // oscillation) is counted in one place — see `refine_stats_enabled`.
+    let nseq0 = alignment.nseq();
+    let len0 = alignment.sequences.first().map_or(0, |s| s.len());
+    let mut counters = RefineCounters { exit: "maxiter", ..Default::default() };
+    let iterations =
+        iterative_refine_inner(alignment, topology, scoring, params, constraints, &mut counters);
+    if refine_stats_enabled() {
+        eprintln!(
+            "refine: nseq={nseq0} len={len0} cycles={iterations}/{} visited={} changed={} accepted={} exit={}",
+            params.max_iterations, counters.visited, counters.branches, counters.accepted, counters.exit,
+        );
+    }
+    iterations
+}
+
+fn iterative_refine_inner(
+    alignment: &mut MultipleAlignment,
+    topology: &Topology,
+    scoring: &ScoringContext,
+    params: &RefinementParams,
+    constraints: Option<&LocalHomologyTable>,
+    counters: &mut RefineCounters,
 ) -> usize {
     let nseq = alignment.nseq();
     // C refines two sequences too: `dvtditr.c:704-708` sets
@@ -340,6 +392,7 @@ pub fn iterative_refine(
                     unalign_level: params.unalign_level,
                 });
 
+                counters.visited += 1;
                 let new_seqs = realign_all(
                     group1, group2, &alignment.sequences, &weights, scoring, &gap,
                     constraints, params.use_fft, mm_input.as_ref(),
@@ -395,6 +448,8 @@ pub fn iterative_refine(
                         let tscore = new_sub + new_imp;
 
                         let threshold = old_score - params.cut / 100.0 * old_score;
+                        counters.branches += 1;
+                        if tscore > threshold { counters.accepted += 1; }
                         if std::env::var("RUST_MAFFT_TRACE").is_ok() {
                             eprintln!("ACCEPT iter={iter} step={step_idx} side={side} old={:.3} new={:.3} accept={}",
                                 old_score, tscore, tscore > threshold);
@@ -440,6 +495,7 @@ pub fn iterative_refine(
                 }
 
                 if converged_count >= convergence_target {
+                    counters.exit = "converged";
                     return iteration;
                 }
 
@@ -459,6 +515,7 @@ pub fn iterative_refine(
                         ii -= 2;
                     }
                     if oscillating {
+                        counters.exit = "oscillation";
                         return iteration;
                     }
                 }
@@ -1966,7 +2023,18 @@ pub fn segmented_iterative_refine(
     );
     if anchors.len() <= 2 {
         // No anchors found → behave like single-segment refinement.
+        if refine_stats_enabled() {
+            eprintln!("refine-segments: anchors={} segments=1 (unsegmented)", anchors.len());
+        }
         return iterative_refine(alignment, topology, scoring, params, constraints);
+    }
+    if refine_stats_enabled() {
+        eprintln!(
+            "refine-segments: anchors={} segments={} len={}",
+            anchors.len(),
+            anchors.windows(2).filter(|w| w[0] < w[1]).count(),
+            alignment.sequences.first().map_or(0, |s| s.len()),
+        );
     }
 
     let mut total_iters = 0usize;

@@ -28,6 +28,14 @@ public surfaces stable from 0.1.0 anyway.
   to `run_from`, so it cannot drift from the command line.
 - `mafft_io::apply_case_convention`: applies C MAFFT's residue-case fold
   (lowercase nucleotide, uppercase protein) to a parsed `SequenceSet`.
+- `MAFFT_RS_REFINE_STATS=1` prints one line per iterative-refinement call to
+  stderr: `refine: nseq=.. len=.. cycles=n/max visited=.. changed=..
+  accepted=.. exit=maxiter|converged|oscillation`, plus a
+  `refine-segments: anchors=.. segments=..` line for the segmented
+  (FFT-NS-i) path. C's `dvtditr` reports its refinement work directly
+  (`Segment n/N`, then one line per branch), so this makes "did both sides
+  run the same cycles?" answerable without a debugger — a speed comparison
+  is meaningless otherwise. Off by default; CLI output is unchanged.
 - Progress sink: `mafft_rs::Progress` (one method, `message(&self, &str)`)
   with `StderrProgress` (current behaviour) and `SilentProgress`, plus a
   blanket impl so any `Fn(&str)` is a sink.
