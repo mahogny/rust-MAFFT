@@ -87,6 +87,34 @@ mod tests {
         assert_eq!(p.penalty, -2753); // scale rounds toward zero
     }
 
+    /// Full per-alphabet audit of everything `constants()` derives, so a
+    /// future edit cannot silently give one alphabet the other's constant.
+    /// Three bugs of that exact shape have been found in this tree.
+    /// C: nucleotide `constants.c:308-326`, protein `:672-682`.
+    #[test]
+    fn every_constants_c_value_matches_for_both_alphabets() {
+        let n = default_dna_gap_params();
+        let p = default_protein_gap_params();
+        // gap penalties: nucleotide carries C's `3 *`, protein does not
+        assert_eq!(n.penalty, -2753, "nuc penalty = (int)(3*0.6*-1530+0.5)");
+        assert_eq!(p.penalty, -917, "protein penalty = (int)(0.6*-1530+0.5)");
+        assert_eq!(n.penalty_ex, 0, "nuc DEFAULTGEP_N = 0");
+        assert_eq!(p.penalty_ex, 0, "protein DEFAULTGEP_B = 0");
+        assert_eq!(n.penalty_ln, -3599, "nuc penaltyLN = (int)(3*0.6*-2000+0.5)");
+        assert_eq!(p.penalty_ln, -1199, "protein penaltyLN = (int)(0.6*-2000+0.5)");
+        assert_eq!(n.penalty_ex_ln, -179, "nuc penalty_exLN = (int)(3*0.6*-100+0.5)");
+        assert_eq!(p.penalty_ex_ln, -59, "protein penalty_exLN = (int)(0.6*-100+0.5)");
+        // offsets: C uses `1 *` for nucleotide here, NOT `3 *`
+        assert_eq!(n.offset_ln, 60, "nuc offsetLN = (int)(1*0.6*100+0.5) -- 1x, not 3x");
+        assert_eq!(p.offset_ln, 60, "protein offsetLN = (int)(0.6*100+0.5)");
+        assert_eq!(n.offset_ln, p.offset_ln, "offsetLN is the same for both alphabets");
+        assert_eq!(n.offset_fft, 0);
+        assert_eq!(p.offset_fft, 0);
+        // the script passes -h 0.000, so poffset = 0 on both paths
+        assert_eq!(n.offset, 0);
+        assert_eq!(p.offset, 0);
+    }
+
     #[test]
     fn protein_penalty_values() {
         let p = default_protein_gap_params();

@@ -52,10 +52,14 @@ impl FftAlignParams {
     }
 
     pub fn dna() -> Self {
+        let dna_gap = mafft_scoring::default_dna_gap_params();
         Self {
             num_candidates: 20,
             segment_params: SegmentParams::dna(),
-            gap: GapModel::default(),
+            // `GapModel::default()` is PROTEIN-shaped (C scales gap penalties
+            // per alphabet, `constants.c:316` vs `:672`); a DNA constructor
+            // must not inherit it.
+            gap: GapModel::new(dna_gap.penalty as f64, dna_gap.penalty_ex as f64),
             head_gap: true,
             tail_gap: true,
             num_channels: 4,

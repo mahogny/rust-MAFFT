@@ -95,10 +95,20 @@ impl GapModel {
 }
 
 impl Default for GapModel {
+    /// PROTEIN defaults. C scales gap penalties per alphabet
+    /// (`constants.c:672` vs `:316`), so this is **not** a safe default on a
+    /// nucleotide path — DNA's gap-open is `-2753`, three times this. Callers
+    /// aligning nucleotides must build the model from
+    /// `mafft_scoring::default_dna_gap_params()` (or pass one in) rather than
+    /// take this. Two bugs of exactly that shape have already been found and
+    /// fixed elsewhere in the tree.
     fn default() -> Self {
         Self {
-            open: -918.0,  // MAFFT default: (int)(600/1000 * -1530 + 0.5)
-            extend: 0.0,   // MAFFT default
+            // C: penalty = (int)( 600/1000 * DEFAULTGOP_B + 0.5 )
+            //            = (int)( -918 + 0.5 ) = (int)( -917.5 ) = -917
+            // (C casts toward zero, so this is -917, not -918.)
+            open: -917.0,
+            extend: 0.0, // C: DEFAULTGEP_B = 0
             shift: None,
             legacy_gap_cost: false,
         }

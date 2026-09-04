@@ -12,9 +12,16 @@ pub struct GapPenalties {
 }
 
 impl Default for GapPenalties {
+    /// UNSCALED `ppenalty`-style values, i.e. C's command-line units before
+    /// `constants()` applies its per-alphabet scale. Every `GapPenalties`
+    /// the engine actually uses holds *scaled* values instead (DNA gap-open
+    /// is -2753, protein -917), so these are not interchangeable with those
+    /// and this impl is not used anywhere in the tree. Build from
+    /// `mafft_scoring::default_dna_gap_params()` /
+    /// `default_protein_gap_params()` for real work.
     fn default() -> Self {
         Self {
-            open: -1530,
+            open: -1530,   // C DEFAULTGOP_N == DEFAULTGOP_B, pre-scale
             extend: -100,
             offset: 0,
         }
