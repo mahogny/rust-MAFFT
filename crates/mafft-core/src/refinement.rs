@@ -411,6 +411,21 @@ fn iterative_refine_inner(
                     let s2 = group2[0];
                     let changed = alignment.sequences[s1] != new_seqs[s1]
                         || alignment.sequences[s2] != new_seqs[s2];
+                    // COMPAT: this two-row test decides whether a whole
+                    // re-alignment is kept, and it is deliberately NOT a
+                    // full comparison. On a 120x1.4kb FFT-NS-i run, 213
+                    // re-alignments per run have both representatives
+                    // unchanged while other rows DID change; every one of
+                    // them is discarded here. C does exactly the same: its
+                    // identity test is `!strcmp(aseq[s1],bseq[s1]) *
+                    // !strcmp(aseq[s2],bseq[s2])` (tditeration.c:2184-2185),
+                    // and the copy-back `strcpy( aseq[i], bseq[i] )` runs
+                    // only on the accept path (tditeration.c:1769) — so C
+                    // throws the same 213 away. Widening this to "any row
+                    // changed" looks like an obvious fix and is a
+                    // divergence: it would send those branches through the
+                    // score comparison, changing accept/reject decisions
+                    // and the `converged_count` sequence.
 
                     if !changed {
                         // Identical — no change, count toward convergence
