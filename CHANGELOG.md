@@ -85,6 +85,27 @@ public surfaces stable from 0.1.0 anyway.
   clusters evolved from real biological ancestors `--auto` went from 14/30
   to 30/30. Minimal reproducer: two 15 bp sequences under
   `--localpair --maxiterate 0` (`crates/mafft-bin/tests/fixtures/dna_pair_gapscale_min.fa`).
+- **`--thread N` (N >= 1) now uses C's `athread` convergence rule.** C picks
+  its refinement implementation on `nthread > 0` (`tditeration.c:1433`) and
+  the two do not converge alike: the single-threaded path tests
+  `converged >= locnjob * 2` after **every branch** and stops immediately,
+  mid-cycle (`:2328-2342`), while `athread`'s collector tests once per
+  **cycle** whether any branch gained (`maxgain > 0.0`, `:589`) and only
+  stops at the top of the next cycle, where the `else` arm `pthread_exit`s
+  (`:527-551`) — so the converging cycle always completes. C's own output
+  shows it: at `--maxiterate 2`, 22 of 85 segments print `Converged.` alone,
+  56 print `Converged.` *and* `Reached 2`, and 7 print `Reached 2` alone.
+  We modelled only the single-threaded rule. Now selected by
+  `MafftEngine::nthread`, matching C's `-C` mapping exactly (both no
+  `--thread` and `--thread 0` give C `-C 0`, i.e. the single-threaded rule).
+
+  **DNA output changes for `--thread N >= 1` with refinement.** On the
+  120-sequence reproducer, distance from C `--thread 1` goes 6 lines → 2,
+  and the synthetic cluster corpus under
+  `--auto --adjustdirection --thread 1 --nuc` goes 59/60 → **60/60**. The
+  no-`--thread` path is untouched and remains byte-identical to C.
+  A 2-line residue remains on the 120-sequence input (one sequence, a
+  single-column gap shift at equal width); it is not yet explained.
 - **DNA refinement guide trees used the protein `dndpre` offset, reordering
   UPGMA merges.** For modes with no `pairlocalalign` step (FFT-NS-i and
   friends) the refinement tree is rebuilt the way C's `dndpre` does. C's
@@ -145,13 +166,18 @@ public surfaces stable from 0.1.0 anyway.
 
 ### Notes
 
-- Known C-side sensitivity, not a rust-MAFFT bug: C MAFFT 7.526's output
-  can differ between *no* `--thread` flag and `--thread 1` on the same input
-  (seen on one of ~150 nucleotide clusters under `--auto`). rust-MAFFT is
-  stable across thread counts and bit-identical across repeat runs, and
-  matches C's no-`--thread` output in that case. If a parity check against
-  `mafft --thread 1` fails on a single cluster, compare against the
-  no-`--thread` run before assuming a regression.
+- C MAFFT 7.526 genuinely produces different output for *no* `--thread` than
+  for `--thread 1` — it selects a different refinement implementation on
+  `nthread > 0` (`tditeration.c:1433`), and the two converge by different
+  rules. This was previously recorded here as "C-side sensitivity" that
+  rust-MAFFT could not match; that was wrong, and rust-MAFFT now reproduces
+  both paths (see the `--thread` entry under Fixed). Both are deterministic:
+  5/5 identical over repeat runs.
+- Still genuinely unmatchable: `--thread N` for **N >= 2**. C is
+  nondeterministic there — the same binary on the same input produced 2
+  distinct outputs over 3 runs at both `--thread 2` and `--thread 4` — so
+  byte-identity with C is impossible in principle at those thread counts.
+  rust-MAFFT remains deterministic across all thread counts.
 
 ## [0.1.2] - 2026-06-10
 

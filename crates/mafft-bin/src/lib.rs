@@ -1224,6 +1224,12 @@ where
     // --bestfirst is now wired to the engine's BESTFIRST refinement
     // path (see refinement.rs::bestfirst_refine).
     engine.bestfirst = args.bestfirst;
+    // `--thread N`: C's script forwards this to `dvtditr -C N`, and C selects
+    // a different refinement implementation on `nthread > 0`
+    // (`tditeration.c:1433`) whose convergence rule differs. Both no
+    // `--thread` and `--thread 0` give C `-C 0`, so 0 means the
+    // single-threaded rule here too.
+    engine.nthread = args.thread;
     // --skipiterate is now partially wired: the "skip-refinement-entirely
     // when F is large" path matches C; the sub-alignment-aware partial
     // refinement is still TBD. Engine emits its own diagnostic when

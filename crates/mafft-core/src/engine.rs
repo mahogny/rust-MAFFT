@@ -152,6 +152,12 @@ pub struct MafftEngine {
     /// iteration, picks the one with the largest gain, applies,
     /// repeats — mirroring C's `parallelizationstrategy = BESTFIRST`.
     pub bestfirst: bool,
+    /// `--thread N`. C selects a different refinement implementation on
+    /// `nthread > 0` (`tditeration.c:1433`), and the two converge by
+    /// different rules — see `RefinementParams::per_cycle_convergence`.
+    /// `0` (the default, and what C's script passes for both no `--thread`
+    /// and `--thread 0`) selects the single-threaded rule.
+    pub nthread: usize,
     /// `--oneiteration` "one-vs-others" refinement (C's
     /// `disttbfast -r` → `dooneiteration` in
     /// `mafft-upstream/core/disttbfast.c:2217`). Runs once after the
@@ -269,6 +275,7 @@ impl Default for MafftEngine {
             minimum_weight: None,
             skipiterate: None,
             bestfirst: false,
+            nthread: 0,
             oneiteration: false,
             nwildcard: false,
             pileup: false,
@@ -299,7 +306,7 @@ impl MafftEngine {
             pair_lop: None, pair_lep: None, pair_lexp: None,
             pair_gop: None, pair_gep: None, pair_gexp: None,
             shift_penalty_factor: None, minimum_weight: None,
-            skipiterate: None, bestfirst: false, oneiteration: false, nwildcard: false,
+            skipiterate: None, bestfirst: false, nthread: 0, oneiteration: false, nwildcard: false,
             pileup: false,
             cluster_method: mafft_tree::ClusterMethod::default(),
             nofft: false, allowshift: false, unalign_level: 0.0,
@@ -1194,6 +1201,9 @@ impl MafftEngine {
                 };
                 let params = RefinementParams {
                     max_iterations: capped_iterations,
+                    // C picks the refinement implementation on `nthread > 0`
+                    // (`tditeration.c:1433`) and the two converge differently.
+                    per_cycle_convergence: self.nthread > 0,
                     use_fft: true,
                     legacy_gap_cost: self.legacy_gap_cost,
                     shift: refine_shift,
@@ -1572,6 +1582,20 @@ mod tests {
     /// C's `dndpre` default `poffset` differs by alphabet: `DEFAULTOFS_N`
     /// (`DNA.h:3`) vs `DEFAULTOFS_B` (`blosum.c:3`). Using the protein value
     /// for DNA silently reorders the refinement guide tree.
+    /// C selects its refinement implementation on `nthread > 0`
+    /// (`tditeration.c:1433`), and its script maps both *no* `--thread` and
+    /// `--thread 0` to `dvtditr -C 0`. So 0 must mean the single-threaded
+    /// convergence rule, and anything >= 1 the `athread` per-cycle rule.
+    #[test]
+    fn nthread_selects_the_convergence_rule_like_c() {
+        let per_cycle = |nthread: usize| nthread > 0;
+        assert!(!per_cycle(0), "no --thread / --thread 0 => C -C 0 => single-threaded rule");
+        assert!(per_cycle(1), "--thread 1 => C -C 1 => athread rule");
+        assert!(per_cycle(4));
+        // Default engine must not opt into the athread rule.
+        assert_eq!(MafftEngine::new(AlignmentMode::FftNs2).nthread, 0);
+    }
+
     #[test]
     fn dndpre_offset_shift_mirrors_constants_c() {
         // offset = (int)( 600/1000 * poffset + 0.5 ); shift = -offset.

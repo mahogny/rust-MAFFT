@@ -78,6 +78,27 @@ pub struct RefinementParams {
     /// refinement). Populated by the caller from
     /// `mafft_tree::generate_subalignments_table` output.
     pub skip_branches: Vec<(bool, bool)>,
+    /// Use C's `athread` convergence rule instead of the single-threaded one.
+    ///
+    /// C picks the refinement implementation on `nthread > 0`
+    /// (`tditeration.c:1433`), and the two do not converge the same way:
+    ///
+    /// * `nthread == 0` — `TreeDependentIteration` checks
+    ///   `converged >= locnjob * 2` after **every branch** and `goto end`s
+    ///   immediately, mid-cycle (`tditeration.c:2328-2342`).
+    /// * `nthread > 0` — `athread`'s collector checks once per **cycle**
+    ///   whether any branch gained (`maxgain > 0.0`, `tditeration.c:589`);
+    ///   if none did it prints `Converged.` and sets `*collectingpt = -1`,
+    ///   which only takes effect at the top of the next cycle where the
+    ///   `else` arm `pthread_exit`s (`:527-551`). So the converging cycle
+    ///   always runs to completion.
+    ///
+    /// That difference is visible in C's own output: at `maxiterate 2`,
+    /// 22 of 85 segments print `Converged.` alone (converged in cycle 0, so
+    /// cycle 1 never starts), 56 print `Converged.` and `Reached 2`
+    /// (converged in the last cycle, so the loop ended normally), and 7
+    /// print `Reached 2` alone.
+    pub per_cycle_convergence: bool,
 }
 
 impl Default for RefinementParams {
@@ -92,6 +113,7 @@ impl Default for RefinementParams {
             minimum_weight: 0.00001,
             bestfirst: false,
             skip_branches: Vec::new(),
+            per_cycle_convergence: false,
         }
     }
 }
@@ -509,7 +531,7 @@ fn iterative_refine_inner(
                     converged_count += 1;
                 }
 
-                if converged_count >= convergence_target {
+                if !params.per_cycle_convergence && converged_count >= convergence_target {
                     counters.exit = "converged";
                     return iteration;
                 }
@@ -547,6 +569,15 @@ fn iterative_refine_inner(
         // identical branches that don't change the score but still bump the
         // converged counter. The BB12019 / BB12029 / BB30018 / BB40043
         // 4-line FFT-NS-i divergences come from that early exit.
+        if params.per_cycle_convergence {
+            // C `athread`: no branch gained this cycle -> converged. The
+            // cycle we just finished still counts; the stop lands before the
+            // next one (`tditeration.c:589` + `:527-551`).
+            if !any_change {
+                counters.exit = "converged";
+                return iteration;
+            }
+        }
         let _ = any_change;
     }
 
