@@ -409,14 +409,25 @@ fn fftns2_bl45_byte_identical_to_c() {
 }
 
 /// `--bl 50` (FFT-NS-2 with BLOSUM50) must match C byte-for-byte.
-/// Closed 2026-05-08 by the FMA fix in `profile_align_imp_with_boundary`
-/// (see TODO §4) — gcc -O3 fuses `a + b * c` into FMA, Rust's `+` and `*`
-/// don't, so direct DP cells diverge by 1 ULP per accumulation. The
-/// flatter BL50 score landscape (vs BL62/30/45/80) exposed this as a
-/// tie-break divergence at step 24's profile DP. Fix: use `f64::mul_add`
-/// in match_calc_row and DP gap-frequency computations to match C's FMA.
 ///
-/// Reference: `tests/fixtures/sample.bl50.fftns2`.
+/// The flatter BL50 score landscape (vs BL62/30/45/80) makes this the most
+/// tie-break-sensitive of the BLOSUM fixtures, which is why it is the one
+/// that catches FP-contraction mistakes.
+///
+/// History worth keeping: this test previously asserted a fixture of width
+/// 712 and was "fixed" in 2026-05 by switching the DP to `f64::mul_add`, on
+/// the belief that `gcc -O3` fuses `a + b * c` into FMA. That belief is
+/// wrong for the reference build. Disassembling C MAFFT 7.526 — both the
+/// conda binary parity is defined against and a clean source build with the
+/// project's own `-O3` flags — shows **zero** `vfmadd`/`vfmsub`
+/// instructions: baseline x86-64 has no FMA, so gcc emits a separate
+/// multiply and add, i.e. two roundings. The 712 fixture must have been
+/// captured from a different build (`-march=native`, or a non-x86 clang
+/// build, both of which do contract). Re-running the reference binary today
+/// gives width 738, which is what the un-fused DP produces.
+///
+/// Reference: `tests/fixtures/sample.bl50.fftns2`, regenerated from the
+/// conda C MAFFT 7.526 binary.
 #[test]
 fn fftns2_bl50_byte_identical_to_c() {
     use mafft_types::ScoringModel;

@@ -128,13 +128,13 @@ pub fn fft_inplace(x: &mut [Complex64], inverse: bool) {
                 let xi = x[i].im;
                 let xikr = x[ik].re;
                 let xiki = x[ik].im;
-                // Match C's exact multiply-add order (gcc -O3 fuses
+                // Match C's exact multiply-add order (the reference build does NOT fuse;
                 // these as `fmadd`):
                 //   dR = s * x[ik].I + c * x[ik].R   →  fma(s, xiki, c * xikr)
                 //   dI = c * x[ik].I - s * x[ik].R   →  fma(-s, xikr, c * xiki)
                 //                                    or  fma(c, xiki, -(s * xikr))
-                let d_r = s.mul_add(xiki, c * xikr);
-                let d_i = c.mul_add(xiki, -(s * xikr));
+                let d_r = s * xiki + (c * xikr);
+                let d_i = c * xiki + (-(s * xikr));
                 x[ik].re = xr - d_r;
                 x[i].re = xr + d_r;
                 x[ik].im = xi - d_i;

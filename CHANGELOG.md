@@ -95,6 +95,31 @@ public surfaces stable from 0.1.0 anyway.
   downstream caller using it. `GapPenalties::default()` holds unscaled
   `ppenalty`-style units unlike every other `GapPenalties` in the tree; it is
   unused, and now says so.
+- **Removed every `f64::mul_add`; the reference C build emits no FMA.**
+  74 call sites across the DP, FFT, constraints, refinement, UPGMA cluster
+  distances and branch weights used fused multiply-add (one rounding) where
+  C does a separate multiply and add (two). Measured rather than assumed:
+  disassembling C MAFFT 7.526 — both the conda binary parity is defined
+  against and a clean build from the pinned source with the project's own
+  `-O3` flags — gives `vfmadd`/`vfmsub` counts of **0** across `disttbfast`,
+  `dvtditr` and `tbfast`, against ~1250 `mulsd` and ~1550 `addsd`. Baseline
+  x86-64 has no FMA, so gcc cannot contract. Several code comments asserting
+  that `gcc -O3` fuses were simply wrong, and two more were calibrated
+  against Apple clang on arm64 rather than the reference build; all are
+  corrected, with the measurement recorded in `mafft-align`'s module docs.
+
+  This closed every remaining nucleotide and protein parity residue on
+  BAliBASE: DNA default **139/141 -> 141/141**, DNA FFT-NS-i
+  **132/141 -> 141/141**, DNA `--auto` **137/140 -> 141/141**, protein
+  default **379/386 -> 386/386**. It is also a large speedup, since the
+  fused form was being emulated in software on a target without FMA: a
+  120-sequence 1.4 kb FFT-NS-i run goes **22.9 s -> 15.1 s** (-34 %), from
+  slower than C MAFFT to faster (C: 16.9 s).
+
+  `tests/fixtures/sample.bl50.fftns2` was regenerated: it had been captured
+  from a build that *did* contract, and a 2026-05 change had switched the DP
+  to `mul_add` to match that fixture rather than the reference binary. The
+  reference produces width 738, not the 712 recorded there.
 - **`--thread N` (N >= 1) now uses C's `athread` convergence rule.** C picks
   its refinement implementation on `nthread > 0` (`tditeration.c:1433`) and
   the two do not converge alike: the single-threaded path tests

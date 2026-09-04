@@ -466,7 +466,7 @@ fn calc_w(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
     // (since calcW feeds branch_weight which multiplies through every leaf
     // path) into the per-cluster eff used for cpmx — surfaces as the
     // BB30018/BB40043/BB40010 1-column residue shifts.
-    let s = a.mul_add(b, b.mul_add(c, a * c));
+    let s = a * b + ((b * c + (a * c)));
     if s == 0.0 { return 1.0; }
 
     let value = (a * b * (c + a) * (c + b) / (c * (a + b) * s)).sqrt();

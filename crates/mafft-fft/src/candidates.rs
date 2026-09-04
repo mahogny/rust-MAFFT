@@ -36,7 +36,7 @@ pub fn get_top_candidates(correlation: &[f64], n: usize) -> Vec<Candidate> {
         // among equals, which inverts the tie-break and shifts FFT anchors
         // by one column on inputs whose normalized matrix lands two
         // correlation peaks within FP rounding distance (e.g. `--bl 50` step
-        // 33, `--jtt 100` FFT, `--tm * (FFT)`).
+        // 33, `--jtt 100` FFT, `--tm * FFT`).
         let mut best_idx = 0usize;
         let mut best_score = f64::NEG_INFINITY;
         for (i, &s) in scores.iter().enumerate() {

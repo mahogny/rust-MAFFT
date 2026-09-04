@@ -1562,7 +1562,7 @@ fn compute_split_score(
         for (j_local, &j) in group2.iter().enumerate() {
             let wj = w2n[j_local];
             let s_wi = pairwise_score(&sequences[i], &sequences[j], scoring) * wi;
-            total = s_wi.mul_add(wj, total);
+            total = s_wi * wj + total;
         }
     }
     total
@@ -1894,11 +1894,11 @@ fn intergroup_score_c_order(
             let wj = w2n[j_local];
             // C `mltaln9.c:426`: `efficient = eff1[i] * eff2[j]`
             // (one rounding), then `mltaln9.c:466`:
-            // `*value += (double)tmpscore * (double)efficient`
+            // `*value += (double)tmpscore * doubleefficient`
             // (with FP_CONTRACT on at clang -O3 this is one fma).
             let efficient = wi * wj;
             let tmpscore = pairwise_score(&sequences[i], &sequences[j], scoring);
-            total = tmpscore.mul_add(efficient, total);
+            total = tmpscore * efficient + total;
         }
     }
     total

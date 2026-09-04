@@ -1,3 +1,28 @@
+//! # Floating-point contraction: the reference C build emits no FMA
+//!
+//! Several routines here accumulate `acc = a * b + acc`. Whether that is one
+//! rounding (fused multiply-add) or two (separate multiply then add) changes
+//! the last ulp, and in tie-break-sensitive DP that changes the alignment.
+//!
+//! **Measured, not assumed:** disassembling C MAFFT 7.526 — both the conda
+//! binary this project defines parity against and a clean build from the
+//! pinned source with the project's own `-O3` flags — gives
+//! `vfmadd`/`vfmsub` counts of **0** across `disttbfast`, `dvtditr` and
+//! `tbfast`, against ~1250 `mulsd` and ~1550 `addsd`. Baseline x86-64 has no
+//! FMA, so gcc cannot contract; it rounds twice.
+//!
+//! So this crate uses plain `a * b + c` and **must not** use `f64::mul_add`
+//! in any path that mirrors C arithmetic. Earlier code did, on the belief
+//! that `gcc -O3` contracts; several comments still describing that belief
+//! predate the measurement. Removing it closed long-standing parity residues
+//! (BAliBASE DNA default 139/141 -> 141/141, protein default 379/386 ->
+//! 386/386) and removed the software-FMA emulation, cutting a 120x1.4kb
+//! FFT-NS-i run from 22.9 s to 15.1 s.
+//!
+//! A build of C with `-march=native` on an FMA-capable host, or a clang
+//! build with `FP_CONTRACT=on`, *would* contract — so "which C build" is
+//! part of the parity definition, not an implementation detail.
+//!
 //! Pairwise and multi-sequence alignment algorithms for MAFFT.
 //!
 //! Phase 4a: Single-sequence pairwise alignment (Galign11, Lalign11, genalign11).

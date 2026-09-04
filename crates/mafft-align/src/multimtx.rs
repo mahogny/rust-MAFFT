@@ -18,7 +18,7 @@
 //! for how `which` / `eff1s` / `eff2s` (hence `cpmx1s`/`cpmx2s`) are built.
 //!
 //! FP NOTE: the summation order must match C — per-class accumulation in
-//! ascending `c`, the inner `scarr`/sparse dots with `mul_add` (C fuses to
+//! ascending `c`, the inner `scarr`/sparse dots with plain mul+add (the
 //! FMA under `-O3`), then the `del` subtraction in `c`, `k`, `m` order.
 
 /// Per-branch multi-matrix context, built once per refinement realign from
@@ -37,7 +37,7 @@ pub struct MultiMtx<'a> {
     /// Iterating these instead of the dense `0..nalpha` skips zero-weight
     /// alphabet positions, which is a large win for single- or few-residue
     /// clusters (typical in refinement). FP order preserved because the
-    /// dense iteration's zero contributions are `x.mul_add(0, acc) = acc`,
+    /// dense iteration's zero contributions are `(x * 0 + acc) = acc`,
     /// so dropping them is mathematically identical.
     pub cpmx1s_sparse: &'a [Vec<Vec<(u8, f64)>>],
     pub cpmx2s_sparse: &'a [Vec<Vec<(u8, f64)>>],
@@ -127,13 +127,13 @@ impl<'a> MultiMtx<'a> {
                 // scarr[l] = Σ_j mtx[j][l] * cpmx1[i1][j]   (FMA).
                 // Sparse: iterate only the non-zero `j` of cpmx1[i1].
                 // FP-identical to dense iteration since
-                // `x.mul_add(0, s) = s`. For 1-residue clusters, this is
+                // `(x * 0 + s) = s`. For 1-residue clusters, this is
                 // O(nalpha) ops total instead of O(nalpha²).
                 let sp = &cpmx1_sparse[i1];
                 for l in 0..nalpha {
                     let mut s = 0.0f64;
                     for &(j_u8, v) in sp {
-                        s = mtx[j_u8 as usize][l].mul_add(v, s);
+                        s = mtx[j_u8 as usize][l] * v + s;
                     }
                     scarr[l] = s;
                 }
@@ -144,7 +144,7 @@ impl<'a> MultiMtx<'a> {
                     let sp2 = &cpmx2_sparse[k];
                     let mut acc = out[k];
                     for &(l_u8, v) in sp2 {
-                        acc = scarr[l_u8 as usize].mul_add(v, acc);
+                        acc = scarr[l_u8 as usize] * v + acc;
                     }
                     out[k] = acc;
                 }

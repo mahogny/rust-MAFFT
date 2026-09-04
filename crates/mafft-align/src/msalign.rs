@@ -354,7 +354,7 @@ fn forward_dp(
         for l in 0..nalpha {
             let mut s = 0.0f64;
             for k in 0..nalpha {
-                s = matrix[k][l].mul_add(prof2.freqs[jst][k], s);
+                s = matrix[k][l] * prof2.freqs[jst][k] + s;
             }
             scarr[l] = s;
         }
@@ -363,7 +363,7 @@ fn forward_dp(
             if row >= prof1.length { break; }
             let mut s = 0.0f64;
             for l in 0..nalpha {
-                s = scarr[l].mul_add(prof1.freqs[row][l], s);
+                s = scarr[l] * prof1.freqs[row][l] + s;
             }
             initverticalw[di] = s;
         }
@@ -377,10 +377,7 @@ fn forward_dp(
                 if di >= initverticalw.len() { break; }
                 let row = ist + di - 1;
                 if row >= prof1.length { break; }
-                initverticalw[di] = fgcp1[row].mul_add(
-                    gf2_0,
-                    ogcp1[ist].mul_add(headgapfreq2, initverticalw[di]),
-                );
+                initverticalw[di] = fgcp1[row] * gf2_0 + ((ogcp1[ist] * headgapfreq2 + initverticalw[di]));
             }
         }
     }
@@ -394,7 +391,7 @@ fn forward_dp(
         for l in 0..nalpha {
             let mut s = 0.0f64;
             for k in 0..nalpha {
-                s = matrix[k][l].mul_add(prof1.freqs[ist][k], s);
+                s = matrix[k][l] * prof1.freqs[ist][k] + s;
             }
             scarr[l] = s;
         }
@@ -403,7 +400,7 @@ fn forward_dp(
             if col >= prof2.length { break; }
             let mut s = 0.0f64;
             for l in 0..nalpha {
-                s = scarr[l].mul_add(prof2.freqs[col][l], s);
+                s = scarr[l] * prof2.freqs[col][l] + s;
             }
             currentw[dj] = s;
         }
@@ -413,10 +410,7 @@ fn forward_dp(
                 if dj >= currentw.len() { break; }
                 let col = jst + dj - 1;
                 if col >= prof2.length { break; }
-                currentw[dj] = fgcp2[col].mul_add(
-                    gf1_0,
-                    ogcp2[jst].mul_add(headgapfreq1, currentw[dj]),
-                );
+                currentw[dj] = fgcp2[col] * gf1_0 + ((ogcp2[jst] * headgapfreq1 + currentw[dj]));
             }
         }
     }
@@ -429,7 +423,7 @@ fn forward_dp(
         let col_prev = jst + dj - 1;
         let gf2_prev = if col_prev < prof2.length { prof2.nongap_freq[col_prev] } else { 1.0 };
         let row_o = (ist + 1).min(prof1.length.saturating_sub(1));
-        m[dj] = ogcp1[row_o].mul_add(gf2_prev, currentw[dj - 1]);
+        m[dj] = ogcp1[row_o] * gf2_prev + (currentw[dj - 1]);
         mp[dj] = 0;
     }
 
@@ -454,7 +448,7 @@ fn forward_dp(
             for l in 0..nalpha {
                 let mut s = 0.0f64;
                 for k in 0..nalpha {
-                    s = matrix[k][l].mul_add(prof1.freqs[row][k], s);
+                    s = matrix[k][l] * prof1.freqs[row][k] + s;
                 }
                 scarr[l] = s;
             }
@@ -466,7 +460,7 @@ fn forward_dp(
                 }
                 let mut s = 0.0f64;
                 for l in 0..nalpha {
-                    s = scarr[l].mul_add(prof2.freqs[col][l], s);
+                    s = scarr[l] * prof2.freqs[col][l] + s;
                 }
                 currentw[dj] = s;
             }
@@ -480,7 +474,7 @@ fn forward_dp(
         let row_prev = ist + di - 1;
         let gf1_prev = if row_prev < prof1.length { prof1.nongap_freq[row_prev] } else { 1.0 };
         let col_o = (jst + 1).min(prof2.length.saturating_sub(1));
-        let mut mi = ogcp2[col_o].mul_add(gf1_prev, previousw[0]);
+        let mut mi = ogcp2[col_o] * gf1_prev + previousw[0];
         let mut mpi: i64 = 0;
 
         // Capture m[0] at midpoint
@@ -509,10 +503,10 @@ fn forward_dp(
 
             // mi (row-running gap-skip tracker)
             // C line 1328: g = mi + fgcp2[col_jm1] * gf1_i
-            let g = fgcp2[col_jm1].mul_add(gf1_i, mi);
+            let g = fgcp2[col_jm1] * gf1_i + mi;
             if g > wm { wm = g; }
             // C line 1338: g = previousw[dj-1] + ogcp2[col_j] * gf1_im1
-            let g = ogcp2[col_j].mul_add(gf1_im1, previousw[dj - 1]);
+            let g = ogcp2[col_j] * gf1_im1 + (previousw[dj - 1]);
             if g >= mi {
                 mi = g;
                 mpi = (dj - 1) as i64;
@@ -523,10 +517,10 @@ fn forward_dp(
 
             // m[dj] (column-running gap-skip tracker)
             // C line 1349: g = m[dj] + fgcp1[row_im1] * gf2_j
-            let g = fgcp1[row_im1].mul_add(gf2_j, m[dj]);
+            let g = fgcp1[row_im1] * gf2_j + m[dj];
             if g > wm { wm = g; }
             // C line 1361: g = previousw[dj-1] + ogcp1[row_i] * gf2_jm1
-            let g = ogcp1[row_i].mul_add(gf2_jm1, previousw[dj - 1]);
+            let g = ogcp1[row_i] * gf2_jm1 + (previousw[dj - 1]);
             if g >= m[dj] {
                 m[dj] = g;
                 mp[dj] = (di - 1) as i64;
@@ -588,7 +582,7 @@ fn backward_dp(
         for l in 0..nalpha {
             let mut s = 0.0f64;
             for k in 0..nalpha {
-                s = matrix[k][l].mul_add(prof2.freqs[jen][k], s);
+                s = matrix[k][l] * prof2.freqs[jen][k] + s;
             }
             scarr[l] = s;
         }
@@ -597,17 +591,14 @@ fn backward_dp(
             if row >= prof1.length { break; }
             let mut s = 0.0f64;
             for l in 0..nalpha {
-                s = scarr[l].mul_add(prof1.freqs[row][l], s);
+                s = scarr[l] * prof1.freqs[row][l] + s;
             }
             initverticalw[di] = s;
         }
         let gf2_tail = tail2;
         let gf2_lgth2m1 = if jen < prof2.length { prof2.nongap_freq[jen] } else { 1.0 };
         for di in 0..lgth1.saturating_sub(1) {
-            initverticalw[di] = fgcp1[ien].mul_add(
-                gf2_tail,
-                ogcp1[ist + di + 1].mul_add(gf2_lgth2m1, initverticalw[di]),
-            );
+            initverticalw[di] = fgcp1[ien] * gf2_tail + ((ogcp1[ist + di + 1] * gf2_lgth2m1 + initverticalw[di]));
         }
     }
 
@@ -620,7 +611,7 @@ fn backward_dp(
         for l in 0..nalpha {
             let mut s = 0.0f64;
             for k in 0..nalpha {
-                s = matrix[k][l].mul_add(prof1.freqs[ien][k], s);
+                s = matrix[k][l] * prof1.freqs[ien][k] + s;
             }
             scarr[l] = s;
         }
@@ -629,17 +620,14 @@ fn backward_dp(
             if col >= prof2.length { break; }
             let mut s = 0.0f64;
             for l in 0..nalpha {
-                s = scarr[l].mul_add(prof2.freqs[col][l], s);
+                s = scarr[l] * prof2.freqs[col][l] + s;
             }
             currentw[dj] = s;
         }
         let gf1_tail = tail1;
         let gf1_lgth1m1 = if ien < prof1.length { prof1.nongap_freq[ien] } else { 1.0 };
         for dj in 0..lgth2.saturating_sub(1) {
-            currentw[dj] = fgcp2[jen].mul_add(
-                gf1_tail,
-                ogcp2[jst + dj + 1].mul_add(gf1_lgth1m1, currentw[dj]),
-            );
+            currentw[dj] = fgcp2[jen] * gf1_tail + ((ogcp2[jst + dj + 1] * gf1_lgth1m1 + currentw[dj]));
         }
     }
 
@@ -651,7 +639,7 @@ fn backward_dp(
         let col_next = jst + dj + 1;
         let gf2_next = if col_next < prof2.length { prof2.nongap_freq[col_next] } else { 1.0 };
         let cw = if dj + 1 < currentw.len() { currentw[dj + 1] } else { 0.0 };
-        m[dj] = fgcp1[row_end_prev].mul_add(gf2_next, cw);
+        m[dj] = fgcp1[row_end_prev] * gf2_next + cw;
         mp[dj] = (lgth1 as i64) - 1;
     }
 
@@ -691,7 +679,7 @@ fn backward_dp(
             for l in 0..nalpha {
                 let mut s = 0.0f64;
                 for k in 0..nalpha {
-                    s = matrix[k][l].mul_add(prof1.freqs[row][k], s);
+                    s = matrix[k][l] * prof1.freqs[row][k] + s;
                 }
                 scarr[l] = s;
             }
@@ -703,7 +691,7 @@ fn backward_dp(
                 }
                 let mut s = 0.0f64;
                 for l in 0..nalpha {
-                    s = scarr[l].mul_add(prof2.freqs[col][l], s);
+                    s = scarr[l] * prof2.freqs[col][l] + s;
                 }
                 currentw[dj] = s;
             }
@@ -715,7 +703,7 @@ fn backward_dp(
         let gf1_ip1 = if row_ip1 < prof1.length { prof1.nongap_freq[row_ip1] } else { 1.0 };
         let col_end_prev_local = lgth2 - 2;
         let col_end_prev_abs = jst + col_end_prev_local;
-        let mut mi = fgcp2[col_end_prev_abs].mul_add(gf1_ip1, previousw[lgth2 - 1]);
+        let mut mi = fgcp2[col_end_prev_abs] * gf1_ip1 + (previousw[lgth2 - 1]);
         let mut mpi: i64 = (lgth2 - 1) as i64;
 
         let mut dj_signed: i64 = (lgth2 as i64) - 2;
@@ -742,7 +730,7 @@ fn backward_dp(
             // C line 1552 (mi candidate):
             //   g = mi + ogcp2[col_jp1] * gf1_i
             //   if g > wm: wm = g, ijpj = mpi, ijpi = i+1
-            let g = ogcp2[col_jp1].mul_add(gf1_i, mi);
+            let g = ogcp2[col_jp1] * gf1_i + mi;
             if g > wm {
                 wm = g;
                 ijpj = mpi;
@@ -751,7 +739,7 @@ fn backward_dp(
 
             // mi update (C line 1561). g = *prept + fgcp2[j] * gf1[i+1]
             //   = previousw[dj+1] + fgcp2[col_j] * gf1_ip1.
-            let g = fgcp2[col_j].mul_add(gf1_ip1, pprev);
+            let g = fgcp2[col_j] * gf1_ip1 + pprev;
             if g >= mi {
                 mi = g;
                 mpi = (dj + 1) as i64;
@@ -761,7 +749,7 @@ fn backward_dp(
             // C line 1575 (mj candidate):
             //   g = m[dj] + ogcp1[row_ip1] * gf2_j
             //   if g > wm: wm = g, ijpi = mp[dj], ijpj = j+1
-            let g = ogcp1[row_ip1].mul_add(gf2_j, m[dj]);
+            let g = ogcp1[row_ip1] * gf2_j + m[dj];
             if g > wm {
                 wm = g;
                 ijpi = mp[dj];
@@ -770,7 +758,7 @@ fn backward_dp(
 
             // mj update (C line 1585). g = *prept + fgcp1[i] * gf2_{j+1}
             //   = previousw[dj+1] + fgcp1[row_i] * gf2_jp1.
-            let g = fgcp1[row_i].mul_add(gf2_jp1, pprev);
+            let g = fgcp1[row_i] * gf2_jp1 + pprev;
             if g >= m[dj] {
                 m[dj] = g;
                 mp[dj] = (di + 1) as i64;

@@ -37,7 +37,7 @@ impl ClusterMethod {
                 let sueff1 = 1.0 - sueff;
                 let sueff05 = sueff * 0.5;
                 let p = (d1 + d2) * sueff05;
-                d1.min(d2).mul_add(sueff1, p)
+                d1.min(d2) * sueff1 + p
             }
         }
     }

@@ -88,14 +88,14 @@ pub fn build_imp_matrix(
                         if k1 < lgth1 && k2 < lgth2 {
                             // C `mltaln9.c:15665`:
                             //   impmtx[k1][k2] += tmpptr->importance * effij;
-                            // gcc -O3 fuses into a single `fmadd` (single
+                            // the reference C build does NOT fuse to `fmadd` (two roundings; not single
                             // rounding). Plain Rust `+=` is 2 roundings, and
                             // the resulting per-cell ULP drift accumulates
                             // over the diagonal sum into a multi-unit
                             // impmatch drift that flips accept/reject
                             // decisions late in iterative refinement
                             // (BB30028 L-INS-i iter=3 fingerprint).
-                            imp[k1][k2] = region.importance.mul_add(effij, imp[k1][k2]);
+                            imp[k1][k2] = region.importance * effij + imp[k1][k2];
                         }
                         k1 += 1;
                         k2 += 1;
@@ -902,7 +902,7 @@ pub fn build_homology_table_with_unalign(
                                     if i == gap_idx || j == gap_idx {
                                         v
                                     } else {
-                                        off.mul_add(600.0, v)
+                                        off * 600.0 + v
                                     }
                                 })
                                 .collect()

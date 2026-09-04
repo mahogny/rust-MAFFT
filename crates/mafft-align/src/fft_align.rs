@@ -280,9 +280,10 @@ fn profile_to_property_channels(
         for a in 0..nalpha {
             let f = prof.freqs[pos][a];
             if f != 0.0 {
-                // FMA matches gcc -O3's fusion of `a + b*c` (`Falign.c:seq_vec_2`).
-                p_val = f.mul_add(polarity[a], p_val);
-                v_val = f.mul_add(volume[a], v_val);
+                // Plain mul+add: the reference C build emits NO FMA (baseline
+                // x86-64 has none), so `Falign.c:seq_vec_2` rounds twice here.
+                p_val = f * polarity[a] + p_val;
+                v_val = f * volume[a] + v_val;
             }
         }
         channels[0][pos].re = p_val;

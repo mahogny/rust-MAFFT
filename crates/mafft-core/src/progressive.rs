@@ -51,7 +51,7 @@ pub(crate) fn make_dynamic_matrix(base: &[Vec<f64>], distfromtip: f64, unalign_l
         .map(|(i, row)| {
             row.iter().enumerate()
                 .map(|(j, &v)| {
-                    if i == gap_idx || j == gap_idx { v } else { offset.mul_add(600.0, v) }
+                    if i == gap_idx || j == gap_idx { v } else { offset * 600.0 + v }
                 })
                 .collect()
         })
@@ -1939,7 +1939,7 @@ pub fn blend_profiles_exact(
             if gaptable1[j] != b'-' {
                 if p < prof1.length {
                     for k in 0..nalphabets.min(prof1.freqs[p].len()) {
-                        freqs[j][k] = prof1.freqs[p][k].mul_add(eff1, freqs[j][k]);
+                        freqs[j][k] = prof1.freqs[p][k] * eff1 + freqs[j][k];
                     }
                 }
                 p += 1;
@@ -1952,7 +1952,7 @@ pub fn blend_profiles_exact(
             if gaptable2[j] != b'-' {
                 if p < prof2.length {
                     for k in 0..nalphabets.min(prof2.freqs[p].len()) {
-                        freqs[j][k] = prof2.freqs[p][k].mul_add(eff2, freqs[j][k]);
+                        freqs[j][k] = prof2.freqs[p][k] * eff2 + freqs[j][k];
                     }
                 }
                 p += 1;
@@ -1968,7 +1968,7 @@ pub fn blend_profiles_exact(
                 // gap position: skip
             } else {
                 if p < prof1.nongap_freq.len() {
-                    nongap_freq[j] = prof1.nongap_freq[p].mul_add(eff1, nongap_freq[j]);
+                    nongap_freq[j] = prof1.nongap_freq[p] * eff1 + nongap_freq[j];
                 }
                 p += 1;
             }
@@ -1981,7 +1981,7 @@ pub fn blend_profiles_exact(
                 // gap position: skip
             } else {
                 if p < prof2.nongap_freq.len() {
-                    nongap_freq[j] = prof2.nongap_freq[p].mul_add(eff2, nongap_freq[j]);
+                    nongap_freq[j] = prof2.nongap_freq[p] * eff2 + nongap_freq[j];
                 }
                 p += 1;
             }
@@ -2028,12 +2028,12 @@ fn blend_og_one_side(
                 result[j] += eff;
             } else if gaptable[j - 1] != b'-' && p > 0 {
                 let gf_val = if p - 1 < gf.len() { gf[p - 1] } else { 1.0 };
-                result[j] = gf_val.mul_add(eff, result[j]);
+                result[j] = gf_val * eff + result[j];
             }
         } else {
             if j == 0 || (j > 0 && gaptable[j - 1] != b'-') {
                 if p < ori.len() {
-                    result[j] = ori[p].mul_add(eff, result[j]);
+                    result[j] = ori[p] * eff + result[j];
                 }
             }
             p += 1;
@@ -2072,12 +2072,12 @@ fn blend_fg_one_side(
                 result[j] += eff;
             } else if !next_is_gap(j) {
                 let gf_val = if p < gf.len() { gf[p] } else { 1.0 };
-                result[j] = gf_val.mul_add(eff, result[j]);
+                result[j] = gf_val * eff + result[j];
             }
         } else {
             if !next_is_gap(j) {
                 if p < ori.len() {
-                    result[j] = ori[p].mul_add(eff, result[j]);
+                    result[j] = ori[p] * eff + result[j];
                 }
             }
             p += 1;

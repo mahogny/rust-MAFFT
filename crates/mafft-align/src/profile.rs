@@ -537,8 +537,8 @@ impl Profile {
         let freq1 = &self.freqs[i];
         let freq2 = &other.freqs[j];
 
-        // Use `mul_add` (single-rounding FMA) to match C's `gcc -O3` codegen
-        // for `scarr[l] += matrix * cpmx`. Without FMA, accumulation rounds
+        // Plain mul+add: the reference C build does NOT contract this
+        // (see the FP-contraction note in lib.rs). Accumulation rounds
         // twice per iteration and diverges from C by 1 ULP per term —
         // surfaces as anchor-selection differences for matrices with flat
         // score landscapes (e.g. `--tm 200 --bl 50`). See TODO §4/§5 close.
@@ -548,13 +548,13 @@ impl Profile {
             let row = &matrix[a];
             let row_len = nalpha.min(row.len());
             for b in 0..row_len {
-                scarr[b] = f1.mul_add(row[b], scarr[b]);
+                scarr[b] = f1 * row[b] + scarr[b];
             }
         }
 
         let mut score = 0.0f64;
         for b in 0..nalpha {
-            score = scarr[b].mul_add(freq2[b], score);
+            score = scarr[b] * freq2[b] + score;
         }
         score
     }
@@ -833,17 +833,17 @@ fn match_calc_row_into(
     for l in 0..nalpha {
         scarr[l] = 0.0;
         for j in 0..nalpha {
-            // C's match_calc compiled with `gcc -O3` fuses
-            // `scarr[l] += a * b` into FMA (single-rounding fused
+            // C's match_calc does NOT fuse `scarr[l] += a * b` in the
+            // reference build (lib.rs FP-contraction note); two roundings (
             // multiply-add). Rust's `+=` followed by `*` produces two
             // rounding steps. Use `mul_add` to match C's bit pattern.
-            scarr[l] = matrix[j][l].mul_add(prof1_freqs[row_pos][j], scarr[l]);
+            scarr[l] = matrix[j][l] * prof1_freqs[row_pos][j] + scarr[l];
         }
     }
     for j in 0..m {
         output[j] = 0.0;
         for &(k, v) in &cpmx2_sparse[j] {
-            output[j] = scarr[k].mul_add(v, output[j]);
+            output[j] = scarr[k] * v + output[j];
         }
     }
 }
@@ -919,13 +919,13 @@ fn j_loop<const TW: bool, const STRICT: bool>(
         let mut wm = prevw_jm1;
         unsafe { *ijp_row.get_unchecked_mut(j) = 0; }
 
-        let g_jskip = unsafe { fgcp2_s.get_unchecked(j - 1).mul_add(gf1_i, mi_v) };
+        let g_jskip = unsafe { fgcp2_s.get_unchecked(j - 1) * gf1_i + mi_v };
         if g_jskip > wm {
             wm = g_jskip;
             unsafe { *ijp_row.get_unchecked_mut(j) = -(j as i32 - mpi_v as i32); }
         }
 
-        let g = unsafe { ogcp2_s.get_unchecked(j).mul_add(gf1_im1, prevw_jm1) };
+        let g = unsafe { ogcp2_s.get_unchecked(j) * gf1_im1 + prevw_jm1 };
         let mi_update = if STRICT { g > mi_v } else { g >= mi_v };
         if mi_update {
             mi_v = g;
@@ -935,7 +935,7 @@ fn j_loop<const TW: bool, const STRICT: bool>(
         mi_v += f_ext;
 
         let mj_j = unsafe { *mj_s.get_unchecked(j) };
-        let g_iskip = fgcp1_im1.mul_add(gf2_j, mj_j);
+        let g_iskip = fgcp1_im1 * gf2_j + mj_j;
         if g_iskip > wm {
             wm = g_iskip;
             unsafe {
@@ -944,7 +944,7 @@ fn j_loop<const TW: bool, const STRICT: bool>(
             }
         }
 
-        let g = ogcp1_i.mul_add(gf2_jm1, prevw_jm1);
+        let g = ogcp1_i * gf2_jm1 + prevw_jm1;
         let mj_update = if STRICT { g > mj_j } else { g >= mj_j };
         if mj_update {
             unsafe {
@@ -1199,13 +1199,13 @@ pub fn profile_align_imp_multimtx(
         for l in 0..nalpha {
             bcarr[l] = 0.0;
             for j in 0..nalpha {
-                bcarr[l] = matrix[j][l].mul_add(prof2.freqs[0][j], bcarr[l]);
+                bcarr[l] = matrix[j][l] * prof2.freqs[0][j] + bcarr[l];
             }
         }
         for i in 0..n {
             initverticalw[i] = 0.0;
             for &(k, v) in &cpmx1_sparse[i] {
-                initverticalw[i] = bcarr[k].mul_add(v, initverticalw[i]);
+                initverticalw[i] = bcarr[k] * v + initverticalw[i];
             }
         }
     }
@@ -1231,10 +1231,10 @@ pub fn profile_align_imp_multimtx(
             // clang's order exactly here, identical to the `currentw`
             // init below.
             let t1 = fgcp1[i - 1] * gf2_0;
-            let t2 = ogcp1[0].mul_add(hgf2, t1);
+            let t2 = ogcp1[0] * hgf2 + t1;
             initverticalw[i] += t2;
             // C `Salignmm.c:1795`: `initverticalw[i] += fpenalty_ex * i;`
-            initverticalw[i] = gap.extend.mul_add(i as f64, initverticalw[i]);
+            initverticalw[i] = gap.extend * (i as f64) + initverticalw[i];
         }
     }
 
@@ -1253,13 +1253,13 @@ pub fn profile_align_imp_multimtx(
         for l in 0..nalpha {
             bcarr[l] = 0.0;
             for j in 0..nalpha {
-                bcarr[l] = matrix[j][l].mul_add(prof1.freqs[0][j], bcarr[l]);
+                bcarr[l] = matrix[j][l] * prof1.freqs[0][j] + bcarr[l];
             }
         }
         for j in 0..m {
             currentw[j] = 0.0;
             for &(k, v) in &cpmx2_sparse[j] {
-                currentw[j] = bcarr[k].mul_add(v, currentw[j]);
+                currentw[j] = bcarr[k] * v + currentw[j];
             }
         }
     }
@@ -1303,10 +1303,10 @@ pub fn profile_align_imp_multimtx(
             //   fmadd d0, ogcp2, hgf1, d3     ; t2 = ogcp2[0]*hgf1 + t1 (single FMA)
             //   fadd d0, currentw, d0         ; currentw += t2 (plain add)
             let t1 = fgcp2[j - 1] * gf1_0;
-            let t2 = ogcp2[0].mul_add(hgf1, t1);
+            let t2 = ogcp2[0] * hgf1 + t1;
             currentw[j] += t2;
             // C `Salignmm.c:1749`: `currentw[j] += fpenalty_ex * j;`
-            currentw[j] = gap.extend.mul_add(j as f64, currentw[j]);
+            currentw[j] = gap.extend * (j as f64) + currentw[j];
         }
     }
 
@@ -1326,7 +1326,7 @@ pub fn profile_align_imp_multimtx(
         // above (see line 655). Without FMA the column tracker `mj[j]`
         // starts 1-ULP off C's value for flat-landscape matrices (TM
         // PAM 200), and that drift propagates into tie-break decisions.
-        mj[j] = ogcp1[1].mul_add(gf2_jm1, currentw[j - 1]);
+        mj[j] = ogcp1[1] * gf2_jm1 + (currentw[j - 1]);
         mpj[j] = 0;
     }
 
@@ -1529,13 +1529,13 @@ pub fn profile_align_imp_multimtx(
         let cur_s: &mut [f64] = &mut currentw;
         // SAFETY (the entire inner j-loop, inside j_loop):
         //   - see j_loop's SAFETY doc-block.
-        // Use mul_add throughout — C compiled with `gcc -O3 -mfma` (or
-        // equivalent) fuses `a + b * c` into FMA (single-rounding step);
+        // Plain mul+add throughout — the reference C build has no FMA, so
+        // `a + b * c` is two roundings (lib.rs FP-contraction note);
         // matching this behavior is required for bit-identity to C's
         // A__align inner DP, which surfaces as tie-break divergences for
         // matrices with flatter score landscapes (e.g. BL50).
         let mut mi = unsafe {
-            ogcp2_s.get_unchecked(1).mul_add(gf1_im1, *prev_s.get_unchecked(0))
+            ogcp2_s.get_unchecked(1) * gf1_im1 + (*prev_s.get_unchecked(0))
         };
         let mut mpi: usize = 0;
 
