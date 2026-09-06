@@ -6,7 +6,7 @@ colleagues at CBRC. The scientific contribution — the FFT-anchored
 alignment algorithm, the iterative-refinement variants, the scoring
 matrices — is theirs. This project re-engineers that work in Rust while
 preserving **byte-identical output** to the C reference across the
-BAliBASE 3 benchmark (1930/1930).
+BAliBASE 3 benchmark (1930/1930 single-thread protein alignments).
 
 > **If you use this software in published work, please cite the
 > original MAFFT paper (Katoh & Standley 2013) — see
@@ -20,7 +20,8 @@ This project provides:
 
 ## Status
 
-**Production-ready.** `mafft-rs` produces **byte-identical output to C MAFFT 7.526** across:
+**Production-ready for the verified core MAFFT modes.** `mafft-rs` produces
+**byte-identical output to C MAFFT 7.526** across:
 
 - All progressive modes: FFT-NS-2, NW-NS-2, FFT-NS-i, L-INS-1/i, G-INS-1/i, E-INS-1/i
 - All scoring matrices: BLOSUM 30/45/50/62/80, JTT 100/200, TM 100/200 (FFT + NW + `--retree 1`)
@@ -35,7 +36,11 @@ This project provides:
 - Fine-grained gap penalties: `--op`, `--ep`, `--exp`, `--shiftpenalty`, `--lop`, `--lep`, `--lexp`, `--gop`, `--gep`, `--gexp`
 - Symlink dispatch via `argv[0]`: `linsi`, `ginsi`, `einsi`, `fftns`, `fftnsi`, `nwns`, `nwnsi`, `qinsi`, `xinsi`
 
-Every progressive merge step matches in score and width; every refinement iteration converges to C's exact alignment.
+Every progressive merge step matches in score and width; every refinement iteration
+converges to C's exact alignment in the verified single-thread configurations. C MAFFT
+itself can produce different refinement output for no `--thread` vs `--thread 1`, and is
+nondeterministic at `--thread N >= 2`; rust-MAFFT models the distinct no-thread and
+`--thread 1` behaviours but does not promise byte-identity to every C race outcome.
 
 ### Parity matrix (36-seq protein sample, `mafft-upstream/test/sample`)
 
@@ -104,7 +109,7 @@ The original MAFFT C code is included as a git submodule for testing and cross-v
 ### Build
 
 ```bash
-git clone --recurse-submodules https://github.com/luksgrin/rust-MAFFT.git
+git clone --recurse-submodules https://github.com/mahogny/rust-MAFFT.git
 cd rust-MAFFT
 cargo build --release
 ```
@@ -354,7 +359,7 @@ The release binary (`mafft-rs`) compiles with **zero C code** — `mafft-c-bindi
 
 - **`num_complex::Complex64`** replaces the C `Fukusosuu` struct. A hand-ported bit-for-bit Cooley-Tukey FFT in `mafft-fft/src/fft_c_compat.rs` matches C's `fft.c` rounding exactly. Off-the-shelf FFT libraries vary in butterfly grouping order, producing 1-ULP correlation differences that flip FFT-anchor selection on flat-landscape matrices; the hand port is required for byte-identity.
 
-- **`f64` DP matrices with `f64::mul_add` (FMA).** The substitution matrix is stored as `Vec<Vec<i32>>` and exposed as `consweight_matrix: Vec<Vec<f64>>` for DP arithmetic (matches C's `n_dis_consweight_multi`). gcc/clang `-O3` with `FP_CONTRACT=on` fuse `a + b * c` into a single-rounding FMA; plain Rust `+=` produces two roundings. Rust uses `mul_add` in `match_calc_row` and gap-frequency-modulated penalties to match C bit-for-bit.
+- **`f64` DP arithmetic without fused multiply-add.** The substitution matrix is stored as `Vec<Vec<i32>>` and exposed as `consweight_matrix: Vec<Vec<f64>>` for DP arithmetic (matches C's `n_dis_consweight_multi`). The C MAFFT 7.526 binaries used as the reference do not emit FMA instructions on the tested x86-64 build, so Rust uses ordinary multiply-then-add arithmetic rather than `f64::mul_add`. This avoids both byte-parity drift and slow software-emulated FMA on targets without hardware FMA.
 
 - **Rayon parallelism** for pairwise distance computation, all-vs-all local alignments, and refinement scoring. Sequential float summation is preserved at accept/reject decision boundaries to keep refinement output deterministic across thread counts.
 
@@ -399,7 +404,7 @@ These modes are wired correctly but require third-party binaries not shipped by 
 | Flag | Requires | Status |
 |------|----------|--------|
 | `--xinsi` (X-INS-i) | Stanford [CONTRAfold v2.02+](http://contra.stanford.edu/contrafold/) | Wired; emits "contrafold not found" diagnostic if absent |
-| `--qinsi` (Q-INS-i) | `mxscarnamod` built from `mafft-upstream/extensions` | Wired; byte-identical to C (mod RNA case) when present |
+| `--qinsi` (Q-INS-i) | `mxscarnamod` built from `mafft-upstream/extensions` | Wired; byte-identical to C when present |
 | `--scarnalike` | `dash_client` in PATH | Wired; untested without the binary |
 
 ### B. Intentional residual (pathological-value tied-trace)
@@ -424,10 +429,6 @@ These modes are intentionally not implemented. `mafft-rs` either rejects the fla
 | **DASH-only sequence-filter flags** | `--excludehomologs`, `--originalseqonly` | C documents both as "works with `--dash` only"; the DASH structure-DB pipeline falls under the RNA-structure category above. Wired as no-ops, matching what C does without `--dash`. |
 | **MPI parallelism** | `--mpi` | `mafft-rs` uses Rayon for in-process multithreading. |
 
-### Case preservation
-
-C preserves the input case of residues (e.g., lowercase RNA); `mafft-rs` uppercases all residues before alignment. The alignment itself (gap placement) is identical — `rna_nofft_case_insensitive_identical_to_c` verifies this with `diff -i`.
-
 ## Performance
 
 Benchmark snapshot vs C MAFFT 7.526 (macOS arm64, alternating-run medians):
@@ -443,6 +444,17 @@ Benchmark snapshot vs C MAFFT 7.526 (macOS arm64, alternating-run medians):
 | `--maxiterate 50 --globalpair` (108-seq)    | 35.32s  | 22.62s   | **rust 1.56× faster** |
 | `--parttree` (108-seq)                      | 1.70s   | 0.09s    | **rust 18× faster**   |
 | `--dpparttree` (108-seq)                    | 7.24s   | 0.08s    | **rust 90× faster**   |
+
+Panaroo integration snapshot (Linux x86-64, Xeon Gold 6138, single-threaded, 451
+per-gene DNA clusters from the `panaroo-rs` tiny/core parity corpus):
+
+| Workload | C MAFFT | mafft-rs | Ratio |
+|----------|---------|----------|-------|
+| Panaroo per-gene alignment corpus | ~311s | 60.06-60.18s | **rust ~5.2x faster** |
+
+That corpus is the embedded `mafft-embedded` path used by `panaroo-rs` for
+`--alignment core`. It is a workload-specific integration benchmark, not a substitute for
+the broader mode matrix above.
 
 ## Upstream MAFFT
 
