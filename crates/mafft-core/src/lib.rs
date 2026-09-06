@@ -9,15 +9,18 @@
 //! progressive alignment from `disttbfast.c`/`tbfast.c`, and
 //! `addonetip()` from `addfunctions.c`.
 
-pub mod adjust_direction;
-pub mod progressive;
-mod varidist;
-mod refinement;
-mod engine;
 mod add;
+pub mod adjust_direction;
+mod engine;
 pub mod external;
+pub mod progressive;
+mod refinement;
+mod varidist;
 
-pub use progressive::{progressive_align, progressive_align_partial, progressive_align_unweighted, progressive_align_with_weights_override, MultipleAlignment, StepTrace};
-pub use refinement::{iterative_refine, RefinementParams};
-pub use engine::{MafftEngine, AlignmentMode, pair_penalty_scales, dndpre_offset_shift};
 pub use add::{add_sequences, add_sequences_keeplength, add_sequences_keeplength_with_map};
+pub use engine::{AlignmentMode, MafftEngine, dndpre_offset_shift, pair_penalty_scales};
+pub use progressive::{
+    MultipleAlignment, StepTrace, progressive_align, progressive_align_partial,
+    progressive_align_unweighted, progressive_align_with_weights_override,
+};
+pub use refinement::{RefinementParams, iterative_refine};

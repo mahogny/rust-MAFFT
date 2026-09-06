@@ -17,17 +17,13 @@
 /// - Even iterations traverse steps forward (0 → N-1), odd iterations
 ///   traverse backward (N-1 → 0). Within each step, k always goes 0→1.
 /// - Total branches per iteration: (nseq-1)*2 - 1.
-
 use mafft_align::{
-    profile_align, profile_align_imp,
-    profile_align_imp_with_boundary, profile_align_imp_multimtx,
-    BoundaryFreqs, MultiMtx,
-    build_imp_matrix, FASTATHRESHOLD_DEFAULT,
-    Profile, GapModel, AlignOp,
+    AlignOp, BoundaryFreqs, FASTATHRESHOLD_DEFAULT, GapModel, MultiMtx, Profile, build_imp_matrix,
+    profile_align, profile_align_imp, profile_align_imp_multimtx, profile_align_imp_with_boundary,
 };
-use mafft_fft::{alignable_segments, SegmentParams};
-use mafft_tree::{Topology, BranchWeights};
-use mafft_types::{ScoringContext, LocalHomologyTable};
+use mafft_fft::{SegmentParams, alignable_segments};
+use mafft_tree::{BranchWeights, Topology};
+use mafft_types::{LocalHomologyTable, ScoringContext};
 
 use crate::progressive::MultipleAlignment;
 
@@ -157,10 +153,7 @@ type BranchId = (usize, usize);
 ///
 /// Returns: `branch_map[step_idx]` = list of `(side, group1, group2)`.
 /// Total branches = `(nseq - 1) * 2 - 1`.
-fn build_branch_map(
-    topology: &Topology,
-    nseq: usize,
-) -> Vec<Vec<(usize, Vec<usize>, Vec<usize>)>> {
+fn build_branch_map(topology: &Topology, nseq: usize) -> Vec<Vec<(usize, Vec<usize>, Vec<usize>)>> {
     let nsteps = topology.steps.len();
     let root_idx = nsteps - 1;
     let all_indices: Vec<usize> = (0..nseq).collect();
@@ -240,13 +233,26 @@ pub fn iterative_refine(
     // oscillation) is counted in one place — see `refine_stats_enabled`.
     let nseq0 = alignment.nseq();
     let len0 = alignment.sequences.first().map_or(0, |s| s.len());
-    let mut counters = RefineCounters { exit: "maxiter", ..Default::default() };
-    let iterations =
-        iterative_refine_inner(alignment, topology, scoring, params, constraints, &mut counters);
+    let mut counters = RefineCounters {
+        exit: "maxiter",
+        ..Default::default()
+    };
+    let iterations = iterative_refine_inner(
+        alignment,
+        topology,
+        scoring,
+        params,
+        constraints,
+        &mut counters,
+    );
     if refine_stats_enabled() {
         eprintln!(
             "refine: nseq={nseq0} len={len0} cycles={iterations}/{} visited={} changed={} accepted={} exit={}",
-            params.max_iterations, counters.visited, counters.branches, counters.accepted, counters.exit,
+            params.max_iterations,
+            counters.visited,
+            counters.branches,
+            counters.accepted,
+            counters.exit,
         );
     }
     iterations
@@ -285,12 +291,11 @@ fn iterative_refine_inner(
     // C exactly. Without this our refinement keeps shortening the
     // alignment under non-zero `--exp` while C's keeps the
     // progressive width.
-    let mut gap = GapModel::new(scoring.gap.open as f64, 0.0)
-        .with_legacy_gap_cost(params.legacy_gap_cost);
+    let mut gap =
+        GapModel::new(scoring.gap.open as f64, 0.0).with_legacy_gap_cost(params.legacy_gap_cost);
     if let Some(s) = params.shift {
         gap = gap.with_shift(s);
     }
-
 
     let mut converged_count = 0usize;
     let convergence_target = nseq * 2;
@@ -306,7 +311,8 @@ fn iterative_refine_inner(
     for iter in 0..params.max_iterations {
         iteration = iter + 1;
         let mut any_change = false;
-        let mut iter_scores: std::collections::HashMap<BranchId, f64> = std::collections::HashMap::new();
+        let mut iter_scores: std::collections::HashMap<BranchId, f64> =
+            std::collections::HashMap::new();
 
         // C alternates step traversal direction: even → forward, odd → reverse.
         let step_order: Vec<usize> = if iter % 2 == 0 {
@@ -328,7 +334,9 @@ fn iterative_refine_inner(
                 // branches, which `tditeration.c:2255-2256` then
                 // treats as "no improvement" without bumping the
                 // converge counter).
-                let skipped = params.skip_branches.get(step_idx)
+                let skipped = params
+                    .skip_branches
+                    .get(step_idx)
                     .map(|&(l, r)| if *side == 0 { l } else { r })
                     .unwrap_or(false);
                 if skipped {
@@ -339,20 +347,40 @@ fn iterative_refine_inner(
                 if let Ok(f) = std::env::var("RS_DISTARR_DUMP") {
                     use std::io::Write;
                     let da = branch_weights.dist_from_a_branch(topology, step_idx, *side);
-                    if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+                    if let Ok(mut fp) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&f)
+                    {
                         let _ = write!(fp, "DISTARR iter={} l={} k={}:", iter, step_idx, side);
-                        for v in &da { let _ = write!(fp, " {:.17e}", v); }
+                        for v in &da {
+                            let _ = write!(fp, " {:.17e}", v);
+                        }
                         let _ = writeln!(fp);
                     }
                 }
 
                 if let Ok(f) = std::env::var("RS_PRE_BRANCH") {
                     use std::io::Write;
-                    if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-                        let _ = writeln!(fp, "R_PREBR iter={} step={} side={} clus1={} clus2={}", iter, step_idx, side, group1.len(), group2.len());
+                    if let Ok(mut fp) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&f)
+                    {
+                        let _ = writeln!(
+                            fp,
+                            "R_PREBR iter={} step={} side={} clus1={} clus2={}",
+                            iter,
+                            step_idx,
+                            side,
+                            group1.len(),
+                            group2.len()
+                        );
                         for (i, s) in alignment.sequences.iter().enumerate() {
                             let mut h: u64 = 5381;
-                            for &c in s { h = h.wrapping_mul(33).wrapping_add(c as u64); }
+                            for &c in s {
+                                h = h.wrapping_mul(33).wrapping_add(c as u64);
+                            }
                             let _ = writeln!(fp, "  R_seq[{}] len={} hash={:x}", i, s.len(), h);
                         }
                     }
@@ -366,7 +394,11 @@ fn iterative_refine_inner(
 
                 if let Ok(f) = std::env::var("RS_BRANCH_WEIGHTS") {
                     use std::io::Write;
-                    if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+                    if let Ok(mut fp) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&f)
+                    {
                         let _ = writeln!(fp, "R_BW iter={} step={} side={}", iter, step_idx, side);
                         for (i, &w) in weights.iter().enumerate() {
                             let _ = writeln!(fp, "  R_bw[{}]={:.17e}", i, w);
@@ -379,25 +411,43 @@ fn iterative_refine_inner(
                 // and any future per-cluster averaging. Floor is C's
                 // `minimumweight` (`scripts/mafft:1029`, overridable via
                 // `--minimumweight`).
-                let w1: Vec<f64> = group1.iter().map(|&i| weights[i].max(params.minimum_weight)).collect();
-                let w2: Vec<f64> = group2.iter().map(|&i| weights[i].max(params.minimum_weight)).collect();
+                let w1: Vec<f64> = group1
+                    .iter()
+                    .map(|&i| weights[i].max(params.minimum_weight))
+                    .collect();
+                let w2: Vec<f64> = group2
+                    .iter()
+                    .map(|&i| weights[i].max(params.minimum_weight))
+                    .collect();
                 let s1w: f64 = w1.iter().sum();
                 let s2w: f64 = w2.iter().sum();
-                let w1n: Vec<f64> = if s1w > 0.0 { w1.iter().map(|w| w / s1w).collect() } else { vec![1.0; group1.len()] };
-                let w2n: Vec<f64> = if s2w > 0.0 { w2.iter().map(|w| w / s2w).collect() } else { vec![1.0; group2.len()] };
+                let w1n: Vec<f64> = if s1w > 0.0 {
+                    w1.iter().map(|w| w / s1w).collect()
+                } else {
+                    vec![1.0; group1.len()]
+                };
+                let w2n: Vec<f64> = if s2w > 0.0 {
+                    w2.iter().map(|w| w / s2w).collect()
+                } else {
+                    vec![1.0; group2.len()]
+                };
 
                 // C's mscore = oimpmatchdouble + tmpdouble (tditeration.c:953):
                 // intergroup substitution score + impmatch (sum of impmtx[i][i]
                 // over the current alignment's columns). We compute the same.
                 let old_sub = compute_split_score(
-                    group1, group2, &alignment.sequences, &weights, scoring,
+                    group1,
+                    group2,
+                    &alignment.sequences,
+                    &weights,
+                    scoring,
                     params.minimum_weight,
                 );
                 let old_imp = if let Some(lh) = constraints {
-                    compute_impmatch_diagonal(
-                        group1, group2, &alignment.sequences, &w1n, &w2n, lh,
-                    )
-                } else { 0.0 };
+                    compute_impmatch_diagonal(group1, group2, &alignment.sequences, &w1n, &w2n, lh)
+                } else {
+                    0.0
+                };
                 let old_score = old_sub + old_imp;
 
                 // `--allowshift`: per-branch distances-from-tip drive the
@@ -416,8 +466,15 @@ fn iterative_refine_inner(
 
                 counters.visited += 1;
                 let new_seqs = realign_all(
-                    group1, group2, &alignment.sequences, &weights, scoring, &gap,
-                    constraints, params.use_fft, mm_input.as_ref(),
+                    group1,
+                    group2,
+                    &alignment.sequences,
+                    &weights,
+                    scoring,
+                    &gap,
+                    constraints,
+                    params.use_fft,
+                    mm_input.as_ref(),
                     params.minimum_weight,
                 );
 
@@ -454,9 +511,24 @@ fn iterative_refine_inner(
                         let tscore = old_score;
                         if let Ok(f) = std::env::var("RS_REFINE_TRACE") {
                             use std::io::Write;
-                            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-                                let _ = writeln!(fp, "NOTHREAD pid={} niter={} iter={} l={} k={} clus1={} clus2={} mscore={:.6} tscore={:.6} accept=0",
-                                    std::process::id(), params.max_iterations, iter, step_idx, side, group1.len(), group2.len(), old_score, tscore);
+                            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&f)
+                            {
+                                let _ = writeln!(
+                                    fp,
+                                    "NOTHREAD pid={} niter={} iter={} l={} k={} clus1={} clus2={} mscore={:.6} tscore={:.6} accept=0",
+                                    std::process::id(),
+                                    params.max_iterations,
+                                    iter,
+                                    step_idx,
+                                    side,
+                                    group1.len(),
+                                    group2.len(),
+                                    old_score,
+                                    tscore
+                                );
                             }
                         }
                         iter_scores.insert(branch_id, tscore);
@@ -465,7 +537,11 @@ fn iterative_refine_inner(
                         // C's tscore = impmatchdouble + tmpdouble (tditeration.c:1094):
                         // intergroup score + new alignment's impmatch.
                         let new_sub = compute_split_score(
-                            group1, group2, &new_seqs, &weights, scoring,
+                            group1,
+                            group2,
+                            &new_seqs,
+                            &weights,
+                            scoring,
                             params.minimum_weight,
                         );
                         let new_imp = if let Some(lh) = constraints {
@@ -478,38 +554,71 @@ fn iterative_refine_inner(
                             // Fall back to the global diagonal sum only on the
                             // non-FFT path (dvtditr always uses -F, so the
                             // fallback is not hit by default L-INS-i).
-                            dp_impmatch.unwrap_or_else(|| compute_impmatch_diagonal(
-                                group1, group2, &new_seqs, &w1n, &w2n, lh,
-                            ))
-                        } else { 0.0 };
+                            dp_impmatch.unwrap_or_else(|| {
+                                compute_impmatch_diagonal(group1, group2, &new_seqs, &w1n, &w2n, lh)
+                            })
+                        } else {
+                            0.0
+                        };
                         let tscore = new_sub + new_imp;
 
                         let threshold = old_score - params.cut / 100.0 * old_score;
                         counters.branches += 1;
-                        if tscore > threshold { counters.accepted += 1; }
+                        if tscore > threshold {
+                            counters.accepted += 1;
+                        }
                         if std::env::var("RUST_MAFFT_TRACE").is_ok() {
-                            eprintln!("ACCEPT iter={iter} step={step_idx} side={side} old={:.3} new={:.3} accept={}",
-                                old_score, tscore, tscore > threshold);
+                            eprintln!(
+                                "ACCEPT iter={iter} step={step_idx} side={side} old={:.3} new={:.3} accept={}",
+                                old_score,
+                                tscore,
+                                tscore > threshold
+                            );
                         }
                         if let Ok(f) = std::env::var("RS_REFINE_TRACE") {
                             use std::io::Write;
-                            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-                                let _ = writeln!(fp, "NOTHREAD pid={} niter={} iter={} l={} k={} clus1={} clus2={} mscore={:.6} tscore={:.6} accept={}",
-                                    std::process::id(), params.max_iterations, iter, step_idx, side, group1.len(), group2.len(), old_score, tscore,
-                                    if tscore > threshold { 1 } else { 0 });
+                            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&f)
+                            {
+                                let _ = writeln!(
+                                    fp,
+                                    "NOTHREAD pid={} niter={} iter={} l={} k={} clus1={} clus2={} mscore={:.6} tscore={:.6} accept={}",
+                                    std::process::id(),
+                                    params.max_iterations,
+                                    iter,
+                                    step_idx,
+                                    side,
+                                    group1.len(),
+                                    group2.len(),
+                                    old_score,
+                                    tscore,
+                                    if tscore > threshold { 1 } else { 0 }
+                                );
                             }
                         }
                         if tscore > threshold {
                             alignment.sequences = new_seqs;
                             if let Ok(f) = std::env::var("RS_ALIGN_HASH") {
                                 use std::io::Write;
-                                if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+                                if let Ok(mut fp) = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(&f)
+                                {
                                     let mut h: u64 = 5381;
                                     for s in &alignment.sequences {
-                                        for &c in s { h = h.wrapping_mul(33).wrapping_add(c as u64); }
+                                        for &c in s {
+                                            h = h.wrapping_mul(33).wrapping_add(c as u64);
+                                        }
                                     }
                                     let w = alignment.sequences.first().map_or(0, |s| s.len());
-                                    let _ = writeln!(fp, "ACCEPT iter={} step={} side={} width={} hash={:x}", iter, step_idx, side, w, h);
+                                    let _ = writeln!(
+                                        fp,
+                                        "ACCEPT iter={} step={} side={} width={} hash={:x}",
+                                        iter, step_idx, side, w, h
+                                    );
                                 }
                             }
                             any_change = true;
@@ -630,8 +739,16 @@ fn realign_all(
     let w2: Vec<f64> = group2.iter().map(|&i| weights[i].max(min_weight)).collect();
     let sum1: f64 = w1.iter().sum();
     let sum2: f64 = w2.iter().sum();
-    let w1n: Vec<f64> = if sum1 > 0.0 { w1.iter().map(|w| w / sum1).collect() } else { vec![1.0; group1.len()] };
-    let w2n: Vec<f64> = if sum2 > 0.0 { w2.iter().map(|w| w / sum2).collect() } else { vec![1.0; group2.len()] };
+    let w1n: Vec<f64> = if sum1 > 0.0 {
+        w1.iter().map(|w| w / sum1).collect()
+    } else {
+        vec![1.0; group1.len()]
+    };
+    let w2n: Vec<f64> = if sum2 > 0.0 {
+        w2.iter().map(|w| w / sum2).collect()
+    } else {
+        vec![1.0; group2.len()]
+    };
 
     if let Ok(path) = std::env::var("RS_H_DUMP") {
         if let Ok(shape) = std::env::var("RS_H_DUMP_SHAPE") {
@@ -641,18 +758,30 @@ fn realign_all(
                 let sc2: usize = parts[3].parse().unwrap_or(0);
                 if group1.len() == sc1 && group2.len() == sc2 {
                     use std::io::Write;
-                    if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                    if let Ok(mut fp) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
                         let _ = write!(fp, "R_EFF1");
-                        for &w in &w1n { let _ = write!(fp, " {:.17e}", w); }
+                        for &w in &w1n {
+                            let _ = write!(fp, " {:.17e}", w);
+                        }
                         let _ = writeln!(fp);
                         let _ = write!(fp, "R_EFF2");
-                        for &w in &w2n { let _ = write!(fp, " {:.17e}", w); }
+                        for &w in &w2n {
+                            let _ = write!(fp, " {:.17e}", w);
+                        }
                         let _ = writeln!(fp);
                         let _ = write!(fp, "R_GROUP2_GLOBAL_IDX");
-                        for &g in group2 { let _ = write!(fp, " {}", g); }
+                        for &g in group2 {
+                            let _ = write!(fp, " {}", g);
+                        }
                         let _ = writeln!(fp);
                         let _ = write!(fp, "R_WEIGHTS_RAW");
-                        for &g in group2 { let _ = write!(fp, " {:.17e}", weights[g]); }
+                        for &g in group2 {
+                            let _ = write!(fp, " {:.17e}", weights[g]);
+                        }
                         let _ = writeln!(fp);
                     }
                 }
@@ -662,16 +791,20 @@ fn realign_all(
 
     // Build stripped sequences and profiles (used for FFT anchor detection
     // and as fallback for unconstrained non-FFT alignment).
-    let stripped1: Vec<Vec<u8>> = group1.iter()
+    let stripped1: Vec<Vec<u8>> = group1
+        .iter()
         .map(|&i| kept1.iter().map(|&c| sequences[i][c]).collect())
         .collect();
-    let stripped2: Vec<Vec<u8>> = group2.iter()
+    let stripped2: Vec<Vec<u8>> = group2
+        .iter()
         .map(|&i| kept2.iter().map(|&c| sequences[i][c]).collect())
         .collect();
     let s1_refs: Vec<&[u8]> = stripped1.iter().map(|s| s.as_slice()).collect();
     let s2_refs: Vec<&[u8]> = stripped2.iter().map(|s| s.as_slice()).collect();
-    let stripped_prof1 = Profile::from_aligned(&s1_refs, &w1n, &scoring.amino_map, scoring.nalphabets);
-    let stripped_prof2 = Profile::from_aligned(&s2_refs, &w2n, &scoring.amino_map, scoring.nalphabets);
+    let stripped_prof1 =
+        Profile::from_aligned(&s1_refs, &w1n, &scoring.amino_map, scoring.nalphabets);
+    let stripped_prof2 =
+        Profile::from_aligned(&s2_refs, &w2n, &scoring.amino_map, scoring.nalphabets);
 
     if stripped_prof1.length == 0 || stripped_prof2.length == 0 {
         return None;
@@ -687,9 +820,9 @@ fn realign_all(
             // view via gapmap1/gapmap2 (which translate stripped column
             // index to position within the segment).
             return realign_all_constrained_fft(
-                group1, group2, sequences, &w1n, &w2n,
-                scoring, gap, lh_table, mm_input,
-            ).map(|(seqs, score, imp)| (seqs, score, Some(imp)));
+                group1, group2, sequences, &w1n, &w2n, scoring, gap, lh_table, mm_input,
+            )
+            .map(|(seqs, score, imp)| (seqs, score, Some(imp)));
         }
         // Non-FFT constraint path (L-INS-i without -F, single full DP).
         // Mirrors C's `A__align(..., constraint=1, ...)` (Salignmm.c:1086):
@@ -700,17 +833,23 @@ fn realign_all(
         let g2_seq_refs: Vec<&[u8]> = stripped2.iter().map(|s| s.as_slice()).collect();
         let imp = build_imp_matrix(
             lh_table,
-            group1, group2,
-            &g1_seq_refs, &g2_seq_refs,
-            &w1n, &w2n,
-            stripped_prof1.length, stripped_prof2.length,
+            group1,
+            group2,
+            &g1_seq_refs,
+            &g2_seq_refs,
+            &w1n,
+            &w2n,
+            stripped_prof1.length,
+            stripped_prof2.length,
             FASTATHRESHOLD_DEFAULT,
         );
         let aln = profile_align_imp(
-            &stripped_prof1, &stripped_prof2,
+            &stripped_prof1,
+            &stripped_prof2,
             &scoring.consweight_matrix,
             gap,
-            true, true,
+            true,
+            true,
             Some(&imp),
         );
         // Non-FFT constraint path: impmatch is folded into the DP score,
@@ -718,9 +857,16 @@ fn realign_all(
         // `compute_impmatch_diagonal`. (dvtditr always passes -F, so this
         // path is not exercised by the default L-INS-i pipeline.)
         return build_result_from_stripped(
-            &aln, group1, group2, sequences, &kept1, &kept2,
-            &stripped_prof1, &stripped_prof2,
-        ).map(|(seqs, score)| (seqs, score, None));
+            &aln,
+            group1,
+            group2,
+            sequences,
+            &kept1,
+            &kept2,
+            &stripped_prof1,
+            &stripped_prof2,
+        )
+        .map(|(seqs, score)| (seqs, score, None));
     }
 
     if use_fft {
@@ -734,11 +880,23 @@ fn realign_all(
         // 6. Results concatenated
         let width = sequences[0].len();
         let full_prof1 = Profile::from_aligned(
-            &group1.iter().map(|&i| sequences[i].as_slice()).collect::<Vec<_>>(),
-            &w1n, &scoring.amino_map, scoring.nalphabets);
+            &group1
+                .iter()
+                .map(|&i| sequences[i].as_slice())
+                .collect::<Vec<_>>(),
+            &w1n,
+            &scoring.amino_map,
+            scoring.nalphabets,
+        );
         let full_prof2 = Profile::from_aligned(
-            &group2.iter().map(|&i| sequences[i].as_slice()).collect::<Vec<_>>(),
-            &w2n, &scoring.amino_map, scoring.nalphabets);
+            &group2
+                .iter()
+                .map(|&i| sequences[i].as_slice())
+                .collect::<Vec<_>>(),
+            &w2n,
+            &scoring.amino_map,
+            scoring.nalphabets,
+        );
 
         // mafft.tmpl passes `-z 50` to dvtditr, setting fftThreshold=50 for the
         // alignableReagion sliding window (default from constants.c is 80, but
@@ -759,8 +917,7 @@ fn realign_all(
         let mut site_scores = vec![0.0f64; len];
         for i in 0..len {
             site_scores[i] =
-                full_prof1.match_score(i, &full_prof2, i, &scoring.consweight_matrix)
-                / totaleff;
+                full_prof1.match_score(i, &full_prof2, i, &scoring.consweight_matrix) / totaleff;
         }
 
         // Step 2: Find alignable segments via the sliding window threshold test.
@@ -784,10 +941,22 @@ fn realign_all(
             use std::sync::atomic::{AtomicUsize, Ordering};
             static CALL_NO: AtomicUsize = AtomicUsize::new(0);
             let cn = CALL_NO.fetch_add(1, Ordering::SeqCst);
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&f)
+            {
                 let cuts_str: Vec<String> = cuts.iter().map(|c| c.to_string()).collect();
-                let _ = writeln!(fp, "R_FALIGN call={} clus1={} clus2={} len={} nsegs={} cut={}",
-                    cn, group1.len(), group2.len(), width, cuts.len(), cuts_str.join(","));
+                let _ = writeln!(
+                    fp,
+                    "R_FALIGN call={} clus1={} clus2={} len={} nsegs={} cut={}",
+                    cn,
+                    group1.len(),
+                    group2.len(),
+                    width,
+                    cuts.len(),
+                    cuts_str.join(",")
+                );
             }
         }
 
@@ -797,35 +966,58 @@ fn realign_all(
         for (seg_idx, win) in cuts.windows(2).enumerate() {
             let a = win[0];
             let b = win[1];
-            if a >= b { continue; }
+            if a >= b {
+                continue;
+            }
 
             // Slice the segment [a, b) from each sequence.
-            let seg1: Vec<Vec<u8>> = group1.iter()
-                .map(|&i| sequences[i][a..b].to_vec()).collect();
-            let seg2: Vec<Vec<u8>> = group2.iter()
-                .map(|&i| sequences[i][a..b].to_vec()).collect();
+            let seg1: Vec<Vec<u8>> = group1
+                .iter()
+                .map(|&i| sequences[i][a..b].to_vec())
+                .collect();
+            let seg2: Vec<Vec<u8>> = group2
+                .iter()
+                .map(|&i| sequences[i][a..b].to_vec())
+                .collect();
 
             // commongappick on the segment: strip columns where all sequences in
             // THIS GROUP have a gap within THIS SEGMENT. (C's commongappick)
             let seg_width = b - a;
             let seg_gap1: Vec<bool> = (0..seg_width)
-                .map(|c| seg1.iter().all(|s| s[c] == b'-')).collect();
+                .map(|c| seg1.iter().all(|s| s[c] == b'-'))
+                .collect();
             let seg_gap2: Vec<bool> = (0..seg_width)
-                .map(|c| seg2.iter().all(|s| s[c] == b'-')).collect();
+                .map(|c| seg2.iter().all(|s| s[c] == b'-'))
+                .collect();
             let seg_kept1: Vec<usize> = (0..seg_width).filter(|&c| !seg_gap1[c]).collect();
             let seg_kept2: Vec<usize> = (0..seg_width).filter(|&c| !seg_gap2[c]).collect();
 
-            let stripped_seg1: Vec<Vec<u8>> = seg1.iter()
-                .map(|s| seg_kept1.iter().map(|&c| s[c]).collect()).collect();
-            let stripped_seg2: Vec<Vec<u8>> = seg2.iter()
-                .map(|s| seg_kept2.iter().map(|&c| s[c]).collect()).collect();
+            let stripped_seg1: Vec<Vec<u8>> = seg1
+                .iter()
+                .map(|s| seg_kept1.iter().map(|&c| s[c]).collect())
+                .collect();
+            let stripped_seg2: Vec<Vec<u8>> = seg2
+                .iter()
+                .map(|s| seg_kept2.iter().map(|&c| s[c]).collect())
+                .collect();
 
-            if stripped_seg1.is_empty() || stripped_seg1[0].is_empty() ||
-               stripped_seg2.is_empty() || stripped_seg2[0].is_empty() {
+            if stripped_seg1.is_empty()
+                || stripped_seg1[0].is_empty()
+                || stripped_seg2.is_empty()
+                || stripped_seg2[0].is_empty()
+            {
                 // One side is empty — emit gaps for both as-is (only possible
                 // when whole segment is all-gap for one group in every column).
-                let len1 = if stripped_seg1.is_empty() { 0 } else { stripped_seg1[0].len() };
-                let len2 = if stripped_seg2.is_empty() { 0 } else { stripped_seg2[0].len() };
+                let len1 = if stripped_seg1.is_empty() {
+                    0
+                } else {
+                    stripped_seg1[0].len()
+                };
+                let len2 = if stripped_seg2.is_empty() {
+                    0
+                } else {
+                    stripped_seg2[0].len()
+                };
                 for (k, &i) in group1.iter().enumerate() {
                     new_sequences[i].extend_from_slice(&stripped_seg1[k]);
                     new_sequences[i].extend(std::iter::repeat(b'-').take(len2));
@@ -841,23 +1033,55 @@ fn realign_all(
             let s2_refs: Vec<&[u8]> = stripped_seg2.iter().map(|s| s.as_slice()).collect();
             if let Ok(f) = std::env::var("RS_FFT_CUTS") {
                 use std::io::Write;
-                if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+                if let Ok(mut fp) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&f)
+                {
                     let mut h1: u64 = 5381;
                     let mut h2: u64 = 5381;
-                    for s in &stripped_seg1 { for &c in s { h1 = h1.wrapping_mul(33).wrapping_add(c as u64); } }
-                    for s in &stripped_seg2 { for &c in s { h2 = h2.wrapping_mul(33).wrapping_add(c as u64); } }
-                    let _ = writeln!(fp, "R_FSEG seg={} c1raw={} c2raw={} w1strip={} w2strip={} h1={:x} h2={:x}",
-                        seg_idx, b - a, b - a, stripped_seg1[0].len(), stripped_seg2[0].len(), h1, h2);
+                    for s in &stripped_seg1 {
+                        for &c in s {
+                            h1 = h1.wrapping_mul(33).wrapping_add(c as u64);
+                        }
+                    }
+                    for s in &stripped_seg2 {
+                        for &c in s {
+                            h2 = h2.wrapping_mul(33).wrapping_add(c as u64);
+                        }
+                    }
+                    let _ = writeln!(
+                        fp,
+                        "R_FSEG seg={} c1raw={} c2raw={} w1strip={} w2strip={} h1={:x} h2={:x}",
+                        seg_idx,
+                        b - a,
+                        b - a,
+                        stripped_seg1[0].len(),
+                        stripped_seg2[0].len(),
+                        h1,
+                        h2
+                    );
                     for (j, s) in stripped_seg2.iter().enumerate() {
                         let mut ph: u64 = 5381;
-                        for &c in s { ph = ph.wrapping_mul(33).wrapping_add(c as u64); }
+                        for &c in s {
+                            ph = ph.wrapping_mul(33).wrapping_add(c as u64);
+                        }
                         let first10: String = s.iter().take(10).map(|&c| c as char).collect();
-                        let _ = writeln!(fp, "  R_clus2[{}] len={} hash={:x} first10={}", j, s.len(), ph, first10);
+                        let _ = writeln!(
+                            fp,
+                            "  R_clus2[{}] len={} hash={:x} first10={}",
+                            j,
+                            s.len(),
+                            ph,
+                            first10
+                        );
                     }
                 }
             }
-            let mut prof_seg1 = Profile::from_aligned(&s1_refs, &w1n, &scoring.amino_map, scoring.nalphabets);
-            let mut prof_seg2 = Profile::from_aligned(&s2_refs, &w2n, &scoring.amino_map, scoring.nalphabets);
+            let mut prof_seg1 =
+                Profile::from_aligned(&s1_refs, &w1n, &scoring.amino_map, scoring.nalphabets);
+            let mut prof_seg2 =
+                Profile::from_aligned(&s2_refs, &w2n, &scoring.amino_map, scoring.nalphabets);
 
             // C's Falign segment loop (lines 1549-1565):
             //   sgap[j] = (cut1[i]  > 0)    ? (seq[j][cut1[i]-1]   == '-') : 'o'
@@ -921,10 +1145,16 @@ fn realign_all(
                 match col {
                     None => 1.0,
                     Some(c) => {
-                        let wn: &[f64] = if std::ptr::eq(grp.as_ptr(), group1.as_ptr()) { &w1n } else { &w2n };
+                        let wn: &[f64] = if std::ptr::eq(grp.as_ptr(), group1.as_ptr()) {
+                            &w1n
+                        } else {
+                            &w2n
+                        };
                         let mut gap_frac = 0.0f64;
                         for (k, &idx) in grp.iter().enumerate() {
-                            if sequences[idx][c] == b'-' { gap_frac += wn[k]; }
+                            if sequences[idx][c] == b'-' {
+                                gap_frac += wn[k];
+                            }
                         }
                         1.0 - gap_frac
                     }
@@ -939,8 +1169,15 @@ fn realign_all(
                 tail2: outgap_count(group2, right_col),
             };
             let seg_aln = profile_align_imp_with_boundary(
-                &prof_seg1, &prof_seg2, &scoring.consweight_matrix, gap,
-                true, true, None, false, bf,
+                &prof_seg1,
+                &prof_seg2,
+                &scoring.consweight_matrix,
+                gap,
+                true,
+                true,
+                None,
+                false,
+                bf,
             );
             total_score += seg_aln.score;
 
@@ -986,13 +1223,24 @@ fn realign_all(
 
     // Non-FFT path: profile_align on stripped profiles.
     let aln = profile_align(
-        &stripped_prof1, &stripped_prof2,
-        &scoring.consweight_matrix, gap, true, true,
+        &stripped_prof1,
+        &stripped_prof2,
+        &scoring.consweight_matrix,
+        gap,
+        true,
+        true,
     );
     build_result_from_stripped(
-        &aln, group1, group2, sequences, &kept1, &kept2,
-        &stripped_prof1, &stripped_prof2,
-    ).map(|(seqs, score)| (seqs, score, None))
+        &aln,
+        group1,
+        group2,
+        sequences,
+        &kept1,
+        &kept2,
+        &stripped_prof1,
+        &stripped_prof2,
+    )
+    .map(|(seqs, score)| (seqs, score, None))
 }
 
 /// Constraint-aware FFT-segmented refinement, port of C's
@@ -1022,18 +1270,30 @@ fn realign_all_constrained_fft(
     mm_input: Option<&MultiMtxInput>,
 ) -> Option<(Vec<Vec<u8>>, f64, f64)> {
     let width = sequences[group1[0]].len();
-    if width == 0 { return None; }
+    if width == 0 {
+        return None;
+    }
 
     // Build full-alignment profiles for site-score / segment detection
     // (matches the unconstrained FFT path). For refinement,
     // prof1.length == prof2.length == width.
     let full_prof1 = Profile::from_aligned(
-        &group1.iter().map(|&i| sequences[i].as_slice()).collect::<Vec<_>>(),
-        w1n, &scoring.amino_map, scoring.nalphabets,
+        &group1
+            .iter()
+            .map(|&i| sequences[i].as_slice())
+            .collect::<Vec<_>>(),
+        w1n,
+        &scoring.amino_map,
+        scoring.nalphabets,
     );
     let full_prof2 = Profile::from_aligned(
-        &group2.iter().map(|&i| sequences[i].as_slice()).collect::<Vec<_>>(),
-        w2n, &scoring.amino_map, scoring.nalphabets,
+        &group2
+            .iter()
+            .map(|&i| sequences[i].as_slice())
+            .collect::<Vec<_>>(),
+        w2n,
+        &scoring.amino_map,
+        scoring.nalphabets,
     );
 
     let segment_params = if scoring.seq_type.is_nucleotide() {
@@ -1047,16 +1307,17 @@ fn realign_all_constrained_fft(
     let len = full_prof1.length.min(full_prof2.length);
     let mut site_scores = vec![0.0f64; len];
     for i in 0..len {
-        site_scores[i] = full_prof1.match_score(
-            i, &full_prof2, i, &scoring.consweight_matrix,
-        ) / totaleff;
+        site_scores[i] =
+            full_prof1.match_score(i, &full_prof2, i, &scoring.consweight_matrix) / totaleff;
     }
     let segments = alignable_segments(&site_scores, &segment_params);
 
     // Cut points (C's `cut1[i+1] = sortedseg1[i]->center` plus 0 and len).
     let mut cuts: Vec<usize> = Vec::with_capacity(segments.len() + 2);
     cuts.push(0);
-    for seg in &segments { cuts.push(seg.center.min(width)); }
+    for seg in &segments {
+        cuts.push(seg.center.min(width));
+    }
     cuts.push(width);
     cuts.sort();
     cuts.dedup();
@@ -1069,10 +1330,14 @@ fn realign_all_constrained_fft(
     let g2_full: Vec<&[u8]> = group2.iter().map(|&i| sequences[i].as_slice()).collect();
     let global_imp = build_imp_matrix(
         lh_table,
-        group1, group2,
-        &g1_full, &g2_full,
-        w1n, w2n,
-        width, width,
+        group1,
+        group2,
+        &g1_full,
+        &g2_full,
+        w1n,
+        w2n,
+        width,
+        width,
         FASTATHRESHOLD_DEFAULT,
     );
 
@@ -1087,12 +1352,19 @@ fn realign_all_constrained_fft(
         let max_dc = crate::varidist::calc_max_dist_class(mi.unalign_level);
         let gap_idx = scoring.amino_map[b'-' as usize] as usize;
         let matrices = crate::varidist::make_scoring_matrices(
-            &scoring.consweight_matrix, mi.unalign_level, gap_idx, max_dc,
+            &scoring.consweight_matrix,
+            mi.unalign_level,
+            gap_idx,
+            max_dc,
         );
         // smalldist[i][j] = distFromABranch(group1[i]) + distFromABranch(group2[j])
         // (C `OneClusterAndTheOther_fast` with `USEDISTONTREE = 1`).
         let smalldist: Vec<Vec<f64>> = (0..n1)
-            .map(|i| (0..n2).map(|j| mi.distarr[group1[i]] + mi.distarr[group2[j]]).collect())
+            .map(|i| {
+                (0..n2)
+                    .map(|j| mi.distarr[group1[i]] + mi.distarr[group2[j]])
+                    .collect()
+            })
             .collect();
         let pc = crate::varidist::classify_pairs(w1n, w2n, &smalldist, max_dc);
         // Spurious-pair masks: pairs landing in class c's cpmx product whose
@@ -1109,7 +1381,13 @@ fn realign_all_constrained_fft(
                 }
             }
         }
-        MmBranchCtx { matrices, eff1s: pc.eff1s, eff2s: pc.eff2s, mask1, mask2 }
+        MmBranchCtx {
+            matrices,
+            eff1s: pc.eff1s,
+            eff2s: pc.eff2s,
+            mask1,
+            mask2,
+        }
     });
 
     let mut new_sequences: Vec<Vec<u8>> = vec![Vec::new(); sequences.len()];
@@ -1124,35 +1402,57 @@ fn realign_all_constrained_fft(
     for win in cuts.windows(2) {
         let a = win[0];
         let b = win[1];
-        if a >= b { continue; }
+        if a >= b {
+            continue;
+        }
         let seg_width = b - a;
 
         // Slice [a, b) from each member.
-        let seg1: Vec<Vec<u8>> = group1.iter()
-            .map(|&i| sequences[i][a..b].to_vec()).collect();
-        let seg2: Vec<Vec<u8>> = group2.iter()
-            .map(|&i| sequences[i][a..b].to_vec()).collect();
+        let seg1: Vec<Vec<u8>> = group1
+            .iter()
+            .map(|&i| sequences[i][a..b].to_vec())
+            .collect();
+        let seg2: Vec<Vec<u8>> = group2
+            .iter()
+            .map(|&i| sequences[i][a..b].to_vec())
+            .collect();
 
         // commongappick within segment + record gapmap (= column index
         // within segment for each kept stripped column).
         let seg_gap1: Vec<bool> = (0..seg_width)
-            .map(|c| seg1.iter().all(|s| s[c] == b'-')).collect();
+            .map(|c| seg1.iter().all(|s| s[c] == b'-'))
+            .collect();
         let seg_gap2: Vec<bool> = (0..seg_width)
-            .map(|c| seg2.iter().all(|s| s[c] == b'-')).collect();
+            .map(|c| seg2.iter().all(|s| s[c] == b'-'))
+            .collect();
         let gapmap1: Vec<usize> = (0..seg_width).filter(|&c| !seg_gap1[c]).collect();
         let gapmap2: Vec<usize> = (0..seg_width).filter(|&c| !seg_gap2[c]).collect();
 
-        let stripped_seg1: Vec<Vec<u8>> = seg1.iter()
-            .map(|s| gapmap1.iter().map(|&c| s[c]).collect()).collect();
-        let stripped_seg2: Vec<Vec<u8>> = seg2.iter()
-            .map(|s| gapmap2.iter().map(|&c| s[c]).collect()).collect();
+        let stripped_seg1: Vec<Vec<u8>> = seg1
+            .iter()
+            .map(|s| gapmap1.iter().map(|&c| s[c]).collect())
+            .collect();
+        let stripped_seg2: Vec<Vec<u8>> = seg2
+            .iter()
+            .map(|s| gapmap2.iter().map(|&c| s[c]).collect())
+            .collect();
 
         // Edge case: one side completely empty after strip.
-        if stripped_seg1.is_empty() || stripped_seg1[0].is_empty()
-            || stripped_seg2.is_empty() || stripped_seg2[0].is_empty()
+        if stripped_seg1.is_empty()
+            || stripped_seg1[0].is_empty()
+            || stripped_seg2.is_empty()
+            || stripped_seg2[0].is_empty()
         {
-            let len1 = if stripped_seg1.is_empty() { 0 } else { stripped_seg1[0].len() };
-            let len2 = if stripped_seg2.is_empty() { 0 } else { stripped_seg2[0].len() };
+            let len1 = if stripped_seg1.is_empty() {
+                0
+            } else {
+                stripped_seg1[0].len()
+            };
+            let len2 = if stripped_seg2.is_empty() {
+                0
+            } else {
+                stripped_seg2[0].len()
+            };
             for (k, &i) in group1.iter().enumerate() {
                 new_sequences[i].extend_from_slice(&stripped_seg1[k]);
                 new_sequences[i].extend(std::iter::repeat(b'-').take(len2));
@@ -1183,8 +1483,10 @@ fn realign_all_constrained_fft(
 
         let s1_refs: Vec<&[u8]> = stripped_seg1.iter().map(|s| s.as_slice()).collect();
         let s2_refs: Vec<&[u8]> = stripped_seg2.iter().map(|s| s.as_slice()).collect();
-        let mut prof_seg1 = Profile::from_aligned(&s1_refs, w1n, &scoring.amino_map, scoring.nalphabets);
-        let mut prof_seg2 = Profile::from_aligned(&s2_refs, w2n, &scoring.amino_map, scoring.nalphabets);
+        let mut prof_seg1 =
+            Profile::from_aligned(&s1_refs, w1n, &scoring.amino_map, scoring.nalphabets);
+        let mut prof_seg2 =
+            Profile::from_aligned(&s2_refs, w2n, &scoring.amino_map, scoring.nalphabets);
 
         // Per-segment boundary gap correction (mirrors C's `getkyokaigap`
         // → `new_OpeningGapCount` in `MSalignmm`/`partA__align`). Same as
@@ -1252,30 +1554,55 @@ fn realign_all_constrained_fft(
         //   tail{1,2} = nongap fraction at full-alignment column [b]
         //               (1.0 when b == width → C's `egap[j]='o'` branch)
         let head1 = if a > 0 {
-            let s: f64 = group1.iter().enumerate()
+            let s: f64 = group1
+                .iter()
+                .enumerate()
                 .filter(|&(_, &idx)| sequences[idx][a - 1] == b'-')
-                .map(|(k, _)| w1n[k]).sum();
+                .map(|(k, _)| w1n[k])
+                .sum();
             1.0 - s
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         let head2 = if a > 0 {
-            let s: f64 = group2.iter().enumerate()
+            let s: f64 = group2
+                .iter()
+                .enumerate()
                 .filter(|&(_, &idx)| sequences[idx][a - 1] == b'-')
-                .map(|(k, _)| w2n[k]).sum();
+                .map(|(k, _)| w2n[k])
+                .sum();
             1.0 - s
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         let tail1 = if b < width {
-            let s: f64 = group1.iter().enumerate()
+            let s: f64 = group1
+                .iter()
+                .enumerate()
                 .filter(|&(_, &idx)| sequences[idx][b] == b'-')
-                .map(|(k, _)| w1n[k]).sum();
+                .map(|(k, _)| w1n[k])
+                .sum();
             1.0 - s
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         let tail2 = if b < width {
-            let s: f64 = group2.iter().enumerate()
+            let s: f64 = group2
+                .iter()
+                .enumerate()
                 .filter(|&(_, &idx)| sequences[idx][b] == b'-')
-                .map(|(k, _)| w2n[k]).sum();
+                .map(|(k, _)| w2n[k])
+                .sum();
             1.0 - s
-        } else { 1.0 };
-        let boundary = BoundaryFreqs { head1, head2, tail1, tail2 };
+        } else {
+            1.0
+        };
+        let boundary = BoundaryFreqs {
+            head1,
+            head2,
+            tail1,
+            tail2,
+        };
         let seg_aln = if let Some(ctx) = mm_ctx.as_ref() {
             // `--allowshift`: build this segment's per-class cpmx profiles
             // (weighted by eff{1,2}s[c], same accumulation as the single
@@ -1283,14 +1610,26 @@ fn realign_all_constrained_fft(
             // the multi-distance-class DP (C `partA__align_variousdist`).
             let nc = ctx.matrices.len();
             let cpmx1s: Vec<Vec<Vec<f64>>> = (0..nc)
-                .map(|c| Profile::from_aligned(
-                    &s1_refs, &ctx.eff1s[c], &scoring.amino_map, scoring.nalphabets,
-                ).freqs)
+                .map(|c| {
+                    Profile::from_aligned(
+                        &s1_refs,
+                        &ctx.eff1s[c],
+                        &scoring.amino_map,
+                        scoring.nalphabets,
+                    )
+                    .freqs
+                })
                 .collect();
             let cpmx2s: Vec<Vec<Vec<f64>>> = (0..nc)
-                .map(|c| Profile::from_aligned(
-                    &s2_refs, &ctx.eff2s[c], &scoring.amino_map, scoring.nalphabets,
-                ).freqs)
+                .map(|c| {
+                    Profile::from_aligned(
+                        &s2_refs,
+                        &ctx.eff2s[c],
+                        &scoring.amino_map,
+                        scoring.nalphabets,
+                    )
+                    .freqs
+                })
                 .collect();
             // Sparse (alpha_index, value) representations of cpmx1s/cpmx2s,
             // skipping zero alphabet positions. Hot path for
@@ -1298,15 +1637,23 @@ fn realign_all_constrained_fft(
             // an O(nalpha²) scarr build + O(nalpha·lgth2) accumulation into
             // O(nalpha) + O(lgth2). nalpha < 256 so u8 indices suffice.
             let sparsify = |dense: &Vec<Vec<Vec<f64>>>| -> Vec<Vec<Vec<(u8, f64)>>> {
-                dense.iter().map(|class| {
-                    class.iter().map(|col| {
-                        let mut v: Vec<(u8, f64)> = Vec::with_capacity(col.len());
-                        for (l, &x) in col.iter().enumerate() {
-                            if x != 0.0 { v.push((l as u8, x)); }
-                        }
-                        v
-                    }).collect()
-                }).collect()
+                dense
+                    .iter()
+                    .map(|class| {
+                        class
+                            .iter()
+                            .map(|col| {
+                                let mut v: Vec<(u8, f64)> = Vec::with_capacity(col.len());
+                                for (l, &x) in col.iter().enumerate() {
+                                    if x != 0.0 {
+                                        v.push((l as u8, x));
+                                    }
+                                }
+                                v
+                            })
+                            .collect()
+                    })
+                    .collect()
             };
             let cpmx1s_sparse = sparsify(&cpmx1s);
             let cpmx2s_sparse = sparsify(&cpmx2s);
@@ -1326,13 +1673,28 @@ fn realign_all_constrained_fft(
                 nalpha: scoring.nalphabets,
             };
             profile_align_imp_multimtx(
-                &prof_seg1, &prof_seg2, &scoring.consweight_matrix, gap,
-                true, true, Some(&local_imp), true, boundary, Some(&mm),
+                &prof_seg1,
+                &prof_seg2,
+                &scoring.consweight_matrix,
+                gap,
+                true,
+                true,
+                Some(&local_imp),
+                true,
+                boundary,
+                Some(&mm),
             )
         } else {
             profile_align_imp_with_boundary(
-                &prof_seg1, &prof_seg2, &scoring.consweight_matrix, gap,
-                true, true, Some(&local_imp), true, boundary,
+                &prof_seg1,
+                &prof_seg2,
+                &scoring.consweight_matrix,
+                gap,
+                true,
+                true,
+                Some(&local_imp),
+                true,
+                boundary,
             )
         };
         total_score += seg_aln.score;
@@ -1349,9 +1711,17 @@ fn realign_all_constrained_fft(
             let mut match_cells: Vec<(usize, usize)> = Vec::new();
             for op in &seg_aln.operations {
                 match op {
-                    AlignOp::Match => { match_cells.push((mi1, mi2)); mi1 += 1; mi2 += 1; }
-                    AlignOp::Delete => { mi1 += 1; }
-                    AlignOp::Insert => { mi2 += 1; }
+                    AlignOp::Match => {
+                        match_cells.push((mi1, mi2));
+                        mi1 += 1;
+                        mi2 += 1;
+                    }
+                    AlignOp::Delete => {
+                        mi1 += 1;
+                    }
+                    AlignOp::Insert => {
+                        mi2 += 1;
+                    }
                 }
             }
             let mut seg_imp = 0.0f64;
@@ -1373,7 +1743,8 @@ fn realign_all_constrained_fft(
                     for (k, &idx) in group2.iter().enumerate() {
                         new_sequences[idx].push(stripped_seg2[k][i2]);
                     }
-                    i1 += 1; i2 += 1;
+                    i1 += 1;
+                    i2 += 1;
                 }
                 AlignOp::Delete => {
                     for (k, &idx) in group1.iter().enumerate() {
@@ -1432,10 +1803,16 @@ fn build_result_from_stripped(
     prof1: &Profile,
     prof2: &Profile,
 ) -> Option<(Vec<Vec<u8>>, f64)> {
-    let consumed1 = aln.operations.iter()
-        .filter(|op| matches!(op, AlignOp::Match | AlignOp::Delete)).count();
-    let consumed2 = aln.operations.iter()
-        .filter(|op| matches!(op, AlignOp::Match | AlignOp::Insert)).count();
+    let consumed1 = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match | AlignOp::Delete))
+        .count();
+    let consumed2 = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match | AlignOp::Insert))
+        .count();
     if consumed1 != prof1.length || consumed2 != prof2.length {
         return None;
     }
@@ -1448,20 +1825,33 @@ fn build_result_from_stripped(
             AlignOp::Match => {
                 let oc1 = kept1[c1];
                 let oc2 = kept2[c2];
-                for &i in group1 { new_sequences[i].push(sequences[i][oc1]); }
-                for &i in group2 { new_sequences[i].push(sequences[i][oc2]); }
-                c1 += 1; c2 += 1;
+                for &i in group1 {
+                    new_sequences[i].push(sequences[i][oc1]);
+                }
+                for &i in group2 {
+                    new_sequences[i].push(sequences[i][oc2]);
+                }
+                c1 += 1;
+                c2 += 1;
             }
             AlignOp::Delete => {
                 let oc1 = kept1[c1];
-                for &i in group1 { new_sequences[i].push(sequences[i][oc1]); }
-                for &i in group2 { new_sequences[i].push(b'-'); }
+                for &i in group1 {
+                    new_sequences[i].push(sequences[i][oc1]);
+                }
+                for &i in group2 {
+                    new_sequences[i].push(b'-');
+                }
                 c1 += 1;
             }
             AlignOp::Insert => {
                 let oc2 = kept2[c2];
-                for &i in group1 { new_sequences[i].push(b'-'); }
-                for &i in group2 { new_sequences[i].push(sequences[i][oc2]); }
+                for &i in group1 {
+                    new_sequences[i].push(b'-');
+                }
+                for &i in group2 {
+                    new_sequences[i].push(sequences[i][oc2]);
+                }
                 c2 += 1;
             }
         }
@@ -1498,15 +1888,21 @@ fn compute_impmatch_diagonal(
     lh_table: &LocalHomologyTable,
 ) -> f64 {
     let width = sequences[group1[0]].len();
-    if width == 0 { return 0.0; }
+    if width == 0 {
+        return 0.0;
+    }
     let g1_seqs: Vec<&[u8]> = group1.iter().map(|&i| sequences[i].as_slice()).collect();
     let g2_seqs: Vec<&[u8]> = group2.iter().map(|&i| sequences[i].as_slice()).collect();
     let imp = build_imp_matrix(
         lh_table,
-        group1, group2,
-        &g1_seqs, &g2_seqs,
-        eff1, eff2,
-        width, width,
+        group1,
+        group2,
+        &g1_seqs,
+        &g2_seqs,
+        eff1,
+        eff2,
+        width,
+        width,
         FASTATHRESHOLD_DEFAULT,
     );
     // C `tditeration.c:891`: `for(i=length-1; i>=0; i--) oimpmatchdouble += imp_match_out_scD(i,i);`
@@ -1541,21 +1937,26 @@ fn compute_split_score(
     let w2: Vec<f64> = group2.iter().map(|&i| weights[i].max(min_weight)).collect();
     let s1: f64 = w1.iter().sum();
     let s2: f64 = w2.iter().sum();
-    let w1n: Vec<f64> = if s1 > 0.0 { w1.iter().map(|w| w / s1).collect() } else { vec![1.0; group1.len()] };
-    let w2n: Vec<f64> = if s2 > 0.0 { w2.iter().map(|w| w / s2).collect() } else { vec![1.0; group2.len()] };
+    let w1n: Vec<f64> = if s1 > 0.0 {
+        w1.iter().map(|w| w / s1).collect()
+    } else {
+        vec![1.0; group1.len()]
+    };
+    let w2n: Vec<f64> = if s2 > 0.0 {
+        w2.iter().map(|w| w / s2).collect()
+    } else {
+        vec![1.0; group2.len()]
+    };
 
     // Sequential sum to match C's deterministic accumulation order.
     // par_iter gives non-deterministic summation order, which causes
     // small FP divergence that cascades into accept/reject decisions.
     //
-    // FMA: clang at -O3 with FP_CONTRACT=on lowers
-    //   total += score * wi * wj
-    // to one plain mul (score * wi) plus one fma (acc += (score*wi)*wj),
-    // i.e. 2 roundings. Plain Rust `*` and `+=` give 3 roundings, and
-    // the resulting sub-ULP per-pair drift accumulates over (clus1 *
-    // clus2) pairs into a multi-unit mscore drift that flips
-    // accept/reject decisions late in iterative refinement (BB30028
-    // L-INS-i iter=3 l=5 k=1 fingerprint).
+    // Keep the C expression shape: `(score * wi) * wj + total`, with
+    // explicit multiply/add operations. Reassociating this into
+    // `score * (wi * wj) + total` or using `mul_add` changes the rounding
+    // path, and sub-ULP per-pair drift can accumulate enough to flip
+    // accept/reject decisions late in iterative refinement.
     let mut total = 0.0f64;
     for (i_local, &i) in group1.iter().enumerate() {
         let wi = w1n[i_local];
@@ -1753,8 +2154,8 @@ pub fn bestfirst_refine(
     let global_weights = mafft_tree::sequence_weights(topology);
     let use_global_weights = std::env::var("RUST_MAFFT_GLOBAL_WEIGHTS").is_ok();
     // Same C-mirroring zero-out as `iterative_refine` (dvtditr without -g).
-    let mut gap = GapModel::new(scoring.gap.open as f64, 0.0)
-        .with_legacy_gap_cost(params.legacy_gap_cost);
+    let mut gap =
+        GapModel::new(scoring.gap.open as f64, 0.0).with_legacy_gap_cost(params.legacy_gap_cost);
     if let Some(s) = params.shift {
         gap = gap.with_shift(s);
     }
@@ -1780,22 +2181,40 @@ pub fn bestfirst_refine(
                 } else {
                     branch_weights.weights_for_branch(topology, step_idx, *_side)
                 };
-                let w1: Vec<f64> = group1.iter().map(|&i| weights[i].max(params.minimum_weight)).collect();
-                let w2: Vec<f64> = group2.iter().map(|&i| weights[i].max(params.minimum_weight)).collect();
+                let w1: Vec<f64> = group1
+                    .iter()
+                    .map(|&i| weights[i].max(params.minimum_weight))
+                    .collect();
+                let w2: Vec<f64> = group2
+                    .iter()
+                    .map(|&i| weights[i].max(params.minimum_weight))
+                    .collect();
                 let s1w: f64 = w1.iter().sum();
                 let s2w: f64 = w2.iter().sum();
-                let w1n: Vec<f64> = if s1w > 0.0 { w1.iter().map(|w| w / s1w).collect() } else { vec![1.0; group1.len()] };
-                let w2n: Vec<f64> = if s2w > 0.0 { w2.iter().map(|w| w / s2w).collect() } else { vec![1.0; group2.len()] };
+                let w1n: Vec<f64> = if s1w > 0.0 {
+                    w1.iter().map(|w| w / s1w).collect()
+                } else {
+                    vec![1.0; group1.len()]
+                };
+                let w2n: Vec<f64> = if s2w > 0.0 {
+                    w2.iter().map(|w| w / s2w).collect()
+                } else {
+                    vec![1.0; group2.len()]
+                };
 
                 let old_sub = compute_split_score(
-                    group1, group2, &baseline_seqs, &weights, scoring,
+                    group1,
+                    group2,
+                    &baseline_seqs,
+                    &weights,
+                    scoring,
                     params.minimum_weight,
                 );
                 let old_imp = if let Some(lh) = constraints {
-                    compute_impmatch_diagonal(
-                        group1, group2, &baseline_seqs, &w1n, &w2n, lh,
-                    )
-                } else { 0.0 };
+                    compute_impmatch_diagonal(group1, group2, &baseline_seqs, &w1n, &w2n, lh)
+                } else {
+                    0.0
+                };
                 let old_score = old_sub + old_imp;
 
                 let mm_distarr: Option<Vec<f64>> = if params.unalign_level > 0.0 {
@@ -1809,8 +2228,15 @@ pub fn bestfirst_refine(
                 });
 
                 if let Some((new_seqs, _, dp_impmatch)) = realign_all(
-                    group1, group2, &baseline_seqs, &weights, scoring, &gap,
-                    constraints, params.use_fft, mm_input.as_ref(),
+                    group1,
+                    group2,
+                    &baseline_seqs,
+                    &weights,
+                    scoring,
+                    &gap,
+                    constraints,
+                    params.use_fft,
+                    mm_input.as_ref(),
                     params.minimum_weight,
                 ) {
                     // C `tditeration.c:2185`: `identity = !strcmp(localcopy[s1], mastercopy[s1])`
@@ -1819,20 +2245,26 @@ pub fn bestfirst_refine(
                     // recompute (matches C's branch and avoids FP drift around zero).
                     let s1 = group1[0];
                     let s2 = group2[0];
-                    let changed = baseline_seqs[s1] != new_seqs[s1]
-                        || baseline_seqs[s2] != new_seqs[s2];
+                    let changed =
+                        baseline_seqs[s1] != new_seqs[s1] || baseline_seqs[s2] != new_seqs[s2];
                     if !changed {
                         continue;
                     }
                     let new_sub = compute_split_score(
-                        group1, group2, &new_seqs, &weights, scoring,
+                        group1,
+                        group2,
+                        &new_seqs,
+                        &weights,
+                        scoring,
                         params.minimum_weight,
                     );
                     let new_imp = if let Some(lh) = constraints {
-                        dp_impmatch.unwrap_or_else(|| compute_impmatch_diagonal(
-                            group1, group2, &new_seqs, &w1n, &w2n, lh,
-                        ))
-                    } else { 0.0 };
+                        dp_impmatch.unwrap_or_else(|| {
+                            compute_impmatch_diagonal(group1, group2, &new_seqs, &w1n, &w2n, lh)
+                        })
+                    } else {
+                        0.0
+                    };
                     let new_score = new_sub + new_imp;
                     let gain = new_score - old_score;
                     if gain > 0.0 {
@@ -1859,7 +2291,8 @@ pub fn bestfirst_refine(
 /// `intergroup_score` clone that mirrors C's
 /// `mltaln9.c::intergroup_score` (lines 404-477) FP-order EXACTLY:
 /// the C code precomputes `efficient = eff1[i] * eff2[j]` THEN does
-/// `*value += tmpscore * efficient` (one mul outside, then one fma).
+/// `*value += tmpscore * efficient`, with `efficient` rounded before
+/// the score product.
 /// This differs from `compute_split_score` which inlines as
 /// `(tmpscore * wi) * wj + total` (a different product order).
 ///
@@ -1884,8 +2317,16 @@ fn intergroup_score_c_order(
     let w2: Vec<f64> = group2.iter().map(|&i| weights[i]).collect();
     let s1: f64 = w1.iter().sum();
     let s2: f64 = w2.iter().sum();
-    let w1n: Vec<f64> = if s1 > 0.0 { w1.iter().map(|w| w / s1).collect() } else { vec![1.0; group1.len()] };
-    let w2n: Vec<f64> = if s2 > 0.0 { w2.iter().map(|w| w / s2).collect() } else { vec![1.0; group2.len()] };
+    let w1n: Vec<f64> = if s1 > 0.0 {
+        w1.iter().map(|w| w / s1).collect()
+    } else {
+        vec![1.0; group1.len()]
+    };
+    let w2n: Vec<f64> = if s2 > 0.0 {
+        w2.iter().map(|w| w / s2).collect()
+    } else {
+        vec![1.0; group2.len()]
+    };
 
     let mut total = 0.0f64;
     for (i_local, &i) in group1.iter().enumerate() {
@@ -1894,8 +2335,7 @@ fn intergroup_score_c_order(
             let wj = w2n[j_local];
             // C `mltaln9.c:426`: `efficient = eff1[i] * eff2[j]`
             // (one rounding), then `mltaln9.c:466`:
-            // `*value += (double)tmpscore * doubleefficient`
-            // (with FP_CONTRACT on at clang -O3 this is one fma).
+            // `*value += (double)tmpscore * doubleefficient`.
             let efficient = wi * wj;
             let tmpscore = pairwise_score(&sequences[i], &sequences[j], scoring);
             total = tmpscore * efficient + total;
@@ -1980,10 +2420,8 @@ pub fn one_vs_others_refine(
         // intergroup_score skips gap-gap columns anyway so the
         // baseline value is invariant to that stripping. No
         // constraints (disttbfast path), so impmatch = 0.
-        let oscore = intergroup_score_c_order(
-            &group1, &group2, &alignment.sequences, &weights, scoring,
-        );
-
+        let oscore =
+            intergroup_score_c_order(&group1, &group2, &alignment.sequences, &weights, scoring);
 
         // Mirror C `dooneiteration` exactly: per-group commongappick
         // FIRST, THEN call progressive-Falign on the stripped data.
@@ -2000,8 +2438,7 @@ pub fn one_vs_others_refine(
         // Build a transient "candidate" workspace where each group has
         // its common-gap columns removed. For sequences NOT in either
         // group we keep raw bytes (they're irrelevant to the merge).
-        let mut candidate: Vec<Vec<u8>> = alignment.sequences.iter()
-            .map(|s| s.clone()).collect();
+        let mut candidate: Vec<Vec<u8>> = alignment.sequences.iter().map(|s| s.clone()).collect();
         for &i in &group1 {
             let stripped: Vec<u8> = (0..width)
                 .filter(|&c| !g1_gap_cols[c])
@@ -2022,7 +2459,12 @@ pub fn one_vs_others_refine(
         // alignment row; other indices keep their pre-strip data
         // (and we never read them again before discarding).
         let _ = crate::progressive::merge_two_groups_progressive(
-            &group1, &group2, &mut candidate, &weights, scoring, &gap,
+            &group1,
+            &group2,
+            &mut candidate,
+            &weights,
+            scoring,
+            &gap,
             params.use_fft,
             // C `disttbfast` is invoked with `-O` ($termgapopt) for
             // FFT-NS-2/i, meaning `outgap = 0` (terminal gaps NOT
@@ -2032,9 +2474,7 @@ pub fn one_vs_others_refine(
             false,
         );
 
-        let nscore = intergroup_score_c_order(
-            &group1, &group2, &candidate, &weights, scoring,
-        );
+        let nscore = intergroup_score_c_order(&group1, &group2, &candidate, &weights, scoring);
         // C `disttbfast.c:2457`: if( nscore < oscore ) revert.
         // Equivalent to accept-when-nscore-≥-oscore.
         if nscore >= oscore {
@@ -2065,12 +2505,16 @@ pub fn segmented_iterative_refine(
         &alignment.sequences,
         &scoring.substitution_matrix,
         &scoring.amino_map,
-        20, 65,
+        20,
+        65,
     );
     if anchors.len() <= 2 {
         // No anchors found → behave like single-segment refinement.
         if refine_stats_enabled() {
-            eprintln!("refine-segments: anchors={} segments=1 (unsegmented)", anchors.len());
+            eprintln!(
+                "refine-segments: anchors={} segments=1 (unsegmented)",
+                anchors.len()
+            );
         }
         return iterative_refine(alignment, topology, scoring, params, constraints);
     }
@@ -2088,9 +2532,13 @@ pub fn segmented_iterative_refine(
 
     for w in anchors.windows(2) {
         let (start, end) = (w[0], w[1]);
-        if start >= end { continue; }
+        if start >= end {
+            continue;
+        }
 
-        let seg_seqs: Vec<Vec<u8>> = alignment.sequences.iter()
+        let seg_seqs: Vec<Vec<u8>> = alignment
+            .sequences
+            .iter()
             .map(|s| s[start..end].to_vec())
             .collect();
         let mut seg_msa = MultipleAlignment {
@@ -2099,7 +2547,8 @@ pub fn segmented_iterative_refine(
             score: 0.0,
             step_trace: Vec::new(),
             guide_tree: None,
-            first_pass_sequences: None, distance_matrix: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
 
         let iters = iterative_refine(&mut seg_msa, topology, scoring, params, constraints);
@@ -2117,10 +2566,10 @@ pub fn segmented_iterative_refine(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mafft_tree::{DistanceMatrix, upgma};
-    use mafft_scoring::build_context;
-    use mafft_types::{ScoringModel, SeqType};
     use crate::progressive::progressive_align;
+    use mafft_scoring::build_context;
+    use mafft_tree::{DistanceMatrix, upgma};
+    use mafft_types::{ScoringModel, SeqType};
 
     /// Helper: build a 6-sequence UPGMA topology for branch-enumeration tests.
     fn make_6seq_topology() -> (Topology, usize) {
@@ -2153,8 +2602,10 @@ mod tests {
         let branch_map = build_branch_map(&topo, nseq);
         let total: usize = branch_map.iter().map(|sides| sides.len()).sum();
         let expected = (nseq - 1) * 2 - 1;
-        assert_eq!(total, expected,
-            "branch count should be (nseq-1)*2-1 = {expected}, got {total}");
+        assert_eq!(
+            total, expected,
+            "branch count should be (nseq-1)*2-1 = {expected}, got {total}"
+        );
     }
 
     /// Guard: root step has exactly 1 branch (side 1 only).
@@ -2168,8 +2619,12 @@ mod tests {
         let (topo, nseq) = make_6seq_topology();
         let branch_map = build_branch_map(&topo, nseq);
         let root_branches = branch_map.last().unwrap();
-        assert_eq!(root_branches.len(), 1,
-            "root step should have 1 branch (side 1 only), got {}", root_branches.len());
+        assert_eq!(
+            root_branches.len(),
+            1,
+            "root step should have 1 branch (side 1 only), got {}",
+            root_branches.len()
+        );
         assert_eq!(root_branches[0].0, 1, "root branch should be side 1");
     }
 
@@ -2180,8 +2635,12 @@ mod tests {
         let branch_map = build_branch_map(&topo, nseq);
         for (step_idx, sides) in branch_map.iter().enumerate() {
             if step_idx < branch_map.len() - 1 {
-                assert_eq!(sides.len(), 2,
-                    "non-root step {step_idx} should have 2 branches, got {}", sides.len());
+                assert_eq!(
+                    sides.len(),
+                    2,
+                    "non-root step {step_idx} should have 2 branches, got {}",
+                    sides.len()
+                );
             }
         }
     }
@@ -2195,8 +2654,10 @@ mod tests {
     #[test]
     fn default_cut_is_zero() {
         let params = RefinementParams::default();
-        assert_eq!(params.cut, 0.0,
-            "default cut must be 0.0 (strict improvement only), matching C's dvtditr.c");
+        assert_eq!(
+            params.cut, 0.0,
+            "default cut must be 0.0 (strict improvement only), matching C's dvtditr.c"
+        );
     }
 
     /// Guard: even iterations traverse steps forward, odd iterations reverse.
@@ -2220,8 +2681,10 @@ mod tests {
         // Odd iteration → reverse
         assert_eq!(reverse[0], nsteps - 1, "reverse should start at last step");
         // They must differ (nsteps > 1 for any nseq > 2)
-        assert_ne!(forward, reverse,
-            "forward and reverse step orders must differ for alternation");
+        assert_ne!(
+            forward, reverse,
+            "forward and reverse step orders must differ for alternation"
+        );
     }
 
     /// Guard: oscillation detection terminates refinement early.
@@ -2258,10 +2721,14 @@ mod tests {
         let iters = iterative_refine(&mut msa, &topo, &scoring, &params, None);
         // Identical sequences must converge immediately — either via the
         // identity check or via the convergence counter (nseq * 2 = 6).
-        assert!(iters < 100,
-            "expected early termination (convergence/oscillation), got {iters} iterations");
-        assert!(iters <= 2,
-            "identical sequences should converge in 1-2 iterations, got {iters}");
+        assert!(
+            iters < 100,
+            "expected early termination (convergence/oscillation), got {iters} iterations"
+        );
+        assert!(
+            iters <= 2,
+            "identical sequences should converge in 1-2 iterations, got {iters}"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -2298,7 +2765,9 @@ mod tests {
             assert_eq!(seq.len(), width);
         }
 
-        let ungapped: Vec<Vec<u8>> = msa.sequences.iter()
+        let ungapped: Vec<Vec<u8>> = msa
+            .sequences
+            .iter()
             .map(|s| s.iter().filter(|&&c| c != b'-').cloned().collect())
             .collect();
         assert_eq!(ungapped[0], b"ACDEFGHIK");
@@ -2318,12 +2787,19 @@ mod tests {
         let names: Vec<String> = (0..4).map(|i| format!("s{i}")).collect();
 
         let mut dm = DistanceMatrix::new(4);
-        dm.set(0, 1, 0.1); dm.set(0, 2, 0.2); dm.set(0, 3, 0.3);
-        dm.set(1, 2, 0.15); dm.set(1, 3, 0.25); dm.set(2, 3, 0.15);
+        dm.set(0, 1, 0.1);
+        dm.set(0, 2, 0.2);
+        dm.set(0, 3, 0.3);
+        dm.set(1, 2, 0.15);
+        dm.set(1, 3, 0.25);
+        dm.set(2, 3, 0.15);
         let topo = upgma(&dm);
 
         let mut msa = progressive_align(&seqs, &names, &topo, &scoring, false, None);
-        let params = RefinementParams { max_iterations: 5, ..Default::default() };
+        let params = RefinementParams {
+            max_iterations: 5,
+            ..Default::default()
+        };
 
         iterative_refine(&mut msa, &topo, &scoring, &params, None);
 
@@ -2336,8 +2812,13 @@ mod tests {
         // Verify residue preservation
         for (i, seq) in msa.sequences.iter().enumerate() {
             let residue_count = seq.iter().filter(|&&c| c != b'-').count();
-            assert_eq!(residue_count, seqs[i].len(),
-                "sequence {i} lost residues: {} vs {}", residue_count, seqs[i].len());
+            assert_eq!(
+                residue_count,
+                seqs[i].len(),
+                "sequence {i} lost residues: {} vs {}",
+                residue_count,
+                seqs[i].len()
+            );
         }
     }
 
@@ -2363,16 +2844,26 @@ mod tests {
         let topo = upgma(&dm);
 
         let mut msa = progressive_align(&seqs, &names, &topo, &scoring, false, None);
-        let params = RefinementParams { max_iterations: 3, ..Default::default() };
+        let params = RefinementParams {
+            max_iterations: 3,
+            ..Default::default()
+        };
 
         iterative_refine(&mut msa, &topo, &scoring, &params, None);
 
         let width = msa.width();
         for (i, seq) in msa.sequences.iter().enumerate() {
-            assert_eq!(seq.len(), width, "sequence {i} has wrong width after refinement");
+            assert_eq!(
+                seq.len(),
+                width,
+                "sequence {i} has wrong width after refinement"
+            );
             let residues = seq.iter().filter(|&&c| c != b'-').count();
-            assert_eq!(residues, seqs[i].len(),
-                "sequence {i} lost residues during refinement");
+            assert_eq!(
+                residues,
+                seqs[i].len(),
+                "sequence {i} lost residues during refinement"
+            );
         }
     }
 
@@ -2417,14 +2908,21 @@ mod tests {
         let post_width = msa.width();
         // Width should not blow up — allow at most 2x growth for reasonable
         // refinement (C typically keeps width within ~10% of progressive).
-        assert!(post_width <= pre_width * 2,
-            "width explosion: {} -> {} (>2x growth)", pre_width, post_width);
+        assert!(
+            post_width <= pre_width * 2,
+            "width explosion: {} -> {} (>2x growth)",
+            pre_width,
+            post_width
+        );
 
         for (i, seq) in msa.sequences.iter().enumerate() {
             assert_eq!(seq.len(), post_width, "sequence {i} has wrong width");
             let residues = seq.iter().filter(|&&c| c != b'-').count();
-            assert_eq!(residues, seqs[i].len(),
-                "sequence {i} lost residues during FFT refinement");
+            assert_eq!(
+                residues,
+                seqs[i].len(),
+                "sequence {i} lost residues during FFT refinement"
+            );
         }
     }
 }

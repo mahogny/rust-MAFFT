@@ -1,7 +1,6 @@
 /// DNA IUPAC ambiguity code scoring.
 ///
 /// Ports the C `ambiguousscore()` and `nscore()` from constants.c.
-
 use crate::alphabet::{Alphabet, DNA_ALPHABET};
 use crate::round_half_away;
 
@@ -45,9 +44,7 @@ pub fn fill_dna_ambiguity_scores(n_dis: &mut [Vec<i32>]) {
             n_dis[ci][i] = n_dis[i][ci];
         }
         // Self-score
-        n_dis[ci][ci] = round_half_away(
-            (n_dis[b1][b1] as f64 + n_dis[b2][b2] as f64) / 2.0,
-        );
+        n_dis[ci][ci] = round_half_away((n_dis[b1][b1] as f64 + n_dis[b2][b2] as f64) / 2.0);
     }
 
     // Fill 3-base codes

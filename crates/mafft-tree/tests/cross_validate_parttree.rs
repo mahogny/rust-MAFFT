@@ -15,18 +15,17 @@
 ///   bit-for-bit for the lengths in the sample.
 /// - `parttree_distance_matches_c`: end-to-end pairwise distance
 ///   matches C's `(1 - common/min(ss,ss)) * lenfac`.
-
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::sync::Mutex;
 
 use mafft_io::read_fasta;
-use mafft_tree::{musclesupg, ClusterMethod, DistanceMatrix};
 use mafft_tree::parttree_dist::{
-    common_sextets_p, composition_table, encode_points_protein, lenfac,
-    parttree_distance_protein, MAX6DIST, PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+    MAX6DIST, PLENFACA, PLENFACB, PLENFACC, PLENFACD, common_sextets_p, composition_table,
+    encode_points_protein, lenfac, parttree_distance_protein,
 };
-use mafft_tree::parttree_pivot::{run_pivot_pipeline, PtSeqKind};
+use mafft_tree::parttree_pivot::{PtSeqKind, run_pivot_pipeline};
+use mafft_tree::{ClusterMethod, DistanceMatrix, musclesupg};
 
 static C_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -90,66 +89,99 @@ unsafe fn c_encode_points(seq: &[u8]) -> Vec<i32> {
 fn parttree_points_match_c() {
     // C globals are shared across all FFI tests in this binary; serialize
     // access. Recover from poison so a single failing test doesn't cascade.
-    let _g = C_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _g = C_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
         .expect("load mafft-upstream/test/sample");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     for (idx, seq) in input.sequences.iter().enumerate() {
         let rust_pts = encode_points_protein(&seq.data);
         let c_pts = unsafe { c_encode_points(&seq.data) };
-        assert_eq!(rust_pts.len(), c_pts.len(),
+        assert_eq!(
+            rust_pts.len(),
+            c_pts.len(),
             "seq {idx} '{}': Rust={} pts, C={} pts",
-            seq.name, rust_pts.len(), c_pts.len());
+            seq.name,
+            rust_pts.len(),
+            c_pts.len()
+        );
         for (i, (&r, &c)) in rust_pts.iter().zip(c_pts.iter()).enumerate() {
-            assert_eq!(r as i32, c, "seq {idx} '{}' point {i}: Rust={r} C={c}", seq.name);
+            assert_eq!(
+                r as i32, c,
+                "seq {idx} '{}' point {i}: Rust={r} C={c}",
+                seq.name
+            );
         }
     }
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 }
 
 #[test]
 fn parttree_common_sextets_match_c() {
     // C globals are shared across all FFI tests in this binary; serialize
     // access. Recover from poison so a single failing test doesn't cascade.
-    let _g = C_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _g = C_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
         .expect("load mafft-upstream/test/sample");
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     // Encode all sequences using both Rust and C.
-    let rust_points: Vec<Vec<u32>> = input.sequences.iter()
+    let rust_points: Vec<Vec<u32>> = input
+        .sequences
+        .iter()
         .map(|s| encode_points_protein(&s.data))
         .collect();
-    let mut c_points: Vec<Vec<i32>> = input.sequences.iter()
+    let mut c_points: Vec<Vec<i32>> = input
+        .sequences
+        .iter()
         .map(|s| unsafe { c_encode_points(&s.data) })
         .collect();
     // Append END_OF_VEC sentinel to each (commonsextet_p reads until -1).
-    for v in &mut c_points { v.push(-1); }
+    for v in &mut c_points {
+        v.push(-1);
+    }
 
     // Compare `min(self, other)` count for every pair (i, j) — this is
     // what `splittbfast` does in its pickmtx construction.
     for i in 0..input.sequences.len() {
         // C composition table.
         let mut c_table = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr()); }
+        unsafe {
+            mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr());
+        }
         let rust_table = composition_table(&rust_points[i], 46656);
-        assert_eq!(c_table, rust_table, "composition table mismatch for seq {i}");
+        assert_eq!(
+            c_table, rust_table,
+            "composition table mismatch for seq {i}"
+        );
 
         for j in 0..input.sequences.len() {
             let mut c_pts_j = c_points[j].clone();
-            let c_common = unsafe {
-                mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr())
-            };
+            let c_common =
+                unsafe { mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr()) };
             let rust_common = common_sextets_p(&rust_table, &rust_points[j], 46656);
-            assert_eq!(rust_common, c_common,
-                "common_sextets({i}, {j}): Rust={rust_common} C={c_common}");
+            assert_eq!(
+                rust_common, c_common,
+                "common_sextets({i}, {j}): Rust={rust_common} C={c_common}"
+            );
         }
     }
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 }
 
 #[test]
@@ -160,8 +192,12 @@ fn parttree_lenfac_matches_c_formula() {
     // any drift here would be caught by reading `mafft_sys::lenfaca` etc.
     // C globals are shared across all FFI tests in this binary; serialize
     // access. Recover from poison so a single failing test doesn't cascade.
-    let _g = C_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    unsafe { init_c_protein(); }
+    let _g = C_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    unsafe {
+        init_c_protein();
+    }
     let a = unsafe { std::ptr::addr_of!(mafft_sys::lenfaca).read() };
     let b = unsafe { std::ptr::addr_of!(mafft_sys::lenfacb).read() };
     let c = unsafe { std::ptr::addr_of!(mafft_sys::lenfacc).read() };
@@ -170,13 +206,16 @@ fn parttree_lenfac_matches_c_formula() {
     assert_eq!(b, PLENFACB);
     assert_eq!(c, PLENFACC);
     assert_eq!(d, PLENFACD);
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 
     for (l1, l2) in &[(353usize, 348), (455, 448), (180, 509), (100, 1000)] {
         let lf = lenfac(*l1, *l2, PLENFACA, PLENFACB, PLENFACC, PLENFACD);
         let longer = (*l1).max(*l2) as f64;
         let shorter = (*l1).min(*l2) as f64;
-        let expected = 1.0 / (shorter / longer * PLENFACD + PLENFACB / (longer + PLENFACC) + PLENFACA);
+        let expected =
+            1.0 / (shorter / longer * PLENFACD + PLENFACB / (longer + PLENFACC) + PLENFACA);
         assert!((lf - expected).abs() < 1e-12);
     }
 }
@@ -192,7 +231,10 @@ fn parttree_distance_clamps_at_max6dist() {
     let p2 = encode_points_protein(s2);
     let d = parttree_distance_protein(&p1, &p2, s1.len(), s2.len());
     assert!(d <= MAX6DIST, "expected clamp at MAX6DIST=10.0, got {d}");
-    assert!(d > 0.5, "expected near-max distance for disjoint seqs, got {d}");
+    assert!(
+        d > 0.5,
+        "expected near-max distance for disjoint seqs, got {d}"
+    );
 }
 
 /// End-to-end: every (i, j) pairwise distance from the 36-seq sample
@@ -202,28 +244,39 @@ fn parttree_distance_clamps_at_max6dist() {
 fn parttree_distance_matches_c() {
     // C globals are shared across all FFI tests in this binary; serialize
     // access. Recover from poison so a single failing test doesn't cascade.
-    let _g = C_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _g = C_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
         .expect("load mafft-upstream/test/sample");
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
-    let rust_points: Vec<Vec<u32>> = input.sequences.iter()
+    let rust_points: Vec<Vec<u32>> = input
+        .sequences
+        .iter()
         .map(|s| encode_points_protein(&s.data))
         .collect();
-    let mut c_points: Vec<Vec<i32>> = input.sequences.iter()
+    let mut c_points: Vec<Vec<i32>> = input
+        .sequences
+        .iter()
         .map(|s| unsafe { c_encode_points(&s.data) })
         .collect();
-    for v in &mut c_points { v.push(-1); }
+    for v in &mut c_points {
+        v.push(-1);
+    }
 
     let nseq = input.sequences.len();
     for i in 0..nseq {
         let mut c_table = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr()); }
+        unsafe {
+            mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr());
+        }
         for j in (i + 1)..nseq {
             let mut c_pts_j = c_points[j].clone();
-            let c_common = unsafe {
-                mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr())
-            };
+            let c_common =
+                unsafe { mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr()) };
             // C splittbfast formula at line 1445/1674:
             //   bunbo = MIN(selfscore_i, selfscore_j) = min(points.len() in our convention)
             //   raw = (1 - common / bunbo) — pre-lenfac
@@ -238,19 +291,25 @@ fn parttree_distance_matches_c() {
             let raw = 1.0 - c_common as f64 / bunbo;
             let lf = lenfac(raw_len_i, raw_len_j, PLENFACA, PLENFACB, PLENFACC, PLENFACD);
             let mut expected = raw * lf;
-            if expected > MAX6DIST { expected = MAX6DIST; }
-            if expected < 0.0 { expected = 0.0; }
+            if expected > MAX6DIST {
+                expected = MAX6DIST;
+            }
+            if expected < 0.0 {
+                expected = 0.0;
+            }
 
-            let rust_dist = parttree_distance_protein(
-                &rust_points[i], &rust_points[j],
-                raw_len_i, raw_len_j,
+            let rust_dist =
+                parttree_distance_protein(&rust_points[i], &rust_points[j], raw_len_i, raw_len_j);
+            assert!(
+                (rust_dist - expected).abs() < 1e-12,
+                "dist({i},{j}): Rust={rust_dist} C-formula={expected} (common={c_common} bunbo={bunbo})"
             );
-            assert!((rust_dist - expected).abs() < 1e-12,
-                "dist({i},{j}): Rust={rust_dist} C-formula={expected} (common={c_common} bunbo={bunbo})");
         }
     }
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 }
 
 /// Validate the full pivot pipeline (build_score_entries →
@@ -279,18 +338,25 @@ fn parttree_pivot_pipeline_internally_consistent() {
 
     // 1) Reference (sorted-position 0) is the longest-selfscore sequence.
     let max_selfscore = pivots.scores.iter().map(|s| s.selfscore).max().unwrap();
-    assert_eq!(pivots.scores[0].selfscore, max_selfscore,
-        "after pick_reference_max_selfscore, scores[0] must be max-selfscore");
+    assert_eq!(
+        pivots.scores[0].selfscore, max_selfscore,
+        "after pick_reference_max_selfscore, scores[0] must be max-selfscore"
+    );
 
     // 2) After dcompare_sort, scores[0].score should be the minimum
     //    (reference's distance to itself = 0).
-    assert!(pivots.scores[0].score <= 1e-12,
+    assert!(
+        pivots.scores[0].score <= 1e-12,
         "scores[0].score should be ~0 (reference distance to self), got {}",
-        pivots.scores[0].score);
+        pivots.scores[0].score
+    );
     for i in 1..nseq {
-        assert!(pivots.scores[i].score >= pivots.scores[i - 1].score - 1e-12,
+        assert!(
+            pivots.scores[i].score >= pivots.scores[i - 1].score - 1e-12,
             "dcompare_sort failed at i={i}: {} < {}",
-            pivots.scores[i].score, pivots.scores[i - 1].score);
+            pivots.scores[i].score,
+            pivots.scores[i - 1].score
+        );
     }
 
     // 3) For nseq=36 < picksize=50, ALL non-duplicate sequences are
@@ -301,8 +367,10 @@ fn parttree_pivot_pipeline_internally_consistent() {
     assert!(pivots.picks.len() <= nseq);
     let mut sorted_picks = pivots.picks.clone();
     sorted_picks.sort();
-    assert_eq!(sorted_picks, pivots.picks,
-        "picks must be qsort'd ascending");
+    assert_eq!(
+        sorted_picks, pivots.picks,
+        "picks must be qsort'd ascending"
+    );
 
     // 4) maxdist matches scores[nin-1].score.
     assert!((pivots.maxdist - pivots.scores[nseq - 1].score).abs() < 1e-12);
@@ -321,11 +389,15 @@ fn parttree_pivot_pipeline_internally_consistent() {
             let expected = parttree_distance_protein(
                 &pivots.scores[pi].points,
                 &pivots.scores[pj].points,
-                raw_len_i, raw_len_j,
+                raw_len_i,
+                raw_len_j,
             );
             let got = pivots.pickmtx[i][j - i];
-            assert!((got - expected).abs() < 1e-12,
-                "pickmtx[{i}][{}]: got {got} expected {expected}", j - i);
+            assert!(
+                (got - expected).abs() < 1e-12,
+                "pickmtx[{i}][{}]: got {got} expected {expected}",
+                j - i
+            );
         }
     }
 
@@ -333,21 +405,30 @@ fn parttree_pivot_pipeline_internally_consistent() {
     //    50 > 36) C sets `tokyoripara = 0.0` (`splittbfast.c:2761`),
     //    making the filter a no-op so all picks survive. Verify
     //    `nyuko == npick`.
-    assert_eq!(pivots.yukos.len(), pivots.picks.len(),
+    assert_eq!(
+        pivots.yukos.len(),
+        pivots.picks.len(),
         "for picksize={} > nin={}, all picks should survive (tokyoripara=0)",
-        50, nseq);
+        50,
+        nseq
+    );
 
     // 7) For our n=36 sample, C's actual picks (CDBG_PIVOT dump while
     //    debugging this code) are [0, 2, 3, 4, ..., 35] — sorted-
     //    position 1 is dropped because it duplicates position 0 (same
     //    sequence content / shimon). Verify Rust dedupes the same one.
     let expected_picks: Vec<usize> = (0..nseq).filter(|&i| i != 1).collect();
-    assert_eq!(pivots.picks, expected_picks,
-        "Rust picks must match C's after dedupe (drops sorted-position 1)");
+    assert_eq!(
+        pivots.picks, expected_picks,
+        "Rust picks must match C's after dedupe (drops sorted-position 1)"
+    );
 
     // Print summary for diagnostics.
-    eprintln!("pivot pipeline summary: nseq={nseq}, npick={}, nyuko={}",
-        pivots.picks.len(), pivots.yukos.len());
+    eprintln!(
+        "pivot pipeline summary: nseq={nseq}, npick={}, nyuko={}",
+        pivots.picks.len(),
+        pivots.yukos.len()
+    );
 }
 
 /// FFI cross-check: feed C's pipeline-equivalent (via FFI helpers)
@@ -374,23 +455,29 @@ fn parttree_pivot_scores_match_c_pipeline() {
     let raw_seqs: Vec<Vec<u8>> = input.sequences.iter().map(|s| s.data.clone()).collect();
 
     // C-side pipeline using FFI helpers + Rust lenfac.
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     // 1) Build point vectors via C.
-    let mut c_pts: Vec<Vec<i32>> = raw_seqs.iter()
+    let mut c_pts: Vec<Vec<i32>> = raw_seqs
+        .iter()
         .map(|s| unsafe { c_encode_points(s) })
         .collect();
-    for v in &mut c_pts { v.push(-1); }
+    for v in &mut c_pts {
+        v.push(-1);
+    }
 
     // 2) Compute self-scores via C's commonsextet_p(self, self).
     let mut c_selfscore: Vec<i64> = Vec::with_capacity(nseq);
     for i in 0..nseq {
         let mut table = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(table.as_mut_ptr(), c_pts[i].as_mut_ptr()); }
+        unsafe {
+            mafft_sys::makecompositiontable_p(table.as_mut_ptr(), c_pts[i].as_mut_ptr());
+        }
         let mut pts_copy = c_pts[i].clone();
-        let common = unsafe {
-            mafft_sys::commonsextet_p(table.as_mut_ptr(), pts_copy.as_mut_ptr())
-        };
+        let common =
+            unsafe { mafft_sys::commonsextet_p(table.as_mut_ptr(), pts_copy.as_mut_ptr()) };
         c_selfscore.push(common as i64);
     }
 
@@ -410,7 +497,9 @@ fn parttree_pivot_scores_match_c_pipeline() {
     // 4) Compute initial scores from c_order[0] to all others.
     let ref_idx = c_order[0];
     let mut ref_table = vec![0i32; 46656];
-    unsafe { mafft_sys::makecompositiontable_p(ref_table.as_mut_ptr(), c_pts[ref_idx].as_mut_ptr()); }
+    unsafe {
+        mafft_sys::makecompositiontable_p(ref_table.as_mut_ptr(), c_pts[ref_idx].as_mut_ptr());
+    }
     let ref_selfscore = c_selfscore[ref_idx];
     let ref_orilen = raw_seqs[ref_idx].len();
 
@@ -418,15 +507,19 @@ fn parttree_pivot_scores_match_c_pipeline() {
     for k in 0..nseq {
         let i = c_order[k];
         let mut pts = c_pts[i].clone();
-        let common = unsafe {
-            mafft_sys::commonsextet_p(ref_table.as_mut_ptr(), pts.as_mut_ptr())
-        };
+        let common = unsafe { mafft_sys::commonsextet_p(ref_table.as_mut_ptr(), pts.as_mut_ptr()) };
         let bunbo = ref_selfscore.min(c_selfscore[i]) as f64;
-        let raw = if bunbo > 0.0 { 1.0 - common as f64 / bunbo } else { 1.0 };
+        let raw = if bunbo > 0.0 {
+            1.0 - common as f64 / bunbo
+        } else {
+            1.0
+        };
         let orilen_i = raw_seqs[i].len();
         let lf = lenfac(ref_orilen, orilen_i, PLENFACA, PLENFACB, PLENFACC, PLENFACD);
         let mut s = raw * lf;
-        if s > MAX6DIST { s = MAX6DIST; }
+        if s > MAX6DIST {
+            s = MAX6DIST;
+        }
         c_score[k] = s;
     }
 
@@ -434,21 +527,37 @@ fn parttree_pivot_scores_match_c_pipeline() {
     //    selfscore DESC, orilen DESC. Use our in-tree BSD qsort port so the
     //    tie-break for truly-tied entries (same score / selfscore / orilen)
     //    matches macOS C MAFFT 7.526 on every platform.
-    let mut tuples: Vec<(f64, i64, usize, usize)> = (0..nseq).map(|k| {
-        let i = c_order[k];
-        (c_score[k], c_selfscore[i], raw_seqs[i].len(), i)
-    }).collect();
+    let mut tuples: Vec<(f64, i64, usize, usize)> = (0..nseq)
+        .map(|k| {
+            let i = c_order[k];
+            (c_score[k], c_selfscore[i], raw_seqs[i].len(), i)
+        })
+        .collect();
     mafft_tree::bsd_qsort::bsd_qsort(&mut tuples, |a, b| {
-        if a.0 > b.0 { return std::cmp::Ordering::Greater; }
-        if a.0 < b.0 { return std::cmp::Ordering::Less; }
-        if a.1 < b.1 { return std::cmp::Ordering::Greater; }  // selfscore DESC
-        if a.1 > b.1 { return std::cmp::Ordering::Less; }
-        if a.2 < b.2 { return std::cmp::Ordering::Greater; }  // orilen DESC
-        if a.2 > b.2 { return std::cmp::Ordering::Less; }
+        if a.0 > b.0 {
+            return std::cmp::Ordering::Greater;
+        }
+        if a.0 < b.0 {
+            return std::cmp::Ordering::Less;
+        }
+        if a.1 < b.1 {
+            return std::cmp::Ordering::Greater;
+        } // selfscore DESC
+        if a.1 > b.1 {
+            return std::cmp::Ordering::Less;
+        }
+        if a.2 < b.2 {
+            return std::cmp::Ordering::Greater;
+        } // orilen DESC
+        if a.2 > b.2 {
+            return std::cmp::Ordering::Less;
+        }
         std::cmp::Ordering::Equal
     });
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 
     // Now run Rust's pipeline.
     let pivots = run_pivot_pipeline(&raw_seqs, PtSeqKind::Protein, 50);
@@ -457,16 +566,28 @@ fn parttree_pivot_scores_match_c_pipeline() {
     assert_eq!(pivots.scores.len(), tuples.len());
     for (k, (rust_entry, c_tuple)) in pivots.scores.iter().zip(tuples.iter()).enumerate() {
         let (c_score_k, c_selfscore_k, c_orilen_k, c_numinseq_k) = *c_tuple;
-        assert_eq!(rust_entry.numinseq, c_numinseq_k,
-            "sorted-position {k}: numinseq Rust={} C={}", rust_entry.numinseq, c_numinseq_k);
-        assert_eq!(rust_entry.selfscore, c_selfscore_k,
+        assert_eq!(
+            rust_entry.numinseq, c_numinseq_k,
+            "sorted-position {k}: numinseq Rust={} C={}",
+            rust_entry.numinseq, c_numinseq_k
+        );
+        assert_eq!(
+            rust_entry.selfscore, c_selfscore_k,
             "sorted-position {k} (numinseq={c_numinseq_k}): selfscore Rust={} C={}",
-            rust_entry.selfscore, c_selfscore_k);
-        assert_eq!(rust_entry.orilen, c_orilen_k,
-            "sorted-position {k}: orilen Rust={} C={}", rust_entry.orilen, c_orilen_k);
-        assert!((rust_entry.score - c_score_k).abs() < 1e-12,
+            rust_entry.selfscore, c_selfscore_k
+        );
+        assert_eq!(
+            rust_entry.orilen, c_orilen_k,
+            "sorted-position {k}: orilen Rust={} C={}",
+            rust_entry.orilen, c_orilen_k
+        );
+        assert!(
+            (rust_entry.score - c_score_k).abs() < 1e-12,
             "sorted-position {k}: score Rust={} C={} (diff={})",
-            rust_entry.score, c_score_k, (rust_entry.score - c_score_k).abs());
+            rust_entry.score,
+            c_score_k,
+            (rust_entry.score - c_score_k).abs()
+        );
     }
 }
 
@@ -483,7 +604,9 @@ fn parttree_upgma_matches_c() {
 
     // Build the same parttree-style pickmtx that splittbfast would use:
     // pairwise PartTree distance for every (i, j).
-    let rust_points: Vec<Vec<u32>> = input.sequences.iter()
+    let rust_points: Vec<Vec<u32>> = input
+        .sequences
+        .iter()
         .map(|s| encode_points_protein(&s.data))
         .collect();
     let raw_lens: Vec<usize> = input.sequences.iter().map(|s| s.data.len()).collect();
@@ -492,7 +615,10 @@ fn parttree_upgma_matches_c() {
     for i in 0..nseq {
         for j in (i + 1)..nseq {
             let d = parttree_distance_protein(
-                &rust_points[i], &rust_points[j], raw_lens[i], raw_lens[j],
+                &rust_points[i],
+                &rust_points[j],
+                raw_lens[i],
+                raw_lens[j],
             );
             dm.set(i, j, d);
         }
@@ -534,12 +660,8 @@ fn parttree_upgma_matches_c() {
             }
         }
 
-        let topol: *mut *mut *mut c_int = mafft_sys::AllocateIntCub(
-            (nseq - 1) as c_int, 2, 0,
-        );
-        let len: *mut *mut f64 = mafft_sys::AllocateFloatMtx(
-            (nseq - 1) as c_int, 2,
-        );
+        let topol: *mut *mut *mut c_int = mafft_sys::AllocateIntCub((nseq - 1) as c_int, 2, 0);
+        let len: *mut *mut f64 = mafft_sys::AllocateFloatMtx((nseq - 1) as c_int, 2);
 
         mafft_sys::fixed_musclesupg_double_realloc_nobk_halfmtx(
             nseq as c_int,
@@ -560,33 +682,55 @@ fn parttree_upgma_matches_c() {
             let mut q = *p0;
             loop {
                 let v = *q;
-                if v < 0 { break; }
+                if v < 0 {
+                    break;
+                }
                 left.push(v as usize);
                 q = q.add(1);
             }
             let mut q = p1;
             loop {
                 let v = *q;
-                if v < 0 { break; }
+                if v < 0 {
+                    break;
+                }
                 right.push(v as usize);
                 q = q.add(1);
             }
             c_steps.push((left, right));
         }
 
-        assert_eq!(rust_topo.steps.len(), c_steps.len(),
+        assert_eq!(
+            rust_topo.steps.len(),
+            c_steps.len(),
             "topology step count: Rust={} C={}",
-            rust_topo.steps.len(), c_steps.len());
+            rust_topo.steps.len(),
+            c_steps.len()
+        );
         for (k, (rs, (cl, cr))) in rust_topo.steps.iter().zip(c_steps.iter()).enumerate() {
-            let mut r_left = rs.left.clone(); r_left.sort();
-            let mut r_right = rs.right.clone(); r_right.sort();
-            let mut c_left = cl.clone(); c_left.sort();
-            let mut c_right = cr.clone(); c_right.sort();
-            let r_pair = if r_left < r_right { (r_left, r_right) } else { (r_right, r_left) };
-            let c_pair = if c_left < c_right { (c_left, c_right) } else { (c_right, c_left) };
-            assert_eq!(r_pair, c_pair,
+            let mut r_left = rs.left.clone();
+            r_left.sort();
+            let mut r_right = rs.right.clone();
+            r_right.sort();
+            let mut c_left = cl.clone();
+            c_left.sort();
+            let mut c_right = cr.clone();
+            c_right.sort();
+            let r_pair = if r_left < r_right {
+                (r_left, r_right)
+            } else {
+                (r_right, r_left)
+            };
+            let c_pair = if c_left < c_right {
+                (c_left, c_right)
+            } else {
+                (c_right, c_left)
+            };
+            assert_eq!(
+                r_pair, c_pair,
                 "step {k}: Rust=({:?}, {:?}) C=({:?}, {:?})",
-                rs.left, rs.right, cl, cr);
+                rs.left, rs.right, cl, cr
+            );
         }
 
         cleanup_c();
@@ -609,32 +753,49 @@ fn bb12041_ktuple_distance_diagnostic() {
     for (i, s) in input.sequences.iter().enumerate() {
         let nogaplen: usize = s.data.iter().filter(|&&c| c != b'-').count();
         let group_len: usize = encode_points_protein(&s.data).len() + 5; // +5 so it matches nogaplen for no-X seqs
-        println!("  {} '{}': raw_len={}, nogaplen={}, group_len={}",
-                 i + 1, s.name, s.data.len(), nogaplen, group_len);
+        println!(
+            "  {} '{}': raw_len={}, nogaplen={}, group_len={}",
+            i + 1,
+            s.name,
+            s.data.len(),
+            nogaplen,
+            group_len
+        );
     }
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
-    let mut c_pts: Vec<Vec<i32>> = input.sequences.iter()
+    let mut c_pts: Vec<Vec<i32>> = input
+        .sequences
+        .iter()
         .map(|s| unsafe { c_encode_points(&s.data) })
         .collect();
-    for v in &mut c_pts { v.push(-1); }
+    for v in &mut c_pts {
+        v.push(-1);
+    }
 
     // Compute "raw nogaplen" for each (strip only '-').
-    let nogaplens: Vec<usize> = input.sequences.iter()
+    let nogaplens: Vec<usize> = input
+        .sequences
+        .iter()
         .map(|s| s.data.iter().filter(|&&c| c != b'-').count())
         .collect();
 
-    println!("\n{:<5} {:<5} {:<14} {:<14} {:<14} {:<14}",
-             "i", "j", "rust_ktuple", "c_disttbfast", "diff", "c-rust");
+    println!(
+        "\n{:<5} {:<5} {:<14} {:<14} {:<14} {:<14}",
+        "i", "j", "rust_ktuple", "c_disttbfast", "diff", "c-rust"
+    );
     for i in 0..nseq {
         let mut c_table = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_pts[i].as_mut_ptr()); }
+        unsafe {
+            mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_pts[i].as_mut_ptr());
+        }
         for j in (i + 1)..nseq {
             let mut c_pts_j = c_pts[j].clone();
-            let c_common = unsafe {
-                mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr())
-            };
+            let c_common =
+                unsafe { mafft_sys::commonsextet_p(c_table.as_mut_ptr(), c_pts_j.as_mut_ptr()) };
             // C's disttbfast formula:
             //   lenfac(raw_len_i, raw_len_j, ...) — using nogaplen
             //   bunbo = min(points_i.len(), points_j.len())
@@ -643,15 +804,31 @@ fn bb12041_ktuple_distance_diagnostic() {
             let ss_j = c_pts[j].len() - 1;
             let bunbo = ss_i.min(ss_j) as f64;
             let raw = 1.0 - c_common as f64 / bunbo;
-            let lf = lenfac(nogaplens[i], nogaplens[j], PLENFACA, PLENFACB, PLENFACC, PLENFACD);
+            let lf = lenfac(
+                nogaplens[i],
+                nogaplens[j],
+                PLENFACA,
+                PLENFACB,
+                PLENFACC,
+                PLENFACD,
+            );
             let c_disttbfast = (raw * lf * 2.0).clamp(0.0, 2.0);
 
             let rust_d = ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6);
             let diff = (rust_d - c_disttbfast).abs();
             let flag = if diff > 1e-12 { " <-- DIFF" } else { "" };
-            println!("{:<5} {:<5} {:<14.10} {:<14.10} {:<14.10e}{}",
-                     i + 1, j + 1, rust_d, c_disttbfast, diff, flag);
+            println!(
+                "{:<5} {:<5} {:<14.10} {:<14.10} {:<14.10e}{}",
+                i + 1,
+                j + 1,
+                rust_d,
+                c_disttbfast,
+                diff,
+                flag
+            );
         }
     }
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 }

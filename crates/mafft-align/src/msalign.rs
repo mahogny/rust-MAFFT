@@ -48,8 +48,8 @@
 //! linear-space DP — e.g. for sequences > 30000 in length where the
 //! full DP would OOM.
 
-use crate::dp::{Alignment, AlignOp, GapModel};
-use crate::profile::{Profile, profile_align_imp_with_boundary, BoundaryFreqs};
+use crate::dp::{AlignOp, Alignment, GapModel};
+use crate::profile::{BoundaryFreqs, Profile, profile_align_imp_with_boundary};
 
 /// C `MSalignmm.c:11` — sub-problem size threshold below which the
 /// recursion bottoms out into the direct DP.
@@ -78,10 +78,18 @@ pub fn msalignmm(
     }
     let mut ops = Vec::with_capacity(n + m);
     let score = msalignmm_rec(
-        prof1, prof2, matrix, gap,
-        0, n - 1, 0, m - 1,
-        head_gap, tail_gap,
-        1.0, 1.0,
+        prof1,
+        prof2,
+        matrix,
+        gap,
+        0,
+        n - 1,
+        0,
+        m - 1,
+        head_gap,
+        tail_gap,
+        1.0,
+        1.0,
         &mut ops,
     );
     Alignment {
@@ -107,10 +115,14 @@ fn msalignmm_rec(
     prof2: &Profile,
     matrix: &[Vec<f64>],
     gap: &GapModel,
-    ist: usize, ien: usize,
-    jst: usize, jen: usize,
-    head_gap: bool, tail_gap: bool,
-    headgapfreq1_g: f64, headgapfreq2_g: f64,
+    ist: usize,
+    ien: usize,
+    jst: usize,
+    jen: usize,
+    head_gap: bool,
+    tail_gap: bool,
+    headgapfreq1_g: f64,
+    headgapfreq2_g: f64,
     out_ops: &mut Vec<AlignOp>,
 ) -> f64 {
     let lgth1 = ien - ist + 1;
@@ -120,10 +132,18 @@ fn msalignmm_rec(
     // C `MSalignmm_rec:1144` — `if( lgth1 < DPTANNI || lgth2 < DPTANNI )`.
     if lgth1 < DPTANNI || lgth2 < DPTANNI {
         return base_case(
-            prof1, prof2, matrix, gap,
-            ist, ien, jst, jen,
-            head_gap, tail_gap,
-            headgapfreq1_g, headgapfreq2_g,
+            prof1,
+            prof2,
+            matrix,
+            gap,
+            ist,
+            ien,
+            jst,
+            jen,
+            head_gap,
+            tail_gap,
+            headgapfreq1_g,
+            headgapfreq2_g,
             out_ops,
         );
     }
@@ -133,20 +153,23 @@ fn msalignmm_rec(
 
     // Forward DP rows 1..=imid, accumulating midw/midm/midn at row imid.
     let fwd = forward_dp(
-        prof1, prof2, matrix, gap,
-        ist, ien, jst, jen,
+        prof1,
+        prof2,
+        matrix,
+        gap,
+        ist,
+        ien,
+        jst,
+        jen,
         head_gap,
         imid,
-        headgapfreq1_g, headgapfreq2_g,
+        headgapfreq1_g,
+        headgapfreq2_g,
     );
 
     // Backward DP rows lgth1-2 down to imid-1, adding to midw/midm/midn.
     let bwd = backward_dp(
-        prof1, prof2, matrix, gap,
-        ist, ien, jst, jen,
-        tail_gap,
-        imid,
-        fwd,
+        prof1, prof2, matrix, gap, ist, ien, jst, jen, tail_gap, imid, fwd,
     );
 
     let (jumpi, jumpj, jmid) = bwd.split_point;
@@ -159,10 +182,18 @@ fn msalignmm_rec(
     // at `ist+imid` so the union is exact.
     let mut value = 0.0;
     value += msalignmm_rec(
-        prof1, prof2, matrix, gap,
-        ist, ist + jumpi, jst, jst + jumpj,
-        head_gap, false,
-        headgapfreq1_g, headgapfreq2_g,
+        prof1,
+        prof2,
+        matrix,
+        gap,
+        ist,
+        ist + jumpi,
+        jst,
+        jst + jumpj,
+        head_gap,
+        false,
+        headgapfreq1_g,
+        headgapfreq2_g,
         out_ops,
     );
 
@@ -214,15 +245,27 @@ fn msalignmm_rec(
     if bottom_ist <= ien && bottom_jst <= jen {
         let head1_for_bot = if bottom_ist > 0 && bottom_ist - 1 < prof1.length {
             prof1.nongap_freq[bottom_ist - 1]
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         let head2_for_bot = if bottom_jst > 0 && bottom_jst - 1 < prof2.length {
             prof2.nongap_freq[bottom_jst - 1]
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         value += msalignmm_rec(
-            prof1, prof2, matrix, gap,
-            bottom_ist, ien, bottom_jst, jen,
-            false, tail_gap,
-            head1_for_bot, head2_for_bot,
+            prof1,
+            prof2,
+            matrix,
+            gap,
+            bottom_ist,
+            ien,
+            bottom_jst,
+            jen,
+            false,
+            tail_gap,
+            head1_for_bot,
+            head2_for_bot,
             out_ops,
         );
     }
@@ -239,10 +282,14 @@ fn base_case(
     prof2: &Profile,
     matrix: &[Vec<f64>],
     gap: &GapModel,
-    ist: usize, ien: usize,
-    jst: usize, jen: usize,
-    head_gap: bool, tail_gap: bool,
-    headgapfreq1_g: f64, headgapfreq2_g: f64,
+    ist: usize,
+    ien: usize,
+    jst: usize,
+    jen: usize,
+    head_gap: bool,
+    tail_gap: bool,
+    headgapfreq1_g: f64,
+    headgapfreq2_g: f64,
     out_ops: &mut Vec<AlignOp>,
 ) -> f64 {
     let sub1 = prof1.sub_profile(ist, ien + 1);
@@ -255,10 +302,26 @@ fn base_case(
     // (and similarly for tail). `gapfreq1f` is `1 - gap_freq` per
     // position (the "nongap fraction"); `gapfreq1f[-1]` peeks at
     // position `ist - 1` in the parent profile.
-    let head1 = if ist > 0 { prof1.nongap_freq[ist - 1] } else { headgapfreq1_g };
-    let head2 = if jst > 0 { prof2.nongap_freq[jst - 1] } else { headgapfreq2_g };
-    let tail1 = if ien + 1 < prof1.length { prof1.nongap_freq[ien + 1] } else { 1.0 };
-    let tail2 = if jen + 1 < prof2.length { prof2.nongap_freq[jen + 1] } else { 1.0 };
+    let head1 = if ist > 0 {
+        prof1.nongap_freq[ist - 1]
+    } else {
+        headgapfreq1_g
+    };
+    let head2 = if jst > 0 {
+        prof2.nongap_freq[jst - 1]
+    } else {
+        headgapfreq2_g
+    };
+    let tail1 = if ien + 1 < prof1.length {
+        prof1.nongap_freq[ien + 1]
+    } else {
+        1.0
+    };
+    let tail2 = if jen + 1 < prof2.length {
+        prof2.nongap_freq[jen + 1]
+    } else {
+        1.0
+    };
 
     // Internal sub-regions always treat head/tail as "open" (the gap
     // padding between halves is added in the recursion glue, not in
@@ -270,8 +333,20 @@ fn base_case(
     let effective_tail = tail_gap || ien + 1 != prof1.length || jen + 1 != prof2.length;
 
     let aln = profile_align_imp_with_boundary(
-        &sub1, &sub2, matrix, gap, effective_head, effective_tail, None, false,
-        BoundaryFreqs { head1, head2, tail1, tail2 },
+        &sub1,
+        &sub2,
+        matrix,
+        gap,
+        effective_head,
+        effective_tail,
+        None,
+        false,
+        BoundaryFreqs {
+            head1,
+            head2,
+            tail1,
+            tail2,
+        },
     );
     out_ops.extend(aln.operations);
     aln.score
@@ -321,11 +396,14 @@ fn forward_dp(
     prof2: &Profile,
     matrix: &[Vec<f64>],
     gap: &GapModel,
-    ist: usize, _ien: usize,
-    jst: usize, jen: usize,
+    ist: usize,
+    _ien: usize,
+    jst: usize,
+    jen: usize,
     head_gap: bool,
     imid: usize,
-    headgapfreq1_g: f64, headgapfreq2_g: f64,
+    headgapfreq1_g: f64,
+    headgapfreq2_g: f64,
 ) -> ForwardState {
     let lgth2 = jen - jst + 1;
     let nalpha = prof1.nalphabets.min(prof2.nalphabets).min(matrix.len());
@@ -338,8 +416,16 @@ fn forward_dp(
     // Use the parent profile's nongap_freq for `gapfreq{1,2}f` and the
     // headgapfreq{1,2}_g for the absolute boundary (matching C
     // MSalignmm_rec:1072-1075).
-    let headgapfreq1 = if ist > 0 { prof1.nongap_freq[ist - 1] } else { headgapfreq1_g };
-    let headgapfreq2 = if jst > 0 { prof2.nongap_freq[jst - 1] } else { headgapfreq2_g };
+    let headgapfreq1 = if ist > 0 {
+        prof1.nongap_freq[ist - 1]
+    } else {
+        headgapfreq1_g
+    };
+    let headgapfreq2 = if jst > 0 {
+        prof2.nongap_freq[jst - 1]
+    } else {
+        headgapfreq2_g
+    };
 
     let _ = gap.extend; // C MSalignmm has USE_PENALTY_EX = 0; f_ext is unused.
 
@@ -360,7 +446,9 @@ fn forward_dp(
         }
         for di in 0..=imid {
             let row = ist + di;
-            if row >= prof1.length { break; }
+            if row >= prof1.length {
+                break;
+            }
             let mut s = 0.0f64;
             for l in 0..nalpha {
                 s = scarr[l] * prof1.freqs[row][l] + s;
@@ -374,10 +462,15 @@ fn forward_dp(
         let gf2_0 = prof2.nongap_freq[jst];
         if head_gap || ist != 0 {
             for di in 1..=imid {
-                if di >= initverticalw.len() { break; }
+                if di >= initverticalw.len() {
+                    break;
+                }
                 let row = ist + di - 1;
-                if row >= prof1.length { break; }
-                initverticalw[di] = fgcp1[row] * gf2_0 + ((ogcp1[ist] * headgapfreq2 + initverticalw[di]));
+                if row >= prof1.length {
+                    break;
+                }
+                initverticalw[di] =
+                    fgcp1[row] * gf2_0 + (ogcp1[ist] * headgapfreq2 + initverticalw[di]);
             }
         }
     }
@@ -397,7 +490,9 @@ fn forward_dp(
         }
         for dj in 0..lgth2 {
             let col = jst + dj;
-            if col >= prof2.length { break; }
+            if col >= prof2.length {
+                break;
+            }
             let mut s = 0.0f64;
             for l in 0..nalpha {
                 s = scarr[l] * prof2.freqs[col][l] + s;
@@ -407,10 +502,14 @@ fn forward_dp(
         let gf1_0 = prof1.nongap_freq[ist];
         if head_gap || jst != 0 {
             for dj in 1..=lgth2 {
-                if dj >= currentw.len() { break; }
+                if dj >= currentw.len() {
+                    break;
+                }
                 let col = jst + dj - 1;
-                if col >= prof2.length { break; }
-                currentw[dj] = fgcp2[col] * gf1_0 + ((ogcp2[jst] * headgapfreq1 + currentw[dj]));
+                if col >= prof2.length {
+                    break;
+                }
+                currentw[dj] = fgcp2[col] * gf1_0 + (ogcp2[jst] * headgapfreq1 + currentw[dj]);
             }
         }
     }
@@ -421,7 +520,11 @@ fn forward_dp(
     let mut mp = vec![0i64; lgth2 + 1];
     for dj in 1..=lgth2 {
         let col_prev = jst + dj - 1;
-        let gf2_prev = if col_prev < prof2.length { prof2.nongap_freq[col_prev] } else { 1.0 };
+        let gf2_prev = if col_prev < prof2.length {
+            prof2.nongap_freq[col_prev]
+        } else {
+            1.0
+        };
         let row_o = (ist + 1).min(prof1.length.saturating_sub(1));
         m[dj] = ogcp1[row_o] * gf2_prev + (currentw[dj - 1]);
         mp[dj] = 0;
@@ -442,7 +545,9 @@ fn forward_dp(
 
         let row = ist + di;
         if row >= prof1.length {
-            for v in currentw.iter_mut() { *v = 0.0; }
+            for v in currentw.iter_mut() {
+                *v = 0.0;
+            }
         } else {
             let mut scarr = vec![0.0f64; nalpha];
             for l in 0..nalpha {
@@ -472,13 +577,19 @@ fn forward_dp(
 
         // `mi = previousw[0] + ogcp2[jst+1] * nongap_freq1[ist+di-1]`
         let row_prev = ist + di - 1;
-        let gf1_prev = if row_prev < prof1.length { prof1.nongap_freq[row_prev] } else { 1.0 };
+        let gf1_prev = if row_prev < prof1.length {
+            prof1.nongap_freq[row_prev]
+        } else {
+            1.0
+        };
         let col_o = (jst + 1).min(prof2.length.saturating_sub(1));
         let mut mi = ogcp2[col_o] * gf1_prev + previousw[0];
         let mut mpi: i64 = 0;
 
         // Capture m[0] at midpoint
-        if di == imid { midm[0] = m[0]; }
+        if di == imid {
+            midm[0] = m[0];
+        }
 
         for dj in 1..=lgth2 {
             let row_i = ist + di;
@@ -488,23 +599,33 @@ fn forward_dp(
 
             let gf1_i = if row_i < prof1.length {
                 prof1.nongap_freq[row_i]
-            } else { 1.0 };
+            } else {
+                1.0
+            };
             let gf1_im1 = if row_im1 < prof1.length {
                 prof1.nongap_freq[row_im1]
-            } else { 1.0 };
+            } else {
+                1.0
+            };
             let gf2_j = if col_j < prof2.length {
                 prof2.nongap_freq[col_j]
-            } else { 1.0 };
+            } else {
+                1.0
+            };
             let gf2_jm1 = if col_jm1 < prof2.length {
                 prof2.nongap_freq[col_jm1]
-            } else { 1.0 };
+            } else {
+                1.0
+            };
 
             let mut wm = previousw[dj - 1];
 
             // mi (row-running gap-skip tracker)
             // C line 1328: g = mi + fgcp2[col_jm1] * gf1_i
             let g = fgcp2[col_jm1] * gf1_i + mi;
-            if g > wm { wm = g; }
+            if g > wm {
+                wm = g;
+            }
             // C line 1338: g = previousw[dj-1] + ogcp2[col_j] * gf1_im1
             let g = ogcp2[col_j] * gf1_im1 + (previousw[dj - 1]);
             if g >= mi {
@@ -518,7 +639,9 @@ fn forward_dp(
             // m[dj] (column-running gap-skip tracker)
             // C line 1349: g = m[dj] + fgcp1[row_im1] * gf2_j
             let g = fgcp1[row_im1] * gf2_j + m[dj];
-            if g > wm { wm = g; }
+            if g > wm {
+                wm = g;
+            }
             // C line 1361: g = previousw[dj-1] + ogcp1[row_i] * gf2_jm1
             let g = ogcp1[row_i] * gf2_jm1 + (previousw[dj - 1]);
             if g >= m[dj] {
@@ -540,7 +663,13 @@ fn forward_dp(
         }
     }
 
-    ForwardState { midw, midm, midn, jumpbackj, jumpbacki }
+    ForwardState {
+        midw,
+        midm,
+        midn,
+        jumpbackj,
+        jumpbacki,
+    }
 }
 
 /// Backward DP from row `ien` (= `ist + lgth1 - 1`) down to `imid - 1`.
@@ -552,8 +681,10 @@ fn backward_dp(
     prof2: &Profile,
     matrix: &[Vec<f64>],
     gap: &GapModel,
-    ist: usize, ien: usize,
-    jst: usize, jen: usize,
+    ist: usize,
+    ien: usize,
+    jst: usize,
+    jen: usize,
     tail_gap: bool,
     imid: usize,
     fwd: ForwardState,
@@ -569,8 +700,16 @@ fn backward_dp(
 
     let _ = gap.extend; // C MSalignmm has USE_PENALTY_EX = 0; f_ext is unused.
 
-    let tail1: f64 = if ien + 1 < prof1.length { prof1.nongap_freq[ien + 1] } else { 1.0 };
-    let tail2: f64 = if jen + 1 < prof2.length { prof2.nongap_freq[jen + 1] } else { 1.0 };
+    let tail1: f64 = if ien + 1 < prof1.length {
+        prof1.nongap_freq[ien + 1]
+    } else {
+        1.0
+    };
+    let tail2: f64 = if jen + 1 < prof2.length {
+        prof2.nongap_freq[jen + 1]
+    } else {
+        1.0
+    };
 
     let _ = tail_gap; // tail_gap is implicitly handled via tail1/tail2 boundaries
 
@@ -588,7 +727,9 @@ fn backward_dp(
         }
         for di in 0..lgth1 {
             let row = ist + di;
-            if row >= prof1.length { break; }
+            if row >= prof1.length {
+                break;
+            }
             let mut s = 0.0f64;
             for l in 0..nalpha {
                 s = scarr[l] * prof1.freqs[row][l] + s;
@@ -596,9 +737,14 @@ fn backward_dp(
             initverticalw[di] = s;
         }
         let gf2_tail = tail2;
-        let gf2_lgth2m1 = if jen < prof2.length { prof2.nongap_freq[jen] } else { 1.0 };
+        let gf2_lgth2m1 = if jen < prof2.length {
+            prof2.nongap_freq[jen]
+        } else {
+            1.0
+        };
         for di in 0..lgth1.saturating_sub(1) {
-            initverticalw[di] = fgcp1[ien] * gf2_tail + ((ogcp1[ist + di + 1] * gf2_lgth2m1 + initverticalw[di]));
+            initverticalw[di] =
+                fgcp1[ien] * gf2_tail + (ogcp1[ist + di + 1] * gf2_lgth2m1 + initverticalw[di]);
         }
     }
 
@@ -617,7 +763,9 @@ fn backward_dp(
         }
         for dj in 0..lgth2 {
             let col = jst + dj;
-            if col >= prof2.length { break; }
+            if col >= prof2.length {
+                break;
+            }
             let mut s = 0.0f64;
             for l in 0..nalpha {
                 s = scarr[l] * prof2.freqs[col][l] + s;
@@ -625,9 +773,14 @@ fn backward_dp(
             currentw[dj] = s;
         }
         let gf1_tail = tail1;
-        let gf1_lgth1m1 = if ien < prof1.length { prof1.nongap_freq[ien] } else { 1.0 };
+        let gf1_lgth1m1 = if ien < prof1.length {
+            prof1.nongap_freq[ien]
+        } else {
+            1.0
+        };
         for dj in 0..lgth2.saturating_sub(1) {
-            currentw[dj] = fgcp2[jen] * gf1_tail + ((ogcp2[jst + dj + 1] * gf1_lgth1m1 + currentw[dj]));
+            currentw[dj] =
+                fgcp2[jen] * gf1_tail + (ogcp2[jst + dj + 1] * gf1_lgth1m1 + currentw[dj]);
         }
     }
 
@@ -637,8 +790,16 @@ fn backward_dp(
     let row_end_prev = ien.saturating_sub(1);
     for dj in (0..lgth2).rev() {
         let col_next = jst + dj + 1;
-        let gf2_next = if col_next < prof2.length { prof2.nongap_freq[col_next] } else { 1.0 };
-        let cw = if dj + 1 < currentw.len() { currentw[dj + 1] } else { 0.0 };
+        let gf2_next = if col_next < prof2.length {
+            prof2.nongap_freq[col_next]
+        } else {
+            1.0
+        };
+        let cw = if dj + 1 < currentw.len() {
+            currentw[dj + 1]
+        } else {
+            0.0
+        };
         m[dj] = fgcp1[row_end_prev] * gf2_next + cw;
         mp[dj] = (lgth1 as i64) - 1;
     }
@@ -673,7 +834,9 @@ fn backward_dp(
 
         let row = ist + di;
         if row >= prof1.length {
-            for v in currentw.iter_mut() { *v = 0.0; }
+            for v in currentw.iter_mut() {
+                *v = 0.0;
+            }
         } else {
             let mut scarr = vec![0.0f64; nalpha];
             for l in 0..nalpha {
@@ -700,7 +863,11 @@ fn backward_dp(
 
         let row_i = ist + di;
         let row_ip1 = ist + di + 1;
-        let gf1_ip1 = if row_ip1 < prof1.length { prof1.nongap_freq[row_ip1] } else { 1.0 };
+        let gf1_ip1 = if row_ip1 < prof1.length {
+            prof1.nongap_freq[row_ip1]
+        } else {
+            1.0
+        };
         let col_end_prev_local = lgth2 - 2;
         let col_end_prev_abs = jst + col_end_prev_local;
         let mut mi = fgcp2[col_end_prev_abs] * gf1_ip1 + (previousw[lgth2 - 1]);
@@ -711,10 +878,26 @@ fn backward_dp(
             let dj = dj_signed as usize;
             let col_j = jst + dj;
             let col_jp1 = jst + dj + 1;
-            let gf1_i = if row_i < prof1.length { prof1.nongap_freq[row_i] } else { 1.0 };
-            let gf1_ip1 = if row_ip1 < prof1.length { prof1.nongap_freq[row_ip1] } else { 1.0 };
-            let gf2_j = if col_j < prof2.length { prof2.nongap_freq[col_j] } else { 1.0 };
-            let gf2_jp1 = if col_jp1 < prof2.length { prof2.nongap_freq[col_jp1] } else { 1.0 };
+            let gf1_i = if row_i < prof1.length {
+                prof1.nongap_freq[row_i]
+            } else {
+                1.0
+            };
+            let gf1_ip1 = if row_ip1 < prof1.length {
+                prof1.nongap_freq[row_ip1]
+            } else {
+                1.0
+            };
+            let gf2_j = if col_j < prof2.length {
+                prof2.nongap_freq[col_j]
+            } else {
+                1.0
+            };
+            let gf2_jp1 = if col_jp1 < prof2.length {
+                prof2.nongap_freq[col_jp1]
+            } else {
+                1.0
+            };
 
             // Diagonal default (C lines 1548-1550). In the C
             // MSalignmm backward inner loop, `*prept = previousw[j+1]`
@@ -778,11 +961,17 @@ fn backward_dp(
             // The midw index off-by-one (j vs j+1) was a port bug
             // that surfaced as a 1-column drift on asymmetric inputs.
             if di == imid {
-                if dj < midw.len() { midw[dj] += wm; }
-                if dj + 1 < midm.len() { midm[dj + 1] += m[dj]; }
+                if dj < midw.len() {
+                    midw[dj] += wm;
+                }
+                if dj + 1 < midm.len() {
+                    midm[dj + 1] += m[dj];
+                }
             }
             if di == imid.saturating_sub(1) {
-                if dj < midn.len() { midn[dj] += mi; }
+                if dj < midn.len() {
+                    midn[dj] += mi;
+                }
             }
 
             currentw[dj] += wm;
@@ -799,7 +988,9 @@ fn backward_dp(
         // this point the inner-loop j has decremented past 0 to -1,
         // so `j + 1` is 0. C touches `midm[0]`.
         if di == imid {
-            if !midm.is_empty() { midm[0] += firstm; }
+            if !midm.is_empty() {
+                midm[0] += firstm;
+            }
         }
 
         // At i == imid - 1, decide jmid + (jumpi, jumpj) and break.
@@ -808,12 +999,18 @@ fn backward_dp(
             jmid = 0;
             for j in 2..lgth2.saturating_sub(1) {
                 if let Some(&w) = midw.get(j) {
-                    if w > maxwm { maxwm = w; jmid = j; }
+                    if w > maxwm {
+                        maxwm = w;
+                        jmid = j;
+                    }
                 }
             }
             for j in 0..=lgth2 {
                 if let Some(&w) = midm.get(j) {
-                    if w > maxwm { maxwm = w; jmid = j; }
+                    if w > maxwm {
+                        maxwm = w;
+                        jmid = j;
+                    }
                 }
             }
 
@@ -873,7 +1070,10 @@ fn backward_dp(
         };
     }
 
-    BackwardState { split_point: (jumpi, jumpj, jmid), imid_override: None }
+    BackwardState {
+        split_point: (jumpi, jumpj, jmid),
+        imid_override: None,
+    }
 }
 
 // Helper functions to compute the effective ogcp/fgcp scaled by
@@ -887,18 +1087,18 @@ fn backward_dp(
 
 fn effective_ogcp1(p: &Profile, gap: &GapModel) -> Vec<f64> {
     let penalty = gap.open;
-    let mut v: Vec<f64> = (0..p.length).map(|i| {
-        0.5 * (1.0 - p.ogcp[i]) * penalty * p.nongap_freq[i]
-    }).collect();
+    let mut v: Vec<f64> = (0..p.length)
+        .map(|i| 0.5 * (1.0 - p.ogcp[i]) * penalty * p.nongap_freq[i])
+        .collect();
     v.push(0.0); // calloc padding
     v
 }
 
 fn effective_fgcp1(p: &Profile, gap: &GapModel) -> Vec<f64> {
     let penalty = gap.open;
-    let mut v: Vec<f64> = (0..p.length).map(|i| {
-        0.5 * (1.0 - p.fgcp[i]) * penalty * p.nongap_freq[i]
-    }).collect();
+    let mut v: Vec<f64> = (0..p.length)
+        .map(|i| 0.5 * (1.0 - p.fgcp[i]) * penalty * p.nongap_freq[i])
+        .collect();
     v.push(0.0);
     v
 }
@@ -914,12 +1114,14 @@ fn effective_fgcp2(p: &Profile, gap: &GapModel) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::Profile;
     use crate::dp::GapModel;
+    use crate::profile::Profile;
 
     fn simple_setup() -> (Vec<Vec<f64>>, [u8; 256]) {
         let mut mtx = vec![vec![-100.0f64; 5]; 5];
-        for i in 0..4 { mtx[i][i] = 100.0; }
+        for i in 0..4 {
+            mtx[i][i] = 100.0;
+        }
         let mut map = [4u8; 256];
         map[b'A' as usize] = 0;
         map[b'C' as usize] = 1;
@@ -942,15 +1144,28 @@ mod tests {
         let gap = GapModel::new(-200.0, -10.0);
 
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, true, true, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            true,
+            true,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, true, true);
 
-        assert!((aln_full.score - aln_ms.score).abs() < 1e-9,
-            "scores differ: full={} ms={}", aln_full.score, aln_ms.score);
-        assert_eq!(aln_full.operations, aln_ms.operations,
-            "trace differs for short input");
+        assert!(
+            (aln_full.score - aln_ms.score).abs() < 1e-9,
+            "scores differ: full={} ms={}",
+            aln_full.score,
+            aln_ms.score
+        );
+        assert_eq!(
+            aln_full.operations, aln_ms.operations,
+            "trace differs for short input"
+        );
     }
 
     /// Two 360-char identical-prefix sequences (length similar to
@@ -965,13 +1180,24 @@ mod tests {
         let p2 = Profile::from_aligned(&[s.as_slice()], &[1.0], &map, 5);
         let gap = GapModel::new(-200.0, -10.0);
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, false, false, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            false,
+            false,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, false, false);
-        assert_eq!(aln_full.operations.len(), aln_ms.operations.len(),
+        assert_eq!(
+            aln_full.operations.len(),
+            aln_ms.operations.len(),
             "360-char free-gap: trace length differs: full={} ms={}",
-            aln_full.operations.len(), aln_ms.operations.len());
+            aln_full.operations.len(),
+            aln_ms.operations.len()
+        );
         assert!((aln_full.score - aln_ms.score).abs() < 1e-6);
     }
 
@@ -988,12 +1214,22 @@ mod tests {
         let p2 = Profile::from_aligned(&[s2_g1.as_slice(), s2_g2.as_slice()], &[0.5, 0.5], &map, 5);
         let gap = GapModel::new(-200.0, -10.0);
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, true, true, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            true,
+            true,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, true, true);
-        assert_eq!(aln_full.operations.len(), aln_ms.operations.len(),
-            "multi-seq asymmetric: trace length differs");
+        assert_eq!(
+            aln_full.operations.len(),
+            aln_ms.operations.len(),
+            "multi-seq asymmetric: trace length differs"
+        );
         assert!((aln_full.score - aln_ms.score).abs() < 1e-6);
     }
 
@@ -1010,23 +1246,32 @@ mod tests {
             b"ACGGTAC-TACGGT-C",
             b"AC-GTACGTACGGTAC",
         ];
-        let group2: Vec<&[u8]> = vec![
-            b"ACGTACGTAC-GTAC",
-            b"ACGGTACGT-CGTAC",
-        ];
-        let p1 = Profile::from_aligned(&group1, &[1.0/3.0; 3], &map, 5);
+        let group2: Vec<&[u8]> = vec![b"ACGTACGTAC-GTAC", b"ACGGTACGT-CGTAC"];
+        let p1 = Profile::from_aligned(&group1, &[1.0 / 3.0; 3], &map, 5);
         let p2 = Profile::from_aligned(&group2, &[0.5, 0.5], &map, 5);
         let gap = GapModel::new(-200.0, -10.0);
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, false, false, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            false,
+            false,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, false, false);
-        assert!((aln_full.score - aln_ms.score).abs() < 1e-6,
+        assert!(
+            (aln_full.score - aln_ms.score).abs() < 1e-6,
             "multi-seq profile: scores differ: full={} ms={}",
-            aln_full.score, aln_ms.score);
-        assert_eq!(aln_full.operations, aln_ms.operations,
-            "multi-seq profile: trace differs");
+            aln_full.score,
+            aln_ms.score
+        );
+        assert_eq!(
+            aln_full.operations, aln_ms.operations,
+            "multi-seq profile: trace differs"
+        );
     }
 
     /// `head_gap=false, tail_gap=false` case (FFT-NS-2 / NW-NS-2 path
@@ -1041,15 +1286,30 @@ mod tests {
         let p2 = Profile::from_aligned(&[s2.as_slice()], &[1.0], &map, 5);
         let gap = GapModel::new(-200.0, -10.0);
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, false, false, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            false,
+            false,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, false, false);
-        assert!((aln_full.score - aln_ms.score).abs() < 1e-6,
-            "head_gap=false: scores differ: full={} ms={}", aln_full.score, aln_ms.score);
-        assert_eq!(aln_full.operations.len(), aln_ms.operations.len(),
+        assert!(
+            (aln_full.score - aln_ms.score).abs() < 1e-6,
+            "head_gap=false: scores differ: full={} ms={}",
+            aln_full.score,
+            aln_ms.score
+        );
+        assert_eq!(
+            aln_full.operations.len(),
+            aln_ms.operations.len(),
             "head_gap=false: trace length differs: full={} ms={}",
-            aln_full.operations.len(), aln_ms.operations.len());
+            aln_full.operations.len(),
+            aln_ms.operations.len()
+        );
     }
 
     /// Recursive case with a non-trivial gap-required alignment.
@@ -1061,7 +1321,9 @@ mod tests {
         // Use the full BLOSUM-like 5-letter alphabet, with distinct
         // motifs anchoring the gap region.
         let mut mtx = vec![vec![-100.0f64; 5]; 5];
-        for i in 0..4 { mtx[i][i] = 100.0; }
+        for i in 0..4 {
+            mtx[i][i] = 100.0;
+        }
         let mut map = [4u8; 256];
         map[b'A' as usize] = 0;
         map[b'C' as usize] = 1;
@@ -1076,27 +1338,41 @@ mod tests {
         let insert: Vec<u8> = (0..20).map(|i| b"AAGG"[(i + 2) % 4]).collect();
 
         let s_short: Vec<u8> = left.iter().chain(right.iter()).copied().collect();
-        let s_long: Vec<u8> = left.iter()
+        let s_long: Vec<u8> = left
+            .iter()
             .chain(insert.iter())
             .chain(right.iter())
-            .copied().collect();
+            .copied()
+            .collect();
         let p1 = Profile::from_aligned(&[s_short.as_slice()], &[1.0], &map, 5);
         let p2 = Profile::from_aligned(&[s_long.as_slice()], &[1.0], &map, 5);
         let gap = GapModel::new(-200.0, -10.0);
 
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, true, true, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            true,
+            true,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, true, true);
 
-        assert!((aln_full.score - aln_ms.score).abs() < 1e-6,
+        assert!(
+            (aln_full.score - aln_ms.score).abs() < 1e-6,
             "scores differ: full={} ms={}",
-            aln_full.score, aln_ms.score);
+            aln_full.score,
+            aln_ms.score
+        );
         // Trace must match too — input has a unique optimal alignment
         // (distinct anchor motifs on either side of the gap).
-        assert_eq!(aln_full.operations, aln_ms.operations,
-            "trace differs for gap-required input with unique optimum");
+        assert_eq!(
+            aln_full.operations, aln_ms.operations,
+            "trace differs for gap-required input with unique optimum"
+        );
     }
 
     /// Recursive case: an input long enough to trigger Hirschberg
@@ -1114,18 +1390,35 @@ mod tests {
         let gap = GapModel::new(-200.0, -10.0);
 
         let aln_full = profile_align_imp_with_boundary(
-            &p1, &p2, &mtx, &gap, true, true, None, false,
+            &p1,
+            &p2,
+            &mtx,
+            &gap,
+            true,
+            true,
+            None,
+            false,
             BoundaryFreqs::default(),
         );
         let aln_ms = msalignmm(&p1, &p2, &mtx, &gap, true, true);
 
-        assert!((aln_full.score - aln_ms.score).abs() < 1.0,
-            "scores differ: full={} ms={}", aln_full.score, aln_ms.score);
+        assert!(
+            (aln_full.score - aln_ms.score).abs() < 1.0,
+            "scores differ: full={} ms={}",
+            aln_full.score,
+            aln_ms.score
+        );
         // The trace MUST be byte-identical for identical inputs.
-        assert_eq!(aln_full.operations.len(), aln_ms.operations.len(),
+        assert_eq!(
+            aln_full.operations.len(),
+            aln_ms.operations.len(),
             "trace length differs: full={} ms={}",
-            aln_full.operations.len(), aln_ms.operations.len());
-        assert_eq!(aln_full.operations, aln_ms.operations,
-            "trace differs for identical 200-nt input");
+            aln_full.operations.len(),
+            aln_ms.operations.len()
+        );
+        assert_eq!(
+            aln_full.operations, aln_ms.operations,
+            "trace differs for identical 200-nt input"
+        );
     }
 }

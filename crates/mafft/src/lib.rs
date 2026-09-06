@@ -49,8 +49,8 @@
 //!   (`pip install pymafft`)
 
 pub use mafft_core::*;
-pub use mafft_types::*;
 pub use mafft_io::*;
+pub use mafft_types::*;
 
 /// Sub-crate re-exports under explicit names, for callers who prefer
 /// disambiguation over the flattened root namespace.

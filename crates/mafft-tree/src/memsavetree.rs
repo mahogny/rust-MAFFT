@@ -22,9 +22,8 @@
 //! are implemented.
 
 use crate::parttree_dist::{
-    common_sextets_p, composition_table, encode_points_dna,
-    encode_points_protein, lenfac, DLENFACA, DLENFACB, DLENFACC, DLENFACD,
-    PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+    DLENFACA, DLENFACB, DLENFACC, DLENFACD, PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+    common_sextets_p, composition_table, encode_points_dna, encode_points_protein, lenfac,
 };
 use crate::topology::{JoinStep, Topology};
 
@@ -32,7 +31,6 @@ use crate::topology::{JoinStep, Topology};
 /// `cluster_mix_double` derives `sueff1 = 1 - SUEFF = 0.9` and
 /// `sueff05 = SUEFF * 0.5 = 0.05`.
 pub const SUEFF: f64 = 0.1;
-
 
 /// `disttbfast.c:867` preferenceval — a tiny 1e-14 tie-breaker added to
 /// pairwise distances during the initial-pair scan so that ties resolve
@@ -60,7 +58,10 @@ fn distcompact(
     ss1: i32,
     ss2: i32,
     tsize: usize,
-    lf_a: f64, lf_b: f64, lf_c: f64, lf_d: f64,
+    lf_a: f64,
+    lf_b: f64,
+    lf_c: f64,
+    lf_d: f64,
 ) -> f64 {
     if ss1 == 0 || ss2 == 0 {
         return 2.0;
@@ -73,7 +74,10 @@ fn distcompact(
 
 /// Strip gaps (`-` and `.`) from a sequence, matching C's `gappick0`.
 fn gappick0(seq: &[u8]) -> Vec<u8> {
-    seq.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
+    seq.iter()
+        .filter(|&&c| c != b'-' && c != b'.')
+        .copied()
+        .collect()
 }
 
 /// `mafft-upstream/core/disttbfast.c::compactdisthalfmtxthread` (lines
@@ -86,7 +90,10 @@ fn initial_mindist(
     nogaplen: &[usize],
     selfscore: &[i32],
     tsize: usize,
-    lf_a: f64, lf_b: f64, lf_c: f64, lf_d: f64,
+    lf_a: f64,
+    lf_b: f64,
+    lf_c: f64,
+    lf_d: f64,
 ) -> (Vec<f64>, Vec<i32>) {
     let nseq = pointt.len();
     let mut mindist = vec![999.9_f64; nseq];
@@ -96,10 +103,17 @@ fn initial_mindist(
         let table_i = composition_table(&pointt[i], tsize);
         for j in (0..i).rev() {
             let d = distcompact(
-                nogaplen[i], nogaplen[j],
-                &table_i, &pointt[j],
-                selfscore[i], selfscore[j],
-                tsize, lf_a, lf_b, lf_c, lf_d,
+                nogaplen[i],
+                nogaplen[j],
+                &table_i,
+                &pointt[j],
+                selfscore[i],
+                selfscore[j],
+                tsize,
+                lf_a,
+                lf_b,
+                lf_c,
+                lf_d,
             );
             let pref = preferenceval(i, j, nseq);
             let dx = d + pref;
@@ -141,11 +155,7 @@ fn initial_mindist(
 /// The final Newick (via `reformat_rec_newick`) swaps the children
 /// so that the subtree with smaller `rep` is printed first
 /// (`mltaln9.c:4239-4242`).
-fn compacttree_givendist(
-    nseq: usize,
-    mindist: &[f64],
-    nearest: &[i32],
-) -> Topology {
+fn compacttree_givendist(nseq: usize, mindist: &[f64], nearest: &[i32]) -> Topology {
     if nseq <= 1 {
         return Topology::new(nseq);
     }
@@ -164,16 +174,18 @@ fn compacttree_givendist(
         rep0: i32,
         rep1: i32,
     }
-    let mut nodes: Vec<Treept> = (0..2 * nseq).map(|i| Treept {
-        parent: None,
-        child0: None,
-        child1: None,
-        height: 0.0,
-        len0: 0.0,
-        len1: 0.0,
-        rep0: if i < nseq { i as i32 } else { -1 },
-        rep1: -1,
-    }).collect();
+    let mut nodes: Vec<Treept> = (0..2 * nseq)
+        .map(|i| Treept {
+            parent: None,
+            child0: None,
+            child1: None,
+            height: 0.0,
+            len0: 0.0,
+            len1: 0.0,
+            rep0: if i < nseq { i as i32 } else { -1 },
+            rep1: -1,
+        })
+        .collect();
 
     // Initial step: link leaves 0 and 1 at the first internal node `n=nseq`.
     let mut n = nseq;
@@ -287,11 +299,7 @@ fn compacttree_givendist(
 /// Like `flatten_members` but uses `lastappear[rep]` (the step index
 /// where `rep` was last merged in the reformatted topology) rather than
 /// the hist-array bookkeeping of the cluster-mix path.
-fn flatten_members_for_givendist(
-    topo: &Topology,
-    rep: usize,
-    lastappear: &[i32],
-) -> Vec<usize> {
+fn flatten_members_for_givendist(topo: &Topology, rep: usize, lastappear: &[i32]) -> Vec<usize> {
     let step = lastappear[rep];
     if step < 0 {
         return vec![rep];
@@ -325,13 +333,23 @@ pub fn memsavetree(seqs: &[&[u8]], is_dna: bool) -> Topology {
     // 1. Build pointt (6-mer index) and selfscore per sequence.
     let stripped: Vec<Vec<u8>> = seqs.iter().map(|s| gappick0(s)).collect();
     let nogaplen: Vec<usize> = stripped.iter().map(|s| s.len()).collect();
-    let pointt: Vec<Vec<u32>> = stripped.iter().map(|s| {
-        if is_dna { encode_points_dna(s) } else { encode_points_protein(s) }
-    }).collect();
-    let selfscore: Vec<i32> = pointt.iter().map(|p| {
-        let table = composition_table(p, tsize);
-        common_sextets_p(&table, p, tsize) as i32
-    }).collect();
+    let pointt: Vec<Vec<u32>> = stripped
+        .iter()
+        .map(|s| {
+            if is_dna {
+                encode_points_dna(s)
+            } else {
+                encode_points_protein(s)
+            }
+        })
+        .collect();
+    let selfscore: Vec<i32> = pointt
+        .iter()
+        .map(|p| {
+            let table = composition_table(p, tsize);
+            common_sextets_p(&table, p, tsize) as i32
+        })
+        .collect();
 
     // 2. Initial mindist[]/nearest[] scan.
     let (mindist, nearest) = initial_mindist(
@@ -358,7 +376,10 @@ pub fn initial_mindist_yl_for_test(
     nogaplen: &[usize],
     selfscore: &[i32],
     tsize: usize,
-    lf_a: f64, lf_b: f64, lf_c: f64, lf_d: f64,
+    lf_a: f64,
+    lf_b: f64,
+    lf_c: f64,
+    lf_d: f64,
 ) -> (Vec<f64>, Vec<i32>) {
     initial_mindist_yl(pointt, nogaplen, selfscore, tsize, lf_a, lf_b, lf_c, lf_d)
 }
@@ -368,7 +389,10 @@ fn initial_mindist_yl(
     nogaplen: &[usize],
     selfscore: &[i32],
     tsize: usize,
-    lf_a: f64, lf_b: f64, lf_c: f64, lf_d: f64,
+    lf_a: f64,
+    lf_b: f64,
+    lf_c: f64,
+    lf_d: f64,
 ) -> (Vec<f64>, Vec<i32>) {
     let nseq = pointt.len();
     let mut mindist = vec![999.9_f64; nseq];
@@ -378,10 +402,17 @@ fn initial_mindist_yl(
         let table_i = composition_table(&pointt[i], tsize);
         for j in (i + 1)..nseq {
             let tmpdist = distcompact(
-                nogaplen[i], nogaplen[j],
-                &table_i, &pointt[j],
-                selfscore[i], selfscore[j],
-                tsize, lf_a, lf_b, lf_c, lf_d,
+                nogaplen[i],
+                nogaplen[j],
+                &table_i,
+                &pointt[j],
+                selfscore[i],
+                selfscore[j],
+                tsize,
+                lf_a,
+                lf_b,
+                lf_c,
+                lf_d,
             );
             let pref_ij = preferenceval(i, j, nseq);
             let tmp_x = tmpdist + pref_ij;
@@ -435,13 +466,23 @@ pub fn youngestlinkage_tree(seqs: &[&[u8]], is_dna: bool) -> Topology {
 
     let stripped: Vec<Vec<u8>> = seqs.iter().map(|s| gappick0(s)).collect();
     let nogaplen: Vec<usize> = stripped.iter().map(|s| s.len()).collect();
-    let pointt: Vec<Vec<u32>> = stripped.iter().map(|s| {
-        if is_dna { encode_points_dna(s) } else { encode_points_protein(s) }
-    }).collect();
-    let selfscore: Vec<i32> = pointt.iter().map(|p| {
-        let table = composition_table(p, tsize);
-        common_sextets_p(&table, p, tsize) as i32
-    }).collect();
+    let pointt: Vec<Vec<u32>> = stripped
+        .iter()
+        .map(|s| {
+            if is_dna {
+                encode_points_dna(s)
+            } else {
+                encode_points_protein(s)
+            }
+        })
+        .collect();
+    let selfscore: Vec<i32> = pointt
+        .iter()
+        .map(|p| {
+            let table = composition_table(p, tsize);
+            common_sextets_p(&table, p, tsize) as i32
+        })
+        .collect();
 
     let (mindist, nearest) = initial_mindist_yl(
         &pointt, &nogaplen, &selfscore, tsize, lf_a, lf_b, lf_c, lf_d,
@@ -454,10 +495,17 @@ pub fn youngestlinkage_tree(seqs: &[&[u8]], is_dna: bool) -> Topology {
     youngestlinkage_core(nseq, mindist, nearest, |a, b| {
         let table_a = composition_table(&pointt[a], tsize);
         distcompact(
-            nogaplen[a], nogaplen[b],
-            &table_a, &pointt[b],
-            selfscore[a], selfscore[b],
-            tsize, lf_a, lf_b, lf_c, lf_d,
+            nogaplen[a],
+            nogaplen[b],
+            &table_a,
+            &pointt[b],
+            selfscore[a],
+            selfscore[b],
+            tsize,
+            lf_a,
+            lf_b,
+            lf_c,
+            lf_d,
         )
     })
 }
@@ -476,8 +524,12 @@ fn youngestlinkage_core(
         return Topology::new(nseq);
     }
 
-    let mut prev: Vec<Option<usize>> = (0..nseq).map(|i| if i == 0 { None } else { Some(i - 1) }).collect();
-    let mut next: Vec<Option<usize>> = (0..nseq).map(|i| if i == nseq - 1 { None } else { Some(i + 1) }).collect();
+    let mut prev: Vec<Option<usize>> = (0..nseq)
+        .map(|i| if i == 0 { None } else { Some(i - 1) })
+        .collect();
+    let mut next: Vec<Option<usize>> = (0..nseq)
+        .map(|i| if i == nseq - 1 { None } else { Some(i + 1) })
+        .collect();
     let mut head: Option<usize> = Some(0);
 
     let mut hist: Vec<i32> = vec![-1; nseq];
@@ -533,7 +585,14 @@ fn youngestlinkage_core(
         let prev_im = hist[im];
         let prev_jm = hist[jm];
 
-        raw_steps.push(RawStep { im_rep, jm_rep, len0, len1, prev_im, prev_jm });
+        raw_steps.push(RawStep {
+            im_rep,
+            jm_rep,
+            len0,
+            len1,
+            prev_im,
+            prev_jm,
+        });
         let k_idx = raw_steps.len() as i32 - 1;
 
         tmptmplen[im] = half;
@@ -544,7 +603,9 @@ fn youngestlinkage_core(
         cur = head;
         while let Some(i) = cur {
             cur = next[i];
-            if i == im || i == jm { continue; }
+            if i == im || i == jm {
+                continue;
+            }
             let d1 = compute_dist(im, i);
             let d2 = compute_dist(jm, i);
             let dnew = cluster_mix(d1, d2);
@@ -629,7 +690,8 @@ pub fn youngestlinkage_tree_msa(
         return Topology::new(nseq);
     }
 
-    let selfscore: Vec<f64> = aligned.iter()
+    let selfscore: Vec<f64> = aligned
+        .iter()
         .map(|s| naivepairscore11_aligned(s, s, matrix, amino_map, penalty))
         .collect();
 
@@ -640,9 +702,13 @@ pub fn youngestlinkage_tree_msa(
     for i in 0..(nseq - 1) {
         for j in (i + 1)..nseq {
             let d = distcompact_msa(
-                aligned[i], aligned[j],
-                selfscore[i], selfscore[j],
-                matrix, amino_map, penalty,
+                aligned[i],
+                aligned[j],
+                selfscore[i],
+                selfscore[j],
+                matrix,
+                amino_map,
+                penalty,
             );
             let pref_ij = preferenceval(i, j, nseq);
             let pref_ji = preferenceval(j, i, nseq);
@@ -665,9 +731,13 @@ pub fn youngestlinkage_tree_msa(
     let aligned_owned: Vec<&[u8]> = aligned.to_vec();
     youngestlinkage_core(nseq, mindist, nearest, |a, b| {
         distcompact_msa(
-            aligned_owned[a], aligned_owned[b],
-            selfscore[a], selfscore[b],
-            matrix, amino_map, penalty,
+            aligned_owned[a],
+            aligned_owned[b],
+            selfscore[a],
+            selfscore[b],
+            matrix,
+            amino_map,
+            penalty,
         )
     })
 }
@@ -699,7 +769,8 @@ pub fn memsavetree_msa(
     // is to call `naivepairscore11` with the same sequence twice — for
     // identical sequences with no gap blocks against gaps, the result
     // is the same as the diagonal sum.
-    let selfscore: Vec<f64> = aligned.iter()
+    let selfscore: Vec<f64> = aligned
+        .iter()
         .map(|s| naivepairscore11_aligned(s, s, matrix, amino_map, penalty))
         .collect();
 
@@ -710,9 +781,13 @@ pub fn memsavetree_msa(
     for i in (0..nseq).rev() {
         for j in (0..i).rev() {
             let d = distcompact_msa(
-                aligned[i], aligned[j],
-                selfscore[i], selfscore[j],
-                matrix, amino_map, penalty,
+                aligned[i],
+                aligned[j],
+                selfscore[i],
+                selfscore[j],
+                matrix,
+                amino_map,
+                penalty,
             );
             let pref = preferenceval(i, j, nseq);
             let dx = d + pref;
@@ -752,7 +827,9 @@ fn distcompact_msa(
     }
     let score = naivepairscore11_aligned(aligned1, aligned2, matrix, amino_map, penalty);
     let mut value = (1.0 - score / bunbo) * 2.0;
-    if value > 10.0 { value = 10.0; }
+    if value > 10.0 {
+        value = 10.0;
+    }
     value
 }
 
@@ -782,12 +859,16 @@ fn naivepairscore11_aligned(
         }
         if c1 == b'-' {
             score += penalty;
-            while k < n && aligned1[k] == b'-' { k += 1; }
+            while k < n && aligned1[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         if c2 == b'-' {
             score += penalty;
-            while k < n && aligned2[k] == b'-' { k += 1; }
+            while k < n && aligned2[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         let i = amino_map[c1 as usize] as usize;
@@ -846,10 +927,17 @@ mod tests {
         let ss1 = common_sextets_p(&t1, &p1, 46656);
         let ss2 = common_sextets_p(&t2, &p2, 46656);
         let d = distcompact(
-            seq1.len(), seq2.len(),
-            &t1, &p2,
-            ss1, ss2,
-            46656, PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+            seq1.len(),
+            seq2.len(),
+            &t1,
+            &p2,
+            ss1,
+            ss2,
+            46656,
+            PLENFACA,
+            PLENFACB,
+            PLENFACC,
+            PLENFACD,
         );
         // C `--memsavetree` runs a SECOND tree-build in tbfast using MSA-
         // based `distcompact_msa` after the initial progressive alignment,
@@ -876,7 +964,10 @@ mod tests {
             // is < right's smallest leaf.
             let l_min = step.left.iter().min().unwrap();
             let r_min = step.right.iter().min().unwrap();
-            assert!(l_min < r_min, "left.min ({l_min}) should be < right.min ({r_min})");
+            assert!(
+                l_min < r_min,
+                "left.min ({l_min}) should be < right.min ({r_min})"
+            );
         }
     }
 }

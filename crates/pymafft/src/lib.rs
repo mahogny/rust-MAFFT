@@ -17,10 +17,10 @@
 //! result = pymafft.align_file("sequences.fasta")
 //! ```
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 
-use mafft_core::{MafftEngine, AlignmentMode};
+use mafft_core::{AlignmentMode, MafftEngine};
 use mafft_io::{read_fasta, read_fasta_from_reader};
 use mafft_types::{Sequence, SequenceSet};
 
@@ -37,7 +37,11 @@ struct AlignedSequence {
 #[pymethods]
 impl AlignedSequence {
     fn __repr__(&self) -> String {
-        format!("AlignedSequence(name='{}', len={})", self.name, self.sequence.len())
+        format!(
+            "AlignedSequence(name='{}', len={})",
+            self.name,
+            self.sequence.len()
+        )
     }
 
     fn __str__(&self) -> String {
@@ -93,7 +97,11 @@ impl AlignmentResult {
     /// Get a sequence by index.
     fn __getitem__(&self, idx: usize) -> PyResult<AlignedSequence> {
         self.sequences.get(idx).cloned().ok_or_else(|| {
-            PyValueError::new_err(format!("index {} out of range (nseq={})", idx, self.sequences.len()))
+            PyValueError::new_err(format!(
+                "index {} out of range (nseq={})",
+                idx,
+                self.sequences.len()
+            ))
         })
     }
 
@@ -181,9 +189,8 @@ fn build_input(sequences: Vec<(String, String)>) -> PyResult<SequenceSet> {
         })
         .collect();
 
-    let seq_type = mafft_io::detect_seq_type(
-        &seqs.iter().map(|s| s.data.clone()).collect::<Vec<_>>(),
-    );
+    let seq_type =
+        mafft_io::detect_seq_type(&seqs.iter().map(|s| s.data.clone()).collect::<Vec<_>>());
 
     Ok(SequenceSet {
         sequences: seqs,
@@ -272,18 +279,20 @@ fn align(
             let item = item?;
             match try_record_to_pair(&item) {
                 Some(p) => pairs.push(p),
-                None => return Err(PyValueError::new_err(format!(
-                    "sequences[{}] is not a string, (name, seq) tuple, or \
+                None => {
+                    return Err(PyValueError::new_err(format!(
+                        "sequences[{}] is not a string, (name, seq) tuple, or \
                      object with .id and .seq attributes",
-                    i
-                ))),
+                        i
+                    )));
+                }
             }
         }
         build_input(pairs)?
     } else {
         return Err(PyValueError::new_err(
             "sequences must be a list of strings, (name, sequence) tuples, \
-             or SeqRecord-like objects"
+             or SeqRecord-like objects",
         ));
     };
 
@@ -301,11 +310,7 @@ fn align(
 ///     AlignmentResult with aligned sequences.
 #[pyfunction]
 #[pyo3(signature = (path, strategy="fftns2", maxiterate=0))]
-fn align_file(
-    path: &str,
-    strategy: &str,
-    maxiterate: usize,
-) -> PyResult<AlignmentResult> {
+fn align_file(path: &str, strategy: &str, maxiterate: usize) -> PyResult<AlignmentResult> {
     let mode = parse_strategy(strategy, maxiterate)?;
 
     let input = read_fasta(path).map_err(|e| {
@@ -334,9 +339,8 @@ fn align_fasta_string(
     let mode = parse_strategy(strategy, maxiterate)?;
 
     let reader = std::io::Cursor::new(fasta_string.as_bytes());
-    let input = read_fasta_from_reader(std::io::BufReader::new(reader)).map_err(|e| {
-        PyValueError::new_err(format!("error parsing FASTA string: {}", e))
-    })?;
+    let input = read_fasta_from_reader(std::io::BufReader::new(reader))
+        .map_err(|e| PyValueError::new_err(format!("error parsing FASTA string: {}", e)))?;
 
     Ok(run_alignment(input, mode))
 }

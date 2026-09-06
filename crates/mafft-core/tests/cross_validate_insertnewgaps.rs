@@ -54,7 +54,9 @@ unsafe fn read_row(mtx: *mut *mut c_char, i: usize) -> Vec<u8> {
         let mut k = 0;
         loop {
             let c = *row.add(k);
-            if c == 0 { break; }
+            if c == 0 {
+                break;
+            }
             out.push(c as u8);
             k += 1;
         }
@@ -72,7 +74,9 @@ fn rust_flat_padding(
     new_merge_gap_set: &std::collections::HashSet<usize>,
     post_merge_width: usize,
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(post_merge_width + gap_cols_before.iter().map(|v| v.len()).sum::<usize>());
+    let mut out = Vec::with_capacity(
+        post_merge_width + gap_cols_before.iter().map(|v| v.len()).sum::<usize>(),
+    );
     let mut s = 0usize;
     for q in 0..post_merge_width {
         if new_merge_gap_set.contains(&q) {
@@ -124,24 +128,42 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let aseq = unsafe { mafft_sys::AllocateCharMtx(njob, alloclen) };
     for (i, content) in &sc.pre_merge {
         // OTHER rows: pre-merge.
-        unsafe { set_row(aseq, *i, content); }
+        unsafe {
+            set_row(aseq, *i, content);
+        }
     }
     for (i, content) in &sc.post_merge_active {
         // Active rows: overwrite with post-merge.
-        unsafe { set_row(aseq, *i, content); }
+        unsafe {
+            set_row(aseq, *i, content);
+        }
     }
 
     // For findcommongaps: build mseq1 = pre-strip group1 rows
     // (snapshot). C's call site:
     //   findcommongaps( clus1, mseq1, gapmap ) on pre-strip.
-    let mseq1_prestrip = unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
+    let mseq1_prestrip =
+        unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
     for (k, &i) in sc.existing_grp.iter().enumerate() {
-        let content = sc.pre_merge.iter().find(|(idx, _)| *idx == i).map(|(_, v)| v.clone()).unwrap();
-        unsafe { set_row(mseq1_prestrip, k, &content); }
+        let content = sc
+            .pre_merge
+            .iter()
+            .find(|(idx, _)| *idx == i)
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        unsafe {
+            set_row(mseq1_prestrip, k, &content);
+        }
     }
     let gapmap = unsafe { mafft_sys::AllocateIntVec(alloclen) };
-    for k in 0..alloclen { unsafe { *gapmap.add(k as usize) = 0; } }
-    unsafe { mafft_sys::findcommongaps(sc.existing_grp.len() as c_int, mseq1_prestrip, gapmap); }
+    for k in 0..alloclen {
+        unsafe {
+            *gapmap.add(k as usize) = 0;
+        }
+    }
+    unsafe {
+        mafft_sys::findcommongaps(sc.existing_grp.len() as c_int, mseq1_prestrip, gapmap);
+    }
 
     // Now we'd commongappick group1 and run the actual merge to get
     // post-merge state. We SKIP both steps and use the user-supplied
@@ -149,15 +171,24 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
     // adjustgapmap: walks newlen of post-merge mseq1[0] with `=` chars.
     // For our test, post-merge active group1[0] is what was supplied.
-    let mseq1_post = unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
+    let mseq1_post =
+        unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
     for (k, &i) in sc.existing_grp.iter().enumerate() {
-        let content = sc.post_merge_active.iter().find(|(idx, _)| *idx == i)
-            .map(|(_, v)| v.clone()).unwrap();
-        unsafe { set_row(mseq1_post, k, &content); }
+        let content = sc
+            .post_merge_active
+            .iter()
+            .find(|(idx, _)| *idx == i)
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        unsafe {
+            set_row(mseq1_post, k, &content);
+        }
     }
     let post_merge_width = sc.post_merge_active[0].1.len() as c_int;
     let gapmaplen = post_merge_width + 1;
-    unsafe { mafft_sys::adjustgapmap(post_merge_width, gapmap, *mseq1_post.add(0)); }
+    unsafe {
+        mafft_sys::adjustgapmap(post_merge_width, gapmap, *mseq1_post.add(0));
+    }
     let _ = gapmaplen;
 
     // restorecommongaps: expands active rows by inserting common-gap chars.
@@ -165,51 +196,85 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let ex1 = unsafe { mafft_sys::AllocateIntVec(njob) };
     let ex2 = unsafe { mafft_sys::AllocateIntVec(njob) };
     for (k, &i) in sc.existing_grp.iter().enumerate() {
-        unsafe { *ex1.add(k) = i as c_int; }
+        unsafe {
+            *ex1.add(k) = i as c_int;
+        }
     }
-    unsafe { *ex1.add(sc.existing_grp.len()) = -1; }
+    unsafe {
+        *ex1.add(sc.existing_grp.len()) = -1;
+    }
     for (k, &i) in sc.new_grp.iter().enumerate() {
-        unsafe { *ex2.add(k) = i as c_int; }
+        unsafe {
+            *ex2.add(k) = i as c_int;
+        }
     }
-    unsafe { *ex2.add(sc.new_grp.len()) = -1; }
+    unsafe {
+        *ex2.add(sc.new_grp.len()) = -1;
+    }
 
     let n0 = sc.other_grp.len() as c_int;
     unsafe {
-        mafft_sys::restorecommongaps(
-            njob, n0, aseq, ex1, ex2, gapmap, alloclen, b'-' as c_char,
-        );
+        mafft_sys::restorecommongaps(njob, n0, aseq, ex1, ex2, gapmap, alloclen, b'-' as c_char);
     }
 
     // findnewgaps: on the post-restore mseq1.
-    let mseq1_restored = unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
+    let mseq1_restored =
+        unsafe { mafft_sys::AllocateCharMtx(sc.existing_grp.len() as c_int, alloclen) };
     for (k, &i) in sc.existing_grp.iter().enumerate() {
         let content = unsafe { read_row(aseq, i) };
-        unsafe { set_row(mseq1_restored, k, &content); }
+        unsafe {
+            set_row(mseq1_restored, k, &content);
+        }
     }
     let gaplen_len = (unsafe { mafft_sys::seqlen(*mseq1_restored.add(0)) } + 1) as c_int;
     let gaplen = unsafe { mafft_sys::AllocateIntVec(gaplen_len.max(alloclen)) };
-    for k in 0..gaplen_len { unsafe { *gaplen.add(k as usize) = 0; } }
-    unsafe { mafft_sys::findnewgaps(sc.existing_grp.len() as c_int, 0, mseq1_restored, gaplen); }
+    for k in 0..gaplen_len {
+        unsafe {
+            *gaplen.add(k as usize) = 0;
+        }
+    }
+    unsafe {
+        mafft_sys::findnewgaps(sc.existing_grp.len() as c_int, 0, mseq1_restored, gaplen);
+    }
 
     // alreadyaligned: all rows are alreadyaligned for --add.
     let alreadyaligned = unsafe { mafft_sys::AllocateIntVec(njob) };
-    for i in 0..njob as usize { unsafe { *alreadyaligned.add(i) = 1; } }
+    for i in 0..njob as usize {
+        unsafe {
+            *alreadyaligned.add(i) = 1;
+        }
+    }
 
     eprintln!("\n--- Scenario: {} ---", sc.name);
     eprintln!("After restorecommongaps, before insertnewgaps:");
     for i in 0..njob as usize {
         let row = unsafe { read_row(aseq, i) };
-        eprintln!("  aseq[{}] = {} (len={})", i, String::from_utf8_lossy(&row), row.len());
+        eprintln!(
+            "  aseq[{}] = {} (len={})",
+            i,
+            String::from_utf8_lossy(&row),
+            row.len()
+        );
     }
     let mut gaplen_vec = Vec::new();
-    for k in 0..gaplen_len { gaplen_vec.push(unsafe { *gaplen.add(k as usize) }); }
+    for k in 0..gaplen_len {
+        gaplen_vec.push(unsafe { *gaplen.add(k as usize) });
+    }
     eprintln!("  gaplen = {:?}", gaplen_vec);
 
     // Call insertnewgaps.
     unsafe {
         mafft_sys::insertnewgaps(
-            njob, alreadyaligned, aseq, ex1, ex2, gaplen, gapmap,
-            alloclen, b'A' as c_char, b'-' as c_char,
+            njob,
+            alreadyaligned,
+            aseq,
+            ex1,
+            ex2,
+            gaplen,
+            gapmap,
+            alloclen,
+            b'A' as c_char,
+            b'-' as c_char,
         );
     }
 
@@ -217,42 +282,72 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let mut c_outputs: Vec<Vec<u8>> = Vec::with_capacity(njob as usize);
     for i in 0..njob as usize {
         let row = unsafe { read_row(aseq, i) };
-        eprintln!("  aseq[{}] = {} (len={})", i, String::from_utf8_lossy(&row), row.len());
+        eprintln!(
+            "  aseq[{}] = {} (len={})",
+            i,
+            String::from_utf8_lossy(&row),
+            row.len()
+        );
         c_outputs.push(row);
     }
 
     // Compute rust's flat-padding prediction for OTHER rows for comparison.
     // We need anchor_positions, gap_cols_before, new_merge_gap_set from the
     // pre-merge group1 state.
-    let pre_strip_group1 = sc.pre_merge.iter().find(|(i, _)| *i == sc.existing_grp[0]).map(|(_, v)| v.clone()).unwrap();
+    let pre_strip_group1 = sc
+        .pre_merge
+        .iter()
+        .find(|(i, _)| *i == sc.existing_grp[0])
+        .map(|(_, v)| v.clone())
+        .unwrap();
     let pre_width = pre_strip_group1.len();
-    let pre_class: Vec<bool> = (0..pre_width).map(|k| {
-        sc.existing_grp.iter().all(|&i| {
-            let c = sc.pre_merge.iter().find(|(idx, _)| *idx == i).map(|(_, v)| v[k]).unwrap_or(b'-');
-            c == b'-' || c == b'.'
+    let pre_class: Vec<bool> = (0..pre_width)
+        .map(|k| {
+            sc.existing_grp.iter().all(|&i| {
+                let c = sc
+                    .pre_merge
+                    .iter()
+                    .find(|(idx, _)| *idx == i)
+                    .map(|(_, v)| v[k])
+                    .unwrap_or(b'-');
+                c == b'-' || c == b'.'
+            })
         })
-    }).collect();
+        .collect();
     let anchor_positions: Vec<usize> = (0..pre_width).filter(|&k| !pre_class[k]).collect();
     let stripped_width = anchor_positions.len();
     let mut gap_cols_before: Vec<Vec<usize>> = vec![Vec::new(); stripped_width + 1];
     {
         let mut s = 0usize;
         for k in 0..pre_width {
-            if pre_class[k] { gap_cols_before[s].push(k); }
-            else { s += 1; }
+            if pre_class[k] {
+                gap_cols_before[s].push(k);
+            } else {
+                s += 1;
+            }
         }
     }
-    let post_active_group1: Vec<u8> = sc.post_merge_active.iter()
+    let post_active_group1: Vec<u8> = sc
+        .post_merge_active
+        .iter()
         .find(|(i, _)| *i == sc.existing_grp[0])
-        .map(|(_, v)| v.clone()).unwrap();
-    let stripped_no_eq: Vec<u8> = post_active_group1.iter()
-        .filter(|&&c| c != b'=').copied().collect();
+        .map(|(_, v)| v.clone())
+        .unwrap();
+    let stripped_no_eq: Vec<u8> = post_active_group1
+        .iter()
+        .filter(|&&c| c != b'=')
+        .copied()
+        .collect();
     let new_merge_gap_set: std::collections::HashSet<usize> = {
         let mut set = std::collections::HashSet::new();
         let mut s = 0;
         for (k, &c) in post_active_group1.iter().enumerate() {
-            if c == b'=' { set.insert(k); }
-            else { s += 1; let _ = s; }
+            if c == b'=' {
+                set.insert(k);
+            } else {
+                s += 1;
+                let _ = s;
+            }
         }
         set
     };
@@ -261,14 +356,30 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
     let mut rust_other_outputs: Vec<Vec<u8>> = Vec::new();
     for &i in &sc.other_grp {
-        let other_pre = sc.pre_merge.iter().find(|(idx, _)| *idx == i).map(|(_, v)| v.clone()).unwrap();
-        let rust_out = rust_flat_padding(&other_pre, &anchor_positions, &gap_cols_before, &new_merge_gap_set, post_merge_w);
+        let other_pre = sc
+            .pre_merge
+            .iter()
+            .find(|(idx, _)| *idx == i)
+            .map(|(_, v)| v.clone())
+            .unwrap();
+        let rust_out = rust_flat_padding(
+            &other_pre,
+            &anchor_positions,
+            &gap_cols_before,
+            &new_merge_gap_set,
+            post_merge_w,
+        );
         rust_other_outputs.push(rust_out);
     }
 
     eprintln!("Rust flat-padding prediction for OTHER:");
     for (k, &i) in sc.other_grp.iter().enumerate() {
-        eprintln!("  rust_flat[{}] = {} (len={})", i, String::from_utf8_lossy(&rust_other_outputs[k]), rust_other_outputs[k].len());
+        eprintln!(
+            "  rust_flat[{}] = {} (len={})",
+            i,
+            String::from_utf8_lossy(&rust_other_outputs[k]),
+            rust_other_outputs[k].len()
+        );
     }
     // Compare each OTHER row's C output with rust prediction.
     for (k, &i) in sc.other_grp.iter().enumerate() {
@@ -324,7 +435,10 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         }
     }
     // Build gaplen and gapmap for rust port using the same chain C used.
-    let active_post_restore = rust_port_input.get(sc.existing_grp[0]).cloned().unwrap_or_default();
+    let active_post_restore = rust_port_input
+        .get(sc.existing_grp[0])
+        .cloned()
+        .unwrap_or_default();
     let gaplen_rust = mafft_core::progressive::findnewgaps(&active_post_restore);
     // gapmap_rust: indexed by post-restore position. Non-zero where the
     // common-gap restoration inserted '-'. For our scenarios: derived
@@ -339,9 +453,12 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         // boundaries.
         let mut s = 0usize;
         let mut q = 0usize;
-        let post_active_grp1: Vec<u8> = sc.post_merge_active.iter()
+        let post_active_grp1: Vec<u8> = sc
+            .post_merge_active
+            .iter()
             .find(|(i, _)| *i == sc.existing_grp[0])
-            .map(|(_, v)| v.clone()).unwrap();
+            .map(|(_, v)| v.clone())
+            .unwrap();
         for &c in &post_active_grp1 {
             if c == b'=' {
                 // post_restore position of '=' = current q + accumulated '-'.
@@ -362,7 +479,10 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         }
         // Trailing
         if s == stripped_width {
-            let n_common = gap_cols_before.get(stripped_width).map(|v| v.len()).unwrap_or(0);
+            let n_common = gap_cols_before
+                .get(stripped_width)
+                .map(|v| v.len())
+                .unwrap_or(0);
             if q < gapmap_rust.len() {
                 gapmap_rust[q] = n_common;
             }
@@ -384,9 +504,13 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let mut rust_port_aseq = rust_port_input.clone();
     mafft_core::progressive::apply_c_insertnewgaps(
         &mut rust_port_aseq,
-        &sc.existing_grp, &sc.new_grp, &sc.other_grp,
-        &gaplen_rust, &gapmap_rust,
-        &scoring, &gap,
+        &sc.existing_grp,
+        &sc.new_grp,
+        &sc.other_grp,
+        &gaplen_rust,
+        &gapmap_rust,
+        &scoring,
+        &gap,
     );
 
     eprintln!("Rust apply_c_insertnewgaps port:");
@@ -394,10 +518,24 @@ unsafe fn run_c_chain(sc: &Scenario) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
         let rust_row = &rust_port_aseq[i];
         let c_row = &c_outputs[i];
         if rust_row == c_row {
-            eprintln!("  rust_port[{}] = {} (len={}) MATCH", i, String::from_utf8_lossy(rust_row), rust_row.len());
+            eprintln!(
+                "  rust_port[{}] = {} (len={}) MATCH",
+                i,
+                String::from_utf8_lossy(rust_row),
+                rust_row.len()
+            );
         } else {
-            eprintln!("  rust_port[{}] = {} (len={}) DIVERGE", i, String::from_utf8_lossy(rust_row), rust_row.len());
-            eprintln!("           C  = {} (len={})", String::from_utf8_lossy(c_row), c_row.len());
+            eprintln!(
+                "  rust_port[{}] = {} (len={}) DIVERGE",
+                i,
+                String::from_utf8_lossy(rust_row),
+                rust_row.len()
+            );
+            eprintln!(
+                "           C  = {} (len={})",
+                String::from_utf8_lossy(c_row),
+                c_row.len()
+            );
         }
     }
 
@@ -432,16 +570,13 @@ fn dump_c_insertnewgaps_scenarios() {
         let sc1 = Scenario {
             name: "no_compression — no common-gaps + 1 new-merge-gap",
             pre_merge: vec![
-                (0, b"MNGTEGDNF".to_vec()),    // group1, 9 chars
-                (1, b"MNGTEGDNF".to_vec()),    // OTHER, 9 chars — same as group1
-                (2, b"MNGTPEGDNF".to_vec()),   // group2 (added, 10 chars ungapped)
+                (0, b"MNGTEGDNF".to_vec()),  // group1, 9 chars
+                (1, b"MNGTEGDNF".to_vec()),  // OTHER, 9 chars — same as group1
+                (2, b"MNGTPEGDNF".to_vec()), // group2 (added, 10 chars ungapped)
             ],
             // Merge stripped group1 (9) with added (10) → post-merge
             // 10 cols, with '=' for added's P at pos 4.
-            post_merge_active: vec![
-                (0, b"MNGT=EGDNF".to_vec()),
-                (2, b"MNGTPEGDNF".to_vec()),
-            ],
+            post_merge_active: vec![(0, b"MNGT=EGDNF".to_vec()), (2, b"MNGTPEGDNF".to_vec())],
             existing_grp: vec![0],
             new_grp: vec![2],
             other_grp: vec![1],
@@ -458,10 +593,7 @@ fn dump_c_insertnewgaps_scenarios() {
                 (1, b"MNGTAEGDNF".to_vec()),
                 (2, b"MNGTPEGDNF".to_vec()),
             ],
-            post_merge_active: vec![
-                (0, b"MNGT=EGDNF".to_vec()),
-                (2, b"MNGTPEGDNF".to_vec()),
-            ],
+            post_merge_active: vec![(0, b"MNGT=EGDNF".to_vec()), (2, b"MNGTPEGDNF".to_vec())],
             existing_grp: vec![0],
             new_grp: vec![2],
             other_grp: vec![1],

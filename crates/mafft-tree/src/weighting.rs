@@ -2,7 +2,6 @@
 ///
 /// Ports the C `counteff_simple_double()` from mltaln9.c (global weights)
 /// and `weightFromABranch()` from treeOperation.c (per-branch weights).
-
 use crate::topology::Topology;
 
 /// Small constant added to all weights to prevent zero weights.
@@ -54,7 +53,11 @@ pub fn sequence_weights(topo: &Topology) -> Vec<f64> {
     }
     if let Ok(f) = std::env::var("RS_WEIGHTS") {
         use std::io::Write;
-        if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+        if let Ok(mut fp) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&f)
+        {
             for (i, w) in rootnode.iter().enumerate() {
                 let _ = writeln!(fp, "weight[{}]={:.18e}", i, w);
             }
@@ -93,7 +96,9 @@ impl BranchWeights {
         self.nodes[idx].members[d].clone()
     }
 
-    pub fn nseq(&self) -> usize { self.nseq }
+    pub fn nseq(&self) -> usize {
+        self.nseq
+    }
 }
 
 /// Search for which topology step (in range start..end) contains `seq_idx`
@@ -113,7 +118,11 @@ fn search_parent(topo: &Topology, seq_idx: usize, start: usize, end: usize) -> (
 
 /// Get the member list for a topology step's side, with -1 sentinel.
 fn topo_members(topo: &Topology, step: usize, lor: usize) -> Vec<i32> {
-    let members = if lor == 0 { &topo.steps[step].left } else { &topo.steps[step].right };
+    let members = if lor == 0 {
+        &topo.steps[step].left
+    } else {
+        &topo.steps[step].right
+    };
     let mut v: Vec<i32> = members.iter().map(|&s| s as i32).collect();
     v.push(-1);
     v
@@ -127,7 +136,10 @@ fn negative_members(members: &[i32], nseq: usize) -> Vec<i32> {
             present[m as usize] = true;
         }
     }
-    let mut result: Vec<i32> = (0..nseq).filter(|&i| !present[i]).map(|i| i as i32).collect();
+    let mut result: Vec<i32> = (0..nseq)
+        .filter(|&i| !present[i])
+        .map(|i| i as i32)
+        .collect();
     result.push(-1);
     result
 }
@@ -138,16 +150,21 @@ impl BranchWeights {
     pub fn new(topo: &Topology) -> Self {
         let nseq = topo.nseq;
         if nseq <= 2 {
-            return Self { nodes: Vec::new(), nseq };
+            return Self {
+                nodes: Vec::new(),
+                nseq,
+            };
         }
 
         let total = 2 * nseq;
-        let mut nodes: Vec<WNode> = (0..total).map(|_| WNode {
-            children: [-1; 3],
-            length: [0.0; 3],
-            branch_weight: [1.0; 3],
-            members: [Vec::new(), Vec::new(), Vec::new()],
-        }).collect();
+        let mut nodes: Vec<WNode> = (0..total)
+            .map(|_| WNode {
+                children: [-1; 3],
+                length: [0.0; 3],
+                branch_weight: [1.0; 3],
+                members: [Vec::new(), Vec::new(), Vec::new()],
+            })
+            .collect();
         let mut count = vec![0usize; total];
 
         // C's checkMinusLength (treeOperation.c:16): clamp lengths < MINLEN=0.001.
@@ -155,16 +172,22 @@ impl BranchWeights {
         // branches, which would otherwise make calc_w return MAXBW (=1.0) and
         // propagate wrong weights through the whole tree.
         const MINLEN: f64 = 0.001;
-        let clamped_lengths: Vec<(f64, f64)> = topo.steps.iter().map(|s| {
-            (s.left_length.max(MINLEN), s.right_length.max(MINLEN))
-        }).collect();
+        let clamped_lengths: Vec<(f64, f64)> = topo
+            .steps
+            .iter()
+            .map(|s| (s.left_length.max(MINLEN), s.right_length.max(MINLEN)))
+            .collect();
 
         // Phase 1: Connect leaf nodes (C lines 160-183).
         // For each sequence (leaf), find the first topology step that mentions it.
         for seq_idx in 0..nseq {
             let leaf = nseq + seq_idx;
             let (pstep, plor) = search_parent(topo, seq_idx, 0, nseq - 1);
-            let branch_len = if plor == 0 { clamped_lengths[pstep].0 } else { clamped_lengths[pstep].1 };
+            let branch_len = if plor == 0 {
+                clamped_lengths[pstep].0
+            } else {
+                clamped_lengths[pstep].1
+            };
             let members = topo_members(topo, pstep, plor);
 
             // Parent → leaf
@@ -186,7 +209,11 @@ impl BranchWeights {
         for i in 0..nseq.saturating_sub(2) {
             let rep = topo.steps[i].left[0].min(topo.steps[i].right[0]);
             let (pstep, plor) = search_parent(topo, rep, i + 1, nseq - 1);
-            let branch_len = if plor == 0 { clamped_lengths[pstep].0 } else { clamped_lengths[pstep].1 };
+            let branch_len = if plor == 0 {
+                clamped_lengths[pstep].0
+            } else {
+                clamped_lengths[pstep].1
+            };
             let members = topo_members(topo, pstep, plor);
 
             // Parent → internal node i
@@ -260,7 +287,9 @@ impl BranchWeights {
         for seq_idx in 0..nseq {
             let leaf = nseq + seq_idx;
             let (pstep, _) = search_parent(topo, seq_idx, 0, nseq - 1);
-            if pstep == root { continue; } // skip root edges
+            if pstep == root {
+                continue;
+            } // skip root edges
             let w = calc_branch_weight(&nodes, pstep, leaf, nseq);
             // Store on both endpoints
             for d in 0..3 {
@@ -277,7 +306,9 @@ impl BranchWeights {
         for i in 0..nseq.saturating_sub(3) {
             let rep = topo.steps[i].left[0].min(topo.steps[i].right[0]);
             let (pstep, _plor) = search_parent(topo, rep, i + 1, nseq - 1);
-            if pstep == root { continue; }
+            if pstep == root {
+                continue;
+            }
             let w = calc_branch_weight(&nodes, pstep, i, nseq);
             for d in 0..3 {
                 if nodes[pstep].children[d] == i as i32 {
@@ -334,7 +365,11 @@ impl BranchWeights {
         }
 
         // Find which child direction matches the requested side's members.
-        let target = if side == 0 { &topo.steps[step].left } else { &topo.steps[step].right };
+        let target = if side == 0 {
+            &topo.steps[step].left
+        } else {
+            &topo.steps[step].right
+        };
         let first_member = target[0] as i32;
 
         let mut btm_dir = 0;
@@ -346,7 +381,9 @@ impl BranchWeights {
         }
 
         let btm = self.nodes[step].children[btm_dir];
-        if btm < 0 { return result; }
+        if btm < 0 {
+            return result;
+        }
 
         self.weight_rec(&mut result, btm as usize, step);
         self.weight_rec(&mut result, step, btm as usize);
@@ -355,7 +392,9 @@ impl BranchWeights {
     }
 
     fn weight_rec(&self, result: &mut [f64], node: usize, from: usize) {
-        if node >= self.nseq { return; } // leaf
+        if node >= self.nseq {
+            return;
+        } // leaf
         for d in 0..3 {
             let child = self.nodes[node].children[d];
             if child >= 0 && child as usize != from {
@@ -396,7 +435,11 @@ impl BranchWeights {
             }
             return result;
         }
-        let target = if side == 0 { &topo.steps[step].left } else { &topo.steps[step].right };
+        let target = if side == 0 {
+            &topo.steps[step].left
+        } else {
+            &topo.steps[step].right
+        };
         let first_member = target[0] as i32;
         let mut btm_dir = 0;
         for d in 0..3 {
@@ -406,14 +449,18 @@ impl BranchWeights {
             }
         }
         let btm = self.nodes[step].children[btm_dir];
-        if btm < 0 { return result; }
+        if btm < 0 {
+            return result;
+        }
         self.dist_rec(&mut result, btm as usize, step);
         self.dist_rec(&mut result, step, btm as usize);
         result
     }
 
     fn dist_rec(&self, result: &mut [f64], node: usize, from: usize) {
-        if node >= self.nseq { return; } // leaf
+        if node >= self.nseq {
+            return;
+        } // leaf
         for d in 0..3 {
             let child = self.nodes[node].children[d];
             if child >= 0 && child as usize != from {
@@ -436,7 +483,9 @@ fn calc_branch_weight(nodes: &[WNode], node: usize, child: usize, nseq: usize) -
 
 /// C's calcW: compute weight for one side of a branch.
 fn calc_w(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
-    if ob >= nseq { return 1.0; } // leaf
+    if ob >= nseq {
+        return 1.0;
+    } // leaf
 
     let mut dir_ch = Vec::new();
     let mut dir_pa = 0;
@@ -447,14 +496,20 @@ fn calc_w(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
             dir_ch.push(d);
         }
     }
-    if dir_ch.len() < 2 { return 1.0; }
+    if dir_ch.len() < 2 {
+        return 1.0;
+    }
 
     let a = synthetic_len(nodes, nodes[ob].children[dir_ch[0]] as usize, ob, nseq);
     let b = synthetic_len(nodes, nodes[ob].children[dir_ch[1]] as usize, ob, nseq);
     let c = synthetic_len(nodes, nodes[ob].children[dir_pa] as usize, ob, nseq);
 
-    if c == 0.0 { return 1.0; }
-    if a == 0.0 || b == 0.0 { return 0.01; }
+    if c == 0.0 {
+        return 1.0;
+    }
+    if a == 0.0 || b == 0.0 {
+        return 0.01;
+    }
 
     // C `treeOperation.c:400` `s = b*c + c*a + a*b` — Apple clang at -O3 with
     // FP_CONTRACT=on lowers this to AArch64 instructions:
@@ -466,15 +521,25 @@ fn calc_w(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
     // (since calcW feeds branch_weight which multiplies through every leaf
     // path) into the per-cluster eff used for cpmx — surfaces as the
     // BB30018/BB40043/BB40010 1-column residue shifts.
-    let s = a * b + ((b * c + (a * c)));
-    if s == 0.0 { return 1.0; }
+    let s = a * b + (b * c + (a * c));
+    if s == 0.0 {
+        return 1.0;
+    }
 
     let value = (a * b * (c + a) * (c + b) / (c * (a + b) * s)).sqrt();
 
     if let Ok(f) = std::env::var("RS_CALCW") {
         use std::io::Write;
-        if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-            let _ = writeln!(fp, "R_CALCW ob={} op={} a={:.17e} b={:.17e} c={:.17e} s={:.17e} value={:.17e}", ob, op, a, b, c, s, value);
+        if let Ok(mut fp) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&f)
+        {
+            let _ = writeln!(
+                fp,
+                "R_CALCW ob={} op={} a={:.17e} b={:.17e} c={:.17e} s={:.17e} value={:.17e}",
+                ob, op, a, b, c, s, value
+            );
         }
     }
 
@@ -492,7 +557,9 @@ fn synthetic_len(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
     // earlier port returned the (correct) `len_to_op` for the
     // post-restructure case and produced 0.1% branch-weight drift on
     // refinement (BB11002 --maxiterate 100, iter 2). Mirror C exactly.
-    if ob >= nseq { return nodes[ob].length[0]; }
+    if ob >= nseq {
+        return nodes[ob].length[0];
+    }
     let len_to_op = (0..3)
         .find(|&d| nodes[ob].children[d] == op as i32)
         .map(|d| nodes[ob].length[d])
@@ -505,10 +572,16 @@ fn synthetic_len(nodes: &[WNode], ob: usize, op: usize, nseq: usize) -> f64 {
             child_lens.push(synthetic_len(nodes, child as usize, ob, nseq));
         }
     }
-    if child_lens.len() < 2 { return len_to_op; }
+    if child_lens.len() < 2 {
+        return len_to_op;
+    }
 
     let (a, b) = (child_lens[0], child_lens[1]);
-    let hm = if a == 0.0 || b == 0.0 { 0.0 } else { 1.0 / (1.0 / a + 1.0 / b) };
+    let hm = if a == 0.0 || b == 0.0 {
+        0.0
+    } else {
+        1.0 / (1.0 / a + 1.0 / b)
+    };
     hm + len_to_op
 }
 
@@ -521,12 +594,16 @@ mod tests {
     fn weights_sum_to_one() {
         let mut topo = Topology::new(3);
         topo.steps.push(JoinStep {
-            left: vec![0], right: vec![1],
-            left_length: 0.1, right_length: 0.2,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.1,
+            right_length: 0.2,
         });
         topo.steps.push(JoinStep {
-            left: vec![0, 1], right: vec![2],
-            left_length: 0.3, right_length: 0.5,
+            left: vec![0, 1],
+            right: vec![2],
+            left_length: 0.3,
+            right_length: 0.5,
         });
         let w = sequence_weights(&topo);
         let sum: f64 = w.iter().sum();
@@ -537,12 +614,16 @@ mod tests {
     fn isolated_sequence_gets_higher_weight() {
         let mut topo = Topology::new(3);
         topo.steps.push(JoinStep {
-            left: vec![0], right: vec![1],
-            left_length: 0.05, right_length: 0.05,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.05,
+            right_length: 0.05,
         });
         topo.steps.push(JoinStep {
-            left: vec![0, 1], right: vec![2],
-            left_length: 0.1, right_length: 0.9,
+            left: vec![0, 1],
+            right: vec![2],
+            left_length: 0.1,
+            right_length: 0.9,
         });
         let w = sequence_weights(&topo);
         assert!(w[2] > w[0]);
@@ -563,16 +644,22 @@ mod tests {
         // Step 2: {0,1} + {2,3}, len 0.2, 0.2
         let mut topo = Topology::new(4);
         topo.steps.push(JoinStep {
-            left: vec![0], right: vec![1],
-            left_length: 0.1, right_length: 0.1,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.1,
+            right_length: 0.1,
         });
         topo.steps.push(JoinStep {
-            left: vec![2], right: vec![3],
-            left_length: 0.1, right_length: 0.1,
+            left: vec![2],
+            right: vec![3],
+            left_length: 0.1,
+            right_length: 0.1,
         });
         topo.steps.push(JoinStep {
-            left: vec![0, 1], right: vec![2, 3],
-            left_length: 0.2, right_length: 0.2,
+            left: vec![0, 1],
+            right: vec![2, 3],
+            left_length: 0.2,
+            right_length: 0.2,
         });
 
         let bw = BranchWeights::new(&topo);
@@ -592,16 +679,26 @@ mod tests {
         let n0 = &bw.nodes[0];
         assert_eq!(n0.children[0], 4, "node0.child0 = leaf4 (seq0)");
         assert_eq!(n0.children[1], 5, "node0.child1 = leaf5 (seq1)");
-        assert_eq!(n0.children[2], 1, "node0.child2 = node1 (after root restructure)");
+        assert_eq!(
+            n0.children[2], 1,
+            "node0.child2 = node1 (after root restructure)"
+        );
         assert!((n0.length[0] - 0.1).abs() < 1e-10);
         assert!((n0.length[1] - 0.1).abs() < 1e-10);
-        assert!((n0.length[2] - 0.4).abs() < 1e-10, "combined len: {}", n0.length[2]);
+        assert!(
+            (n0.length[2] - 0.4).abs() < 1e-10,
+            "combined len: {}",
+            n0.length[2]
+        );
 
         // Verify node 1 structure
         let n1 = &bw.nodes[1];
         assert_eq!(n1.children[0], 6, "node1.child0 = leaf6 (seq2)");
         assert_eq!(n1.children[1], 7, "node1.child1 = leaf7 (seq3)");
-        assert_eq!(n1.children[2], 0, "node1.child2 = node0 (after root restructure)");
+        assert_eq!(
+            n1.children[2], 0,
+            "node1.child2 = node0 (after root restructure)"
+        );
         assert!((n1.length[2] - 0.4).abs() < 1e-10);
 
         // For the symmetric ((0,1),(2,3)) tree with equal lengths,
@@ -612,7 +709,12 @@ mod tests {
         eprintln!("step=0 side=0 w={:?}", w);
         assert!(w.iter().all(|&v| v > 0.0 && v.is_finite()), "{:?}", w);
         // In a symmetric tree, seqs 2 and 3 should have the same weight
-        assert!((w[2] - w[3]).abs() < 1e-10, "seqs 2,3 should be symmetric: {} {}", w[2], w[3]);
+        assert!(
+            (w[2] - w[3]).abs() < 1e-10,
+            "seqs 2,3 should be symmetric: {} {}",
+            w[2],
+            w[3]
+        );
 
         // Step 2, side 0: split {0,1} vs {2,3} — the root split
         let w = bw.weights_for_branch(&topo, 2, 0);

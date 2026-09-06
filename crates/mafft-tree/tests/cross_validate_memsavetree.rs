@@ -16,9 +16,7 @@ use std::os::raw::{c_char, c_int};
 use std::sync::Mutex;
 
 use mafft_io::read_fasta;
-use mafft_tree::parttree_dist::{
-    PLENFACA, PLENFACB, PLENFACC, PLENFACD,
-};
+use mafft_tree::parttree_dist::{PLENFACA, PLENFACB, PLENFACC, PLENFACD};
 
 static C_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -65,7 +63,9 @@ unsafe fn c_pointt(seq: &[u8]) -> Vec<i32> {
     }
     let n_points = (nvalid - 5) as usize;
     let mut pointt = vec![0i32; n_points + 1];
-    unsafe { mafft_sys::makepointtable(pointt.as_mut_ptr(), grp.as_mut_ptr()); }
+    unsafe {
+        mafft_sys::makepointtable(pointt.as_mut_ptr(), grp.as_mut_ptr());
+    }
     pointt
 }
 
@@ -75,29 +75,46 @@ unsafe fn c_pointt(seq: &[u8]) -> Vec<i32> {
 #[test]
 fn distcompact_matches_c_for_every_pair() {
     let _g = C_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-    let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
-        .expect("load sample");
+    let input =
+        read_fasta(std::path::Path::new("../../mafft-upstream/test/sample")).expect("load sample");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     let nseq = input.sequences.len();
     // Strip gaps + build C-side pointt for each sequence.
-    let stripped: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-        s.data.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
-    }).collect();
+    let stripped: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            s.data
+                .iter()
+                .filter(|&&c| c != b'-' && c != b'.')
+                .copied()
+                .collect()
+        })
+        .collect();
     let nogaplen: Vec<i32> = stripped.iter().map(|s| s.len() as i32).collect();
     let mut c_points: Vec<Vec<i32>> = stripped.iter().map(|s| unsafe { c_pointt(s) }).collect();
 
     // Self-scores via C commonsextet_p (already cross-validated).
-    let selfscore: Vec<i32> = (0..nseq).map(|i| {
-        let mut tbl = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()); }
-        unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
-    }).collect();
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
+    let selfscore: Vec<i32> = (0..nseq)
+        .map(|i| {
+            let mut tbl = vec![0i32; 46656];
+            unsafe {
+                mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr());
+            }
+            unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
+        })
+        .collect();
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
 
     // Rust-side pointt (validated separately to match c_points).
-    let r_points: Vec<Vec<u32>> = stripped.iter()
+    let r_points: Vec<Vec<u32>> = stripped
+        .iter()
         .map(|s| mafft_tree::parttree_dist::encode_points_protein(s))
         .collect();
 
@@ -105,16 +122,22 @@ fn distcompact_matches_c_for_every_pair() {
     let mut mismatches = 0usize;
     for i in 0..nseq {
         let mut c_table = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr()); }
+        unsafe {
+            mafft_sys::makecompositiontable_p(c_table.as_mut_ptr(), c_points[i].as_mut_ptr());
+        }
         for j in 0..nseq {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             // C distcompact:
             let c_dist = unsafe {
                 mafft_sys::distcompact(
-                    nogaplen[i], nogaplen[j],
+                    nogaplen[i],
+                    nogaplen[j],
                     c_table.as_mut_ptr(),
                     c_points[j].as_mut_ptr(),
-                    selfscore[i], selfscore[j],
+                    selfscore[i],
+                    selfscore[j],
                 )
             };
             // Rust port (call our implementation through the public API
@@ -123,11 +146,17 @@ fn distcompact_matches_c_for_every_pair() {
             let r_table = mafft_tree::parttree_dist::composition_table(&r_points[i], 46656);
             let common = mafft_tree::parttree_dist::common_sextets_p(&r_table, &r_points[j], 46656);
             let lf = mafft_tree::parttree_dist::lenfac(
-                nogaplen[i] as usize, nogaplen[j] as usize,
-                PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+                nogaplen[i] as usize,
+                nogaplen[j] as usize,
+                PLENFACA,
+                PLENFACB,
+                PLENFACC,
+                PLENFACD,
             );
             let bunbo = selfscore[i].min(selfscore[j]) as f64;
-            let r_dist = if bunbo == 0.0 { 2.0 } else {
+            let r_dist = if bunbo == 0.0 {
+                2.0
+            } else {
                 (1.0 - common as f64 / bunbo) * lf * 2.0
             };
             let diff = (c_dist - r_dist).abs();
@@ -137,14 +166,25 @@ fn distcompact_matches_c_for_every_pair() {
                     eprintln!("distcompact({i},{j}): C={c_dist} R={r_dist} diff={diff}");
                 }
             }
-            if diff > max_diff { max_diff = diff; }
+            if diff > max_diff {
+                max_diff = diff;
+            }
         }
     }
-    eprintln!("max distcompact diff across {} pairs: {max_diff:e} ({mismatches} mismatches)",
-        nseq * (nseq - 1));
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
-    unsafe { cleanup_c(); }
-    assert_eq!(mismatches, 0, "distcompact diverges from C; max diff = {max_diff:e}");
+    eprintln!(
+        "max distcompact diff across {} pairs: {max_diff:e} ({mismatches} mismatches)",
+        nseq * (nseq - 1)
+    );
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
+    unsafe {
+        cleanup_c();
+    }
+    assert_eq!(
+        mismatches, 0,
+        "distcompact diverges from C; max diff = {max_diff:e}"
+    );
 }
 
 /// Cross-validate the INITIAL pairwise scan (the precomputed
@@ -157,29 +197,44 @@ fn distcompact_matches_c_for_every_pair() {
 #[test]
 fn initial_mindist_matches_c() {
     let _g = C_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-    let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
-        .expect("load sample");
+    let input =
+        read_fasta(std::path::Path::new("../../mafft-upstream/test/sample")).expect("load sample");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     let nseq = input.sequences.len();
-    let stripped: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-        s.data.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
-    }).collect();
+    let stripped: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            s.data
+                .iter()
+                .filter(|&&c| c != b'-' && c != b'.')
+                .copied()
+                .collect()
+        })
+        .collect();
     let nogaplen_c: Vec<i32> = stripped.iter().map(|s| s.len() as i32).collect();
     let mut c_points: Vec<Vec<i32>> = stripped.iter().map(|s| unsafe { c_pointt(s) }).collect();
-    let mut selfscore_c: Vec<i32> = (0..nseq).map(|i| {
-        let mut tbl = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()); }
-        unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
-    }).collect();
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
+    let mut selfscore_c: Vec<i32> = (0..nseq)
+        .map(|i| {
+            let mut tbl = vec![0i32; 46656];
+            unsafe {
+                mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr());
+            }
+            unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
+        })
+        .collect();
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
 
     // C-side mindist[] / mindistfrom[] via the FFI wrapper.
     let mut c_mindist = vec![0.0_f64; nseq];
     let mut c_mindistfrom = vec![0_i32; nseq];
-    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut()
-        .map(|v| v.as_mut_ptr()).collect();
+    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut().map(|v| v.as_mut_ptr()).collect();
     let mut nogaplen_mut = nogaplen_c.clone();
     unsafe {
         mafft_sys::rs_compact_initial_mindist(
@@ -194,8 +249,14 @@ fn initial_mindist_matches_c() {
 
     // Rust-side: use the same point vectors / selfscores (via FFI) so
     // we isolate the algorithm logic from the encoding pipeline.
-    let r_points: Vec<Vec<u32>> = c_points.iter()
-        .map(|cv| cv.iter().take_while(|&&p| p != -1).map(|&p| p as u32).collect())
+    let r_points: Vec<Vec<u32>> = c_points
+        .iter()
+        .map(|cv| {
+            cv.iter()
+                .take_while(|&&p| p != -1)
+                .map(|&p| p as u32)
+                .collect()
+        })
         .collect();
     let selfscore: Vec<i32> = selfscore_c.clone();
     let nogaplen: Vec<usize> = nogaplen_c.iter().map(|&n| n as usize).collect();
@@ -209,11 +270,18 @@ fn initial_mindist_matches_c() {
         let table_i = mafft_tree::parttree_dist::composition_table(&r_points[i], 46656);
         for j in (0..i).rev() {
             let bunbo = selfscore[i].min(selfscore[j]) as f64;
-            let d = if bunbo == 0.0 { 2.0 } else {
-                let common = mafft_tree::parttree_dist::common_sextets_p(&table_i, &r_points[j], 46656);
+            let d = if bunbo == 0.0 {
+                2.0
+            } else {
+                let common =
+                    mafft_tree::parttree_dist::common_sextets_p(&table_i, &r_points[j], 46656);
                 let lf = mafft_tree::parttree_dist::lenfac(
-                    nogaplen[i], nogaplen[j],
-                    PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+                    nogaplen[i],
+                    nogaplen[j],
+                    PLENFACA,
+                    PLENFACB,
+                    PLENFACC,
+                    PLENFACD,
                 );
                 (1.0 - common as f64 / bunbo) * lf * 2.0
             };
@@ -244,19 +312,26 @@ fn initial_mindist_matches_c() {
             if mismatches <= 5 {
                 eprintln!(
                     "mindist[{i}]: C=({:.10}, from={}) R=({:.10}, from={}) diff={dist_diff:e}",
-                    c_mindist[i], c_mindistfrom[i],
-                    r_mindist[i], r_nearest[i]
+                    c_mindist[i], c_mindistfrom[i], r_mindist[i], r_nearest[i]
                 );
             }
         }
-        if dist_diff > max_diff { max_diff = dist_diff; }
+        if dist_diff > max_diff {
+            max_diff = dist_diff;
+        }
     }
 
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
-    unsafe { cleanup_c(); }
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
+    unsafe {
+        cleanup_c();
+    }
 
-    assert_eq!(mismatches, 0,
-        "{mismatches} sequences have divergent initial mindist/nearest; max_diff={max_diff:e}");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} sequences have divergent initial mindist/nearest; max_diff={max_diff:e}"
+    );
 }
 
 /// Test cluster_mix on the specific (28, 29), (28, 30) pair (0-indexed)
@@ -266,41 +341,67 @@ fn initial_mindist_matches_c() {
 #[test]
 fn cluster_mix_for_first_divergent_step() {
     let _g = C_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-    let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
-        .expect("load sample");
+    let input =
+        read_fasta(std::path::Path::new("../../mafft-upstream/test/sample")).expect("load sample");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
-    let stripped: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-        s.data.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
-    }).collect();
+    let stripped: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            s.data
+                .iter()
+                .filter(|&&c| c != b'-' && c != b'.')
+                .copied()
+                .collect()
+        })
+        .collect();
     let nogaplen: Vec<i32> = stripped.iter().map(|s| s.len() as i32).collect();
     let mut c_points: Vec<Vec<i32>> = stripped.iter().map(|s| unsafe { c_pointt(s) }).collect();
-    let selfscore: Vec<i32> = (0..stripped.len()).map(|i| {
-        let mut tbl = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()); }
-        unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
-    }).collect();
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
+    let selfscore: Vec<i32> = (0..stripped.len())
+        .map(|i| {
+            let mut tbl = vec![0i32; 46656];
+            unsafe {
+                mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr());
+            }
+            unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
+        })
+        .collect();
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
 
     // Triple-validate C's distcompact for (29, 28) and (30, 28).
     let mut t29 = vec![0i32; 46656];
-    unsafe { mafft_sys::makecompositiontable_p(t29.as_mut_ptr(), c_points[29].as_mut_ptr()); }
+    unsafe {
+        mafft_sys::makecompositiontable_p(t29.as_mut_ptr(), c_points[29].as_mut_ptr());
+    }
     let c_d_29_28 = unsafe {
         mafft_sys::distcompact(
-            nogaplen[29], nogaplen[28],
-            t29.as_mut_ptr(), c_points[28].as_mut_ptr(),
-            selfscore[29], selfscore[28],
+            nogaplen[29],
+            nogaplen[28],
+            t29.as_mut_ptr(),
+            c_points[28].as_mut_ptr(),
+            selfscore[29],
+            selfscore[28],
         )
     };
 
     let mut t30 = vec![0i32; 46656];
-    unsafe { mafft_sys::makecompositiontable_p(t30.as_mut_ptr(), c_points[30].as_mut_ptr()); }
+    unsafe {
+        mafft_sys::makecompositiontable_p(t30.as_mut_ptr(), c_points[30].as_mut_ptr());
+    }
     let c_d_30_28 = unsafe {
         mafft_sys::distcompact(
-            nogaplen[30], nogaplen[28],
-            t30.as_mut_ptr(), c_points[28].as_mut_ptr(),
-            selfscore[30], selfscore[28],
+            nogaplen[30],
+            nogaplen[28],
+            t30.as_mut_ptr(),
+            c_points[28].as_mut_ptr(),
+            selfscore[30],
+            selfscore[28],
         )
     };
 
@@ -313,27 +414,41 @@ fn cluster_mix_for_first_divergent_step() {
     eprintln!("C: branch from this merge = {:.6}", c_cluster_mix * 0.5);
 
     // Also compute via our Rust code.
-    let r_points: Vec<Vec<u32>> = stripped.iter()
-        .map(|s| mafft_tree::parttree_dist::encode_points_protein(s)).collect();
+    let r_points: Vec<Vec<u32>> = stripped
+        .iter()
+        .map(|s| mafft_tree::parttree_dist::encode_points_protein(s))
+        .collect();
     let r_t29 = mafft_tree::parttree_dist::composition_table(&r_points[29], 46656);
     let r_common_29_28 = mafft_tree::parttree_dist::common_sextets_p(&r_t29, &r_points[28], 46656);
     let r_t30 = mafft_tree::parttree_dist::composition_table(&r_points[30], 46656);
     let r_common_30_28 = mafft_tree::parttree_dist::common_sextets_p(&r_t30, &r_points[28], 46656);
     let r_lf_29_28 = mafft_tree::parttree_dist::lenfac(
-        nogaplen[29] as usize, nogaplen[28] as usize,
-        PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+        nogaplen[29] as usize,
+        nogaplen[28] as usize,
+        PLENFACA,
+        PLENFACB,
+        PLENFACC,
+        PLENFACD,
     );
     let r_lf_30_28 = mafft_tree::parttree_dist::lenfac(
-        nogaplen[30] as usize, nogaplen[28] as usize,
-        PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+        nogaplen[30] as usize,
+        nogaplen[28] as usize,
+        PLENFACA,
+        PLENFACB,
+        PLENFACC,
+        PLENFACD,
     );
-    let r_d_29_28 = (1.0 - r_common_29_28 as f64 / selfscore[29].min(selfscore[28]) as f64) * r_lf_29_28 * 2.0;
-    let r_d_30_28 = (1.0 - r_common_30_28 as f64 / selfscore[30].min(selfscore[28]) as f64) * r_lf_30_28 * 2.0;
+    let r_d_29_28 =
+        (1.0 - r_common_29_28 as f64 / selfscore[29].min(selfscore[28]) as f64) * r_lf_29_28 * 2.0;
+    let r_d_30_28 =
+        (1.0 - r_common_30_28 as f64 / selfscore[30].min(selfscore[28]) as f64) * r_lf_30_28 * 2.0;
     let r_mn = r_d_29_28.min(r_d_30_28);
     let r_cluster_mix = r_mn * sueff1 + (r_d_29_28 + r_d_30_28) * sueff05;
     eprintln!("R: d(29,28)={r_d_29_28:.6} d(30,28)={r_d_30_28:.6} cluster_mix={r_cluster_mix:.6}");
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 
     assert!((c_cluster_mix - r_cluster_mix).abs() < 1e-12);
 }
@@ -349,29 +464,44 @@ fn cluster_mix_for_first_divergent_step() {
 #[test]
 fn memsavetree_topol_matches_c_step_by_step() {
     let _g = C_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-    let input = read_fasta(std::path::Path::new("../../mafft-upstream/test/sample"))
-        .expect("load sample");
+    let input =
+        read_fasta(std::path::Path::new("../../mafft-upstream/test/sample")).expect("load sample");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     let nseq = input.sequences.len();
-    let stripped: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-        s.data.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
-    }).collect();
+    let stripped: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            s.data
+                .iter()
+                .filter(|&&c| c != b'-' && c != b'.')
+                .copied()
+                .collect()
+        })
+        .collect();
     let nogaplen_c: Vec<i32> = stripped.iter().map(|s| s.len() as i32).collect();
     let mut c_points: Vec<Vec<i32>> = stripped.iter().map(|s| unsafe { c_pointt(s) }).collect();
-    let mut selfscore_c: Vec<i32> = (0..nseq).map(|i| {
-        let mut tbl = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()); }
-        unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
-    }).collect();
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
+    let mut selfscore_c: Vec<i32> = (0..nseq)
+        .map(|i| {
+            let mut tbl = vec![0i32; 46656];
+            unsafe {
+                mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr());
+            }
+            unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
+        })
+        .collect();
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
 
     // Initial mindist via FFI (validated above).
     let mut c_mindist = vec![0.0_f64; nseq];
     let mut c_nearest = vec![0_i32; nseq];
-    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut()
-        .map(|v| v.as_mut_ptr()).collect();
+    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut().map(|v| v.as_mut_ptr()).collect();
     let mut nogaplen_mut = nogaplen_c.clone();
     unsafe {
         mafft_sys::rs_compact_initial_mindist(
@@ -416,19 +546,31 @@ fn memsavetree_topol_matches_c_step_by_step() {
         let len_diff_1 = (c_len1[k] - r_step.right_length).abs();
         let topol_match = c_topol0[k] == r_left_min && c_topol1[k] == r_right_min;
         if !topol_match || len_diff_0 > 1e-9 || len_diff_1 > 1e-9 {
-            if first_diverge.is_none() { first_diverge = Some(k); }
+            if first_diverge.is_none() {
+                first_diverge = Some(k);
+            }
             if k < 5 || (first_diverge == Some(k)) {
                 eprintln!(
                     "step {k}: C=({},{}) lens=({:.5},{:.5}) | R=({},{}) lens=({:.5},{:.5})",
-                    c_topol0[k], c_topol1[k], c_len0[k], c_len1[k],
-                    r_left_min, r_right_min, r_step.left_length, r_step.right_length
+                    c_topol0[k],
+                    c_topol1[k],
+                    c_len0[k],
+                    c_len1[k],
+                    r_left_min,
+                    r_right_min,
+                    r_step.left_length,
+                    r_step.right_length
                 );
             }
         }
     }
 
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
-    unsafe { cleanup_c(); }
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
+    unsafe {
+        cleanup_c();
+    }
 
     if let Some(k) = first_diverge {
         panic!("first divergence at merge step {k}");
@@ -452,8 +594,9 @@ fn memsavetree_topol_matches_c_step_by_step() {
         // backwards through previous merges.
         let left_full: Vec<usize> = {
             let step = c_hist[im_leaf];
-            if step < 0 { vec![im_leaf] }
-            else {
+            if step < 0 {
+                vec![im_leaf]
+            } else {
                 let s = &c_topo.steps[step as usize];
                 let mut v = Vec::with_capacity(s.left.len() + s.right.len());
                 v.extend_from_slice(&s.left);
@@ -463,8 +606,9 @@ fn memsavetree_topol_matches_c_step_by_step() {
         };
         let right_full: Vec<usize> = {
             let step = c_hist[jm_leaf];
-            if step < 0 { vec![jm_leaf] }
-            else {
+            if step < 0 {
+                vec![jm_leaf]
+            } else {
                 let s = &c_topo.steps[step as usize];
                 let mut v = Vec::with_capacity(s.left.len() + s.right.len());
                 v.extend_from_slice(&s.left);
@@ -483,14 +627,21 @@ fn memsavetree_topol_matches_c_step_by_step() {
         // im_leaf is the new rep.
         c_hist[im_leaf] = k as i32;
     }
-    let names: Vec<String> = input.sequences.iter()
-        .map(|s| s.name.clone()).collect();
+    let names: Vec<String> = input.sequences.iter().map(|s| s.name.clone()).collect();
     let c_via_rust_newick = mafft_tree::newick::topology_to_newick(&c_topo, &names);
     let our_newick = mafft_tree::newick::topology_to_newick(&r_topo, &names);
-    eprintln!("C-from-FFI Newick (first 300): {}", &c_via_rust_newick.chars().take(300).collect::<String>());
-    eprintln!("R-from-our Newick (first 300): {}", &our_newick.chars().take(300).collect::<String>());
-    assert_eq!(c_via_rust_newick, our_newick,
-        "Newick from C's FFI topology should match ours bit-exact");
+    eprintln!(
+        "C-from-FFI Newick (first 300): {}",
+        &c_via_rust_newick.chars().take(300).collect::<String>()
+    );
+    eprintln!(
+        "R-from-our Newick (first 300): {}",
+        &our_newick.chars().take(300).collect::<String>()
+    );
+    assert_eq!(
+        c_via_rust_newick, our_newick,
+        "Newick from C's FFI topology should match ours bit-exact"
+    );
 }
 
 /// Drive C's `compacttree_memsaveselectable` (compacttree=4, the
@@ -510,42 +661,67 @@ fn youngestlinkage_topol_matches_c_step_by_step() {
     let _g = C_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
     // Use first15 — first input where our port diverges from C.
     let input = read_fasta(std::path::Path::new(
-        "../../crates/mafft-core/tests/fixtures/sample.first15.fa"
-    )).expect("load first15");
+        "../../crates/mafft-core/tests/fixtures/sample.first15.fa",
+    ))
+    .expect("load first15");
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     let nseq = input.sequences.len();
-    let stripped: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-        s.data.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect()
-    }).collect();
+    let stripped: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            s.data
+                .iter()
+                .filter(|&&c| c != b'-' && c != b'.')
+                .copied()
+                .collect()
+        })
+        .collect();
     let nogaplen_c: Vec<i32> = stripped.iter().map(|s| s.len() as i32).collect();
     let mut c_points: Vec<Vec<i32>> = stripped.iter().map(|s| unsafe { c_pointt(s) }).collect();
-    let mut selfscore_c: Vec<i32> = (0..nseq).map(|i| {
-        let mut tbl = vec![0i32; 46656];
-        unsafe { mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()); }
-        unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
-    }).collect();
-    unsafe { mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut()); }
+    let mut selfscore_c: Vec<i32> = (0..nseq)
+        .map(|i| {
+            let mut tbl = vec![0i32; 46656];
+            unsafe {
+                mafft_sys::makecompositiontable_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr());
+            }
+            unsafe { mafft_sys::commonsextet_p(tbl.as_mut_ptr(), c_points[i].as_mut_ptr()) }
+        })
+        .collect();
+    unsafe {
+        mafft_sys::commonsextet_p(std::ptr::null_mut(), std::ptr::null_mut());
+    }
 
     // Compute rust's initial_mindist_yl AND C's
     // `rs_compact_initial_mindist_yl` and verify they match.
-    let pointt_u32: Vec<Vec<u32>> = c_points.iter().map(|v| {
-        v.iter().take_while(|&&x| x >= 0).map(|&x| x as u32).collect()
-    }).collect();
+    let pointt_u32: Vec<Vec<u32>> = c_points
+        .iter()
+        .map(|v| {
+            v.iter()
+                .take_while(|&&x| x >= 0)
+                .map(|&x| x as u32)
+                .collect()
+        })
+        .collect();
     let nogaplen_usize: Vec<usize> = nogaplen_c.iter().map(|&x| x as usize).collect();
     let (r_mindist, r_nearest) = mafft_tree::memsavetree::initial_mindist_yl_for_test(
         &pointt_u32,
         &nogaplen_usize,
         &selfscore_c,
         46656,
-        PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+        PLENFACA,
+        PLENFACB,
+        PLENFACC,
+        PLENFACD,
     );
 
     let mut c_yl_mindist = vec![0.0_f64; nseq];
     let mut c_yl_nearest = vec![0_i32; nseq];
-    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut()
-        .map(|v| v.as_mut_ptr()).collect();
+    let mut c_points_raw: Vec<*mut c_int> = c_points.iter_mut().map(|v| v.as_mut_ptr()).collect();
     let mut nogaplen_mut = nogaplen_c.clone();
     unsafe {
         mafft_sys::rs_compact_initial_mindist_yl(
@@ -562,8 +738,10 @@ fn youngestlinkage_topol_matches_c_step_by_step() {
         let m_diff = (r_mindist[i] - c_yl_mindist[i]).abs();
         let n_match = r_nearest[i] == c_yl_nearest[i];
         if m_diff > 1e-10 || !n_match {
-            eprintln!("  i={i}: R mindist={:.10} nearest={} | C mindist={:.10} nearest={}",
-                r_mindist[i], r_nearest[i], c_yl_mindist[i], c_yl_nearest[i]);
+            eprintln!(
+                "  i={i}: R mindist={:.10} nearest={} | C mindist={:.10} nearest={}",
+                r_mindist[i], r_nearest[i], c_yl_mindist[i], c_yl_nearest[i]
+            );
         }
     }
     // Now use C's mindist for both (so the test confirms which side has the bug).
@@ -591,8 +769,10 @@ fn youngestlinkage_topol_matches_c_step_by_step() {
 
     eprintln!("C compacttree_memsaveselectable (kmer, howcompact=2) sequence:");
     for k in 0..(nseq - 1) {
-        eprintln!("  step {k}: ({},{}) lens=({:.6},{:.6})",
-            c_topol0[k], c_topol1[k], c_len0[k], c_len1[k]);
+        eprintln!(
+            "  step {k}: ({},{}) lens=({:.6},{:.6})",
+            c_topol0[k], c_topol1[k], c_len0[k], c_len1[k]
+        );
     }
 
     // Rust's port:
@@ -604,9 +784,13 @@ fn youngestlinkage_topol_matches_c_step_by_step() {
         let s = &r_topo.steps[k];
         let lmin = s.left.iter().min().copied().unwrap_or(0);
         let rmin = s.right.iter().min().copied().unwrap_or(0);
-        eprintln!("  step {k}: ({lmin},{rmin}) lens=({:.6},{:.6})",
-            s.left_length, s.right_length);
+        eprintln!(
+            "  step {k}: ({lmin},{rmin}) lens=({:.6},{:.6})",
+            s.left_length, s.right_length
+        );
     }
 
-    unsafe { cleanup_c(); }
+    unsafe {
+        cleanup_c();
+    }
 }

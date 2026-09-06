@@ -105,7 +105,11 @@ pub fn classify_pairs(
             matnum[i][j] = c;
         }
     }
-    PairClassification { matnum, eff1s, eff2s }
+    PairClassification {
+        matnum,
+        eff1s,
+        eff2s,
+    }
 }
 
 #[cfg(test)]
@@ -127,7 +131,11 @@ mod tests {
 
     #[test]
     fn scoring_matrices_count_and_c0_is_base() {
-        let base = vec![vec![10.0, -2.0, 0.0], vec![-2.0, 8.0, 1.0], vec![0.0, 1.0, 5.0]];
+        let base = vec![
+            vec![10.0, -2.0, 0.0],
+            vec![-2.0, 8.0, 1.0],
+            vec![0.0, 1.0, 5.0],
+        ];
         let mats = make_scoring_matrices(&base, 0.8, 2, calc_max_dist_class(0.8));
         assert_eq!(mats.len(), 9);
         // c=0: rep=0 → offset = dist2offset(0,0.8) = min(0,-0.8) = -0.8 ≠ 0,

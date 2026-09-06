@@ -1,10 +1,15 @@
+use mafft_align::{
+    AlignOp, FftAlignParams, GapModel, Profile, fft_profile_align, pairwise_align11_ex,
+    profile_align,
+};
+use mafft_tree::{Topology, compute_distfromtip, sequence_weights};
+use mafft_types::ScoringContext;
 /// Progressive alignment following a guide tree.
 ///
 /// Matches C's `treebase()` from `disttbfast.c`: at each merge step,
 /// only group1 and group2 sequences are modified. "Other" sequences
 /// are left untouched. Profiles are cached after each merge step
 /// (`cpmxhist`) to match C's exact float accumulation order.
-
 // §B.5 — `profile_cache` uses `BTreeMap` (not `HashMap`) for deterministic
 // iteration order. The cache is currently `.get()` / `.insert()` / `.remove()`
 // only, so HashMap's randomized order isn't an active hazard — but any future
@@ -13,9 +18,6 @@
 // negligible cost (cache size is bounded by `nseq`, keys are small
 // `Vec<usize>`).
 use std::collections::BTreeMap;
-use mafft_align::{profile_align, pairwise_align11_ex, fft_profile_align, Profile, GapModel, AlignOp, FftAlignParams};
-use mafft_tree::{Topology, sequence_weights, compute_distfromtip};
-use mafft_types::ScoringContext;
 
 /// C `mltaln9.c::dist2offset`: offset = min(0, dist*0.5 - specificityconsideration).
 /// `dist` is `2 * distfromtip` so the result is `min(0, distfromtip - sc)`.
@@ -36,22 +38,32 @@ pub(crate) fn dist2offset(dist: f64, sc: f64) -> f64 {
 /// per-step path even when input has no gap characters, because the static
 /// `amino_dynamicmtx` in C is char-indexed and the unshifted '-' row/col
 /// participates in the boundary handling.
-pub(crate) fn make_dynamic_matrix(base: &[Vec<f64>], distfromtip: f64, unalign_level: f64, gap_idx: usize) -> Vec<Vec<f64>> {
+pub(crate) fn make_dynamic_matrix(
+    base: &[Vec<f64>],
+    distfromtip: f64,
+    unalign_level: f64,
+    gap_idx: usize,
+) -> Vec<Vec<f64>> {
     let offset = dist2offset(distfromtip * 2.0, unalign_level);
     if offset == 0.0 {
         return base.iter().map(|r| r.clone()).collect();
     }
     // C `mltaln9.c::makedynamicmtx` computes `out[i][j] = in[i][j] + offset * 600`
-    // per cell; clang -O3 with FP_CONTRACT=on fuses this into a single FMA.
-    // Pre-computing `delta = offset * 600.0` then `v + delta` is two rounded ops
-    // and drifts ~1 ULP per cell. See [[project_allowshift_pairwise_fp]] for the
-    // BB12003 bisection. Same shape fix as `constraints.rs` `dyn_matrix` build.
+    // per cell. The pinned C reference does not contract this expression, so keep
+    // the multiply and add explicit here. Pre-computing `delta = offset * 600.0`
+    // outside the loop changes where rounding happens and can drift enough to flip
+    // tied DP cells. Same shape fix as `constraints.rs` `dyn_matrix` build.
     base.iter()
         .enumerate()
         .map(|(i, row)| {
-            row.iter().enumerate()
+            row.iter()
+                .enumerate()
                 .map(|(j, &v)| {
-                    if i == gap_idx || j == gap_idx { v } else { offset * 600.0 + v }
+                    if i == gap_idx || j == gap_idx {
+                        v
+                    } else {
+                        offset * 600.0 + v
+                    }
                 })
                 .collect()
         })
@@ -142,7 +154,14 @@ pub fn progressive_align(
     shift_penalty: Option<f64>,
 ) -> MultipleAlignment {
     progressive_align_with_constraints(
-        sequences, names, topology, scoring, use_fft, shift_penalty, None, false,
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        None,
+        false,
     )
 }
 
@@ -165,8 +184,15 @@ pub fn progressive_align_unweighted(
 ) -> MultipleAlignment {
     let weights = vec![1.0f64; sequences.len()];
     progressive_align_with_weights_override(
-        sequences, names, topology, scoring, use_fft, shift_penalty,
-        None, false, Some(&weights),
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        None,
+        false,
+        Some(&weights),
     )
 }
 
@@ -201,7 +227,12 @@ pub fn progressive_align_with_mergeoralign(
     use_fft: bool,
 ) -> MultipleAlignment {
     progressive_align_with_mergeoralign_n(
-        sequences, names, topology, mergeoralign, scoring, use_fft,
+        sequences,
+        names,
+        topology,
+        mergeoralign,
+        scoring,
+        use_fft,
         sequences.len(), // default: treat all rows as existing
     )
 }
@@ -221,12 +252,24 @@ pub fn progressive_align_with_mergeoralign_n(
     let nseq = sequences.len();
     if nseq == 0 {
         return MultipleAlignment {
-            sequences: Vec::new(), names: Vec::new(), score: 0.0, step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            sequences: Vec::new(),
+            names: Vec::new(),
+            score: 0.0,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
     }
     if nseq == 1 {
         return MultipleAlignment {
-            sequences: sequences.to_vec(), names: names.to_vec(), score: 0.0, step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            sequences: sequences.to_vec(),
+            names: names.to_vec(),
+            score: 0.0,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
     }
 
@@ -246,10 +289,15 @@ pub fn progressive_align_with_mergeoralign_n(
 
     let mut step_trace: Vec<StepTrace> = Vec::with_capacity(topology.steps.len());
     for (step_idx, step) in topology.steps.iter().enumerate() {
-        let tag = mergeoralign.get(step_idx).copied().unwrap_or(MergeOrAlign::Wide);
+        let tag = mergeoralign
+            .get(step_idx)
+            .copied()
+            .unwrap_or(MergeOrAlign::Wide);
         match tag {
             MergeOrAlign::SkipExisting => {
-                let width = aligned[step.left[0]].len().max(aligned[step.right[0]].len());
+                let width = aligned[step.left[0]]
+                    .len()
+                    .max(aligned[step.right[0]].len());
                 step_trace.push(StepTrace {
                     clus1: step.left.len(),
                     clus2: step.right.len(),
@@ -348,12 +396,10 @@ pub fn progressive_align_with_mergeoralign_n(
                 // Build mapping: stripped_idx -> pre-merge anchor positions,
                 // and gap_cols_before[s] = the gap_col positions sitting
                 // between the (s-1)-th and s-th anchor in pre-merge.
-                let anchor_positions: Vec<usize> = (0..pre_width)
-                    .filter(|&k| !pre_classification[k])
-                    .collect();
+                let anchor_positions: Vec<usize> =
+                    (0..pre_width).filter(|&k| !pre_classification[k]).collect();
                 debug_assert_eq!(anchor_positions.len(), stripped_width);
-                let mut gap_cols_before: Vec<Vec<usize>> =
-                    vec![Vec::new(); stripped_width + 1];
+                let mut gap_cols_before: Vec<Vec<usize>> = vec![Vec::new(); stripped_width + 1];
                 {
                     let mut s = 0usize;
                     for k in 0..pre_width {
@@ -460,7 +506,8 @@ pub fn progressive_align_with_mergeoralign_n(
                                 if new_merge_gap_set.contains(&q) {
                                     p += 1; // new-merge-gap col emitted as-is
                                 } else {
-                                    let n_common = inserts_per_strip_idx.get(s).copied().unwrap_or(0);
+                                    let n_common =
+                                        inserts_per_strip_idx.get(s).copied().unwrap_or(0);
                                     if n_common > 0 {
                                         gapmap[p] = n_common;
                                     }
@@ -470,7 +517,10 @@ pub fn progressive_align_with_mergeoralign_n(
                                 }
                             }
                             // Trailing
-                            let n_common = inserts_per_strip_idx.get(anchor_positions.len()).copied().unwrap_or(0);
+                            let n_common = inserts_per_strip_idx
+                                .get(anchor_positions.len())
+                                .copied()
+                                .unwrap_or(0);
                             if n_common > 0 && p < gapmap.len() {
                                 gapmap[p] = n_common;
                             }
@@ -540,7 +590,9 @@ pub fn progressive_align_with_mergeoralign_n(
                     already_aligned[i] = true;
                 }
 
-                let width = aligned[step.left[0]].len().max(aligned[step.right[0]].len());
+                let width = aligned[step.left[0]]
+                    .len()
+                    .max(aligned[step.right[0]].len());
                 step_trace.push(StepTrace {
                     clus1: step.left.len(),
                     clus2: step.right.len(),
@@ -557,8 +609,13 @@ pub fn progressive_align_with_mergeoralign_n(
     }
 
     MultipleAlignment {
-        sequences: aligned, names: names.to_vec(), score: last_score, step_trace,
-        guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+        sequences: aligned,
+        names: names.to_vec(),
+        score: last_score,
+        step_trace,
+        guide_tree: None,
+        first_pass_sequences: None,
+        distance_matrix: None,
     }
 }
 
@@ -621,7 +678,9 @@ fn restore_common_gaps_to_merged_row(
 /// commongappick — strip cols where ALL rows are '-' or '.'. Mirrors
 /// C `mltaln9.c::commongappick`. In-place.
 fn commongappick_inplace(mseq: &mut Vec<Vec<u8>>) {
-    if mseq.is_empty() || mseq[0].is_empty() { return; }
+    if mseq.is_empty() || mseq[0].is_empty() {
+        return;
+    }
     let n = mseq.len();
     let len = mseq[0].len();
     let mut keep = vec![true; len];
@@ -630,10 +689,14 @@ fn commongappick_inplace(mseq: &mut Vec<Vec<u8>>) {
             let c = mseq[i].get(j).copied().unwrap_or(b'-');
             c == b'-' || c == b'.'
         });
-        if all_gap { keep[j] = false; }
+        if all_gap {
+            keep[j] = false;
+        }
     }
     for row in mseq.iter_mut() {
-        let new_row: Vec<u8> = row.iter().enumerate()
+        let new_row: Vec<u8> = row
+            .iter()
+            .enumerate()
             .filter(|(j, _)| keep[*j])
             .map(|(_, &c)| c)
             .collect();
@@ -680,14 +743,36 @@ fn rs_profilealignment(
     }
 
     // Build per-row weights as 1/alcount for non-all-gap rows, 0 else.
-    let alcount0 = mseq0.iter().filter(|r| r.iter().any(|&c| c != b'-' && c != b'.')).count().max(1);
-    let alcount2 = mseq2.iter().filter(|r| r.iter().any(|&c| c != b'-' && c != b'.')).count().max(1);
-    let eff0: Vec<f64> = mseq0.iter().map(|r| {
-        if r.iter().any(|&c| c != b'-' && c != b'.') { 1.0 / alcount0 as f64 } else { 0.0 }
-    }).collect();
-    let eff2: Vec<f64> = mseq2.iter().map(|r| {
-        if r.iter().any(|&c| c != b'-' && c != b'.') { 1.0 / alcount2 as f64 } else { 0.0 }
-    }).collect();
+    let alcount0 = mseq0
+        .iter()
+        .filter(|r| r.iter().any(|&c| c != b'-' && c != b'.'))
+        .count()
+        .max(1);
+    let alcount2 = mseq2
+        .iter()
+        .filter(|r| r.iter().any(|&c| c != b'-' && c != b'.'))
+        .count()
+        .max(1);
+    let eff0: Vec<f64> = mseq0
+        .iter()
+        .map(|r| {
+            if r.iter().any(|&c| c != b'-' && c != b'.') {
+                1.0 / alcount0 as f64
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let eff2: Vec<f64> = mseq2
+        .iter()
+        .map(|r| {
+            if r.iter().any(|&c| c != b'-' && c != b'.') {
+                1.0 / alcount2 as f64
+            } else {
+                0.0
+            }
+        })
+        .collect();
 
     let mseq0_refs: Vec<&[u8]> = mseq0.iter().map(|v| v.as_slice()).collect();
     let mseq2_refs: Vec<&[u8]> = mseq2.iter().map(|v| v.as_slice()).collect();
@@ -738,7 +823,13 @@ fn rs_profilealignment(
     *mseq2 = new_mseq2;
 
     // C lines 217-220: fill aln1 with '-' chars at newlen width.
-    let newlen = if n0 > 0 { mseq0[0].len() } else if n2 > 0 { mseq2[0].len() } else { 0 };
+    let newlen = if n0 > 0 {
+        mseq0[0].len()
+    } else if n2 > 0 {
+        mseq2[0].len()
+    } else {
+        0
+    };
     for row in mseq1.iter_mut() {
         *row = vec![b'-'; newlen];
     }
@@ -746,9 +837,15 @@ fn rs_profilealignment(
     // C lines 222-242: at each j, if all aln0 are '-' AND all aln1 are
     // '-' → mark all aln1 with '=' at j.
     for j in 0..newlen {
-        let all_aln0_gap = mseq0.iter().all(|r| r.get(j).copied().unwrap_or(b'-') == b'-');
-        if !all_aln0_gap { continue; }
-        let all_aln1_gap = mseq1.iter().all(|r| r.get(j).copied().unwrap_or(b'-') == b'-');
+        let all_aln0_gap = mseq0
+            .iter()
+            .all(|r| r.get(j).copied().unwrap_or(b'-') == b'-');
+        if !all_aln0_gap {
+            continue;
+        }
+        let all_aln1_gap = mseq1
+            .iter()
+            .all(|r| r.get(j).copied().unwrap_or(b'-') == b'-');
         if all_aln1_gap {
             for row in mseq1.iter_mut() {
                 row[j] = b'=';
@@ -765,8 +862,11 @@ pub fn findnewgaps(seq: &[u8]) -> Vec<usize> {
     let mut gaplen = vec![0usize; seq.len() + 1];
     let mut pos = 0;
     for &c in seq {
-        if c == b'=' { gaplen[pos] += 1; }
-        else { pos += 1; }
+        if c == b'=' {
+            gaplen[pos] += 1;
+        } else {
+            pos += 1;
+        }
     }
     gaplen
 }
@@ -804,7 +904,9 @@ pub fn apply_c_insertnewgaps(
     let len0 = len + 1;
 
     // Output buffers.
-    let mut out: Vec<Vec<u8>> = (0..aseq.len()).map(|_| Vec::with_capacity(len * 2 + 16)).collect();
+    let mut out: Vec<Vec<u8>> = (0..aseq.len())
+        .map(|_| Vec::with_capacity(len * 2 + 16))
+        .collect();
 
     let mut posin12 = 0usize;
     let mut j = 0usize;
@@ -819,7 +921,9 @@ pub fn apply_c_insertnewgaps(
             // First gapshift = new-merge-gap region (gaplen[j] '=' chars in
             // group1 post-restore).
             for row in mseq0.iter_mut() {
-                for _ in 0..gapshift { row.push(b'-'); }
+                for _ in 0..gapshift {
+                    row.push(b'-');
+                }
             }
             for (k, &i) in existing_grp.iter().enumerate() {
                 for kk in 0..gapshift {
@@ -891,22 +995,34 @@ pub fn apply_c_insertnewgaps(
         for &i in other_indices {
             for k in 0..blocklen {
                 if let Some(&c) = aseq[i].get(j + k) {
-                    if c != 0 { out[i].push(c); }
-                } else { break; }
+                    if c != 0 {
+                        out[i].push(c);
+                    }
+                } else {
+                    break;
+                }
             }
         }
         for &i in existing_grp {
             for k in 0..blocklen {
                 if let Some(&c) = aseq[i].get(posin12 + k) {
-                    if c != 0 { out[i].push(c); }
-                } else { break; }
+                    if c != 0 {
+                        out[i].push(c);
+                    }
+                } else {
+                    break;
+                }
             }
         }
         for &i in new_grp {
             for k in 0..blocklen {
                 if let Some(&c) = aseq[i].get(posin12 + k) {
-                    if c != 0 { out[i].push(c); }
-                } else { break; }
+                    if c != 0 {
+                        out[i].push(c);
+                    }
+                } else {
+                    break;
+                }
             }
         }
 
@@ -916,7 +1032,9 @@ pub fn apply_c_insertnewgaps(
 
     // Trim trailing zeros from output rows (defensive).
     for row in out.iter_mut() {
-        while row.last() == Some(&0) { row.pop(); }
+        while row.last() == Some(&0) {
+            row.pop();
+        }
     }
 
     // Copy back to aseq for affected rows.
@@ -972,7 +1090,9 @@ fn insertnewgaps_with_profilealignment(
     {
         let mut s = 0usize;
         for q in 0..post_merge_width {
-            if !new_merge_gap_set.contains(&q) { s += 1; }
+            if !new_merge_gap_set.contains(&q) {
+                s += 1;
+            }
             anchor_idx_at_post.push(s); // anchor count consumed up to and including q
         }
     }
@@ -984,7 +1104,9 @@ fn insertnewgaps_with_profilealignment(
         while q < post_merge_width {
             if new_merge_gap_set.contains(&q) {
                 let start = q;
-                while q < post_merge_width && new_merge_gap_set.contains(&q) { q += 1; }
+                while q < post_merge_width && new_merge_gap_set.contains(&q) {
+                    q += 1;
+                }
                 gap_runs.push((start, q - start));
             } else {
                 q += 1;
@@ -995,7 +1117,8 @@ fn insertnewgaps_with_profilealignment(
     // Build OTHER's pre-merge content (one row per other index).
     let other_pre: Vec<Vec<u8>> = other_indices.iter().map(|&i| aligned[i].clone()).collect();
     // post-restore output rows for OTHER (to be filled).
-    let mut other_out: Vec<Vec<u8>> = vec![Vec::with_capacity(post_merge_width); other_indices.len()];
+    let mut other_out: Vec<Vec<u8>> =
+        vec![Vec::with_capacity(post_merge_width); other_indices.len()];
 
     // Walk anchors s = 0..stripped_width and maintain post-merge col q.
     let mut s = 0usize;
@@ -1013,9 +1136,15 @@ fn insertnewgaps_with_profilealignment(
             let src_anchors = &anchor_positions[s..s + consume];
 
             // mseq0: OTHER's chars at those anchor positions.
-            let mseq0: Vec<Vec<u8>> = other_pre.iter().map(|row| {
-                src_anchors.iter().map(|&k| row.get(k).copied().unwrap_or(b'-')).collect()
-            }).collect();
+            let mseq0: Vec<Vec<u8>> = other_pre
+                .iter()
+                .map(|row| {
+                    src_anchors
+                        .iter()
+                        .map(|&k| row.get(k).copied().unwrap_or(b'-'))
+                        .collect()
+                })
+                .collect();
 
             // mseq2: new-side (group2) post-merge chars in the gap run.
             // group2 was updated by merge_step_cached; aligned[new_grp[k]]
@@ -1023,9 +1152,17 @@ fn insertnewgaps_with_profilealignment(
             // restore_common_gaps_to_merged_row in the caller). But here
             // we receive raw aligned BEFORE restore in the new path, so
             // we use the post-merge index directly.
-            let mseq2: Vec<Vec<u8>> = new_grp.iter().map(|&i| {
-                aligned[i].iter().skip(g_start).take(g_len).copied().collect()
-            }).collect();
+            let mseq2: Vec<Vec<u8>> = new_grp
+                .iter()
+                .map(|&i| {
+                    aligned[i]
+                        .iter()
+                        .skip(g_start)
+                        .take(g_len)
+                        .copied()
+                        .collect()
+                })
+                .collect();
 
             // mseq0 commongappick: for our case (singletons or small)
             // the all-gap check is a no-op since rows here came from
@@ -1036,14 +1173,36 @@ fn insertnewgaps_with_profilealignment(
             let n_refs: Vec<&[u8]> = mseq2.iter().map(|v| v.as_slice()).collect();
             let n0 = m_refs.len();
             let _n2 = n_refs.len();
-            let alcount0 = mseq0.iter().filter(|r| r.iter().any(|&c| c != b'-' && c != b'.')).count().max(1);
-            let alcount2 = mseq2.iter().filter(|r| r.iter().any(|&c| c != b'-' && c != b'.')).count().max(1);
-            let w0: Vec<f64> = mseq0.iter().map(|r| {
-                if r.iter().any(|&c| c != b'-' && c != b'.') { 1.0 / alcount0 as f64 } else { 0.0 }
-            }).collect();
-            let w2: Vec<f64> = mseq2.iter().map(|r| {
-                if r.iter().any(|&c| c != b'-' && c != b'.') { 1.0 / alcount2 as f64 } else { 0.0 }
-            }).collect();
+            let alcount0 = mseq0
+                .iter()
+                .filter(|r| r.iter().any(|&c| c != b'-' && c != b'.'))
+                .count()
+                .max(1);
+            let alcount2 = mseq2
+                .iter()
+                .filter(|r| r.iter().any(|&c| c != b'-' && c != b'.'))
+                .count()
+                .max(1);
+            let w0: Vec<f64> = mseq0
+                .iter()
+                .map(|r| {
+                    if r.iter().any(|&c| c != b'-' && c != b'.') {
+                        1.0 / alcount0 as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let w2: Vec<f64> = mseq2
+                .iter()
+                .map(|r| {
+                    if r.iter().any(|&c| c != b'-' && c != b'.') {
+                        1.0 / alcount2 as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
             let prof0 = Profile::from_aligned(&m_refs, &w0, &scoring.amino_map, scoring.nalphabets);
             let prof2 = Profile::from_aligned(&n_refs, &w2, &scoring.amino_map, scoring.nalphabets);
 
@@ -1183,8 +1342,17 @@ pub fn progressive_align_partial(
     let limit = n_steps.min(topology.steps.len());
     for step in topology.steps.iter().take(limit) {
         merge_step_cached(
-            &step.left, &step.right, &mut aligned, &weights, scoring, &gap, use_fft,
-            &mut profile_cache, None, false, false,
+            &step.left,
+            &step.right,
+            &mut aligned,
+            &weights,
+            scoring,
+            &gap,
+            use_fft,
+            &mut profile_cache,
+            None,
+            false,
+            false,
             false, // c_compat off in partial replay (test diagnostics)
             true,  // partial replay mirrors pass 0
         );
@@ -1211,8 +1379,15 @@ pub fn progressive_align_with_constraints(
     penalize_term_gaps: bool,
 ) -> MultipleAlignment {
     progressive_align_with_weights_override(
-        sequences, names, topology, scoring, use_fft, shift_penalty,
-        constraints, penalize_term_gaps, None,
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        constraints,
+        penalize_term_gaps,
+        None,
     )
 }
 
@@ -1234,8 +1409,18 @@ pub fn progressive_align_with_weights_override(
     weights_override: Option<&[f64]>,
 ) -> MultipleAlignment {
     progressive_align_full(
-        sequences, names, topology, scoring, use_fft, shift_penalty,
-        constraints, penalize_term_gaps, weights_override, 0.0, false, false,
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        constraints,
+        penalize_term_gaps,
+        weights_override,
+        0.0,
+        false,
+        false,
     )
 }
 
@@ -1259,9 +1444,19 @@ pub fn progressive_align_full(
     memsave_dp: bool,
 ) -> MultipleAlignment {
     progressive_align_full_c_compat(
-        sequences, names, topology, scoring, use_fft, shift_penalty,
-        constraints, penalize_term_gaps, weights_override, unalign_level,
-        legacy_gap_cost, memsave_dp, false,
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        constraints,
+        penalize_term_gaps,
+        weights_override,
+        unalign_level,
+        legacy_gap_cost,
+        memsave_dp,
+        false,
     )
 }
 
@@ -1285,9 +1480,20 @@ pub fn progressive_align_full_c_compat(
     c_compat: bool,
 ) -> MultipleAlignment {
     progressive_align_full_c_compat_ex(
-        sequences, names, topology, scoring, use_fft, shift_penalty,
-        constraints, penalize_term_gaps, weights_override, unalign_level,
-        legacy_gap_cost, memsave_dp, c_compat, true,
+        sequences,
+        names,
+        topology,
+        scoring,
+        use_fft,
+        shift_penalty,
+        constraints,
+        penalize_term_gaps,
+        weights_override,
+        unalign_level,
+        legacy_gap_cost,
+        memsave_dp,
+        c_compat,
+        true,
     )
 }
 
@@ -1321,12 +1527,24 @@ pub fn progressive_align_full_c_compat_ex(
     let nseq = sequences.len();
     if nseq == 0 {
         return MultipleAlignment {
-            sequences: Vec::new(), names: Vec::new(), score: 0.0, step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            sequences: Vec::new(),
+            names: Vec::new(),
+            score: 0.0,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
     }
     if nseq == 1 {
         return MultipleAlignment {
-            sequences: sequences.to_vec(), names: names.to_vec(), score: 0.0, step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            sequences: sequences.to_vec(),
+            names: names.to_vec(),
+            score: 0.0,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
     }
 
@@ -1403,12 +1621,24 @@ pub fn progressive_align_full_c_compat_ex(
             scoring
         };
         last_score = merge_step_cached(
-            &step.left, &step.right, &mut aligned, &weights, step_scoring, &gap, use_fft,
-            &mut profile_cache, constraints, penalize_term_gaps, memsave_dp, c_compat,
+            &step.left,
+            &step.right,
+            &mut aligned,
+            &weights,
+            step_scoring,
+            &gap,
+            use_fft,
+            &mut profile_cache,
+            constraints,
+            penalize_term_gaps,
+            memsave_dp,
+            c_compat,
             use_cache,
         );
 
-        let width = aligned[step.left[0]].len().max(aligned[step.right[0]].len());
+        let width = aligned[step.left[0]]
+            .len()
+            .max(aligned[step.right[0]].len());
         step_trace.push(StepTrace {
             clus1: step.left.len(),
             clus2: step.right.len(),
@@ -1416,28 +1646,59 @@ pub fn progressive_align_full_c_compat_ex(
             score: last_score,
         });
         if std::env::var("MAFFT_DEBUG_STEPS").is_ok() {
-            eprintln!("RDBG {} {} {} {} {:.4}",
-                step_idx, step.left.len(), step.right.len(), width, last_score);
+            eprintln!(
+                "RDBG {} {} {} {} {:.4}",
+                step_idx,
+                step.left.len(),
+                step.right.len(),
+                width,
+                last_score
+            );
         }
         if let Ok(f) = std::env::var("RS_PROGRESSIVE_TRACE") {
             use std::io::Write;
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&f)
+            {
                 let m1 = step.left[0];
                 let m2 = step.right[0];
                 let mut h: u64 = 5381;
                 for &i in &step.left {
-                    for &c in &aligned[i] { h = h.wrapping_mul(33).wrapping_add(c as u64); }
+                    for &c in &aligned[i] {
+                        h = h.wrapping_mul(33).wrapping_add(c as u64);
+                    }
                 }
                 for &i in &step.right {
-                    for &c in &aligned[i] { h = h.wrapping_mul(33).wrapping_add(c as u64); }
+                    for &c in &aligned[i] {
+                        h = h.wrapping_mul(33).wrapping_add(c as u64);
+                    }
                 }
-                let _ = writeln!(fp, "step={} m1={} m2={} clus1={} clus2={} width={} pscore={:.6} hash={:x}",
-                    step_idx, m1, m2, step.left.len(), step.right.len(), width, last_score, h);
+                let _ = writeln!(
+                    fp,
+                    "step={} m1={} m2={} clus1={} clus2={} width={} pscore={:.6} hash={:x}",
+                    step_idx,
+                    m1,
+                    m2,
+                    step.left.len(),
+                    step.right.len(),
+                    width,
+                    last_score,
+                    h
+                );
             }
         }
         if std::env::var("RDBG_PT_STEPS").is_ok() {
-            eprintln!("RDBG_PT step={} clus1={} clus2={} width={} mem1={:?} mem2={:?}",
-                step_idx, step.left.len(), step.right.len(), width, step.left, step.right);
+            eprintln!(
+                "RDBG_PT step={} clus1={} clus2={} width={} mem1={:?} mem2={:?}",
+                step_idx,
+                step.left.len(),
+                step.right.len(),
+                width,
+                step.left,
+                step.right
+            );
         }
         // BB30013 cpmxhist diagnostic: dump the cached profile for this
         // step's output cluster after the merge writes to cache. Matches
@@ -1453,8 +1714,17 @@ pub fn progressive_align_full_c_compat_ex(
                     let prof = &cached.profile;
                     let cw = prof.length;
                     let na = prof.nalphabets;
-                    writeln!(f, "step={} width={} nalphabets={} clus1={} clus2={} score={:.6}",
-                        step_idx, cw, na, step.left.len(), step.right.len(), last_score).unwrap();
+                    writeln!(
+                        f,
+                        "step={} width={} nalphabets={} clus1={} clus2={} score={:.6}",
+                        step_idx,
+                        cw,
+                        na,
+                        step.left.len(),
+                        step.right.len(),
+                        last_score
+                    )
+                    .unwrap();
                     for k in 0..na {
                         write!(f, "F[{}]:", k).unwrap();
                         for j in 0..cw {
@@ -1495,8 +1765,13 @@ pub fn progressive_align_full_c_compat_ex(
     }
 
     MultipleAlignment {
-        sequences: aligned, names: names.to_vec(), score: last_score, step_trace,
-        guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+        sequences: aligned,
+        names: names.to_vec(),
+        score: last_score,
+        step_trace,
+        guide_tree: None,
+        first_pass_sequences: None,
+        distance_matrix: None,
     }
 }
 
@@ -1525,13 +1800,19 @@ pub fn merge_two_groups_progressive(
 ) -> f64 {
     let mut empty_cache: BTreeMap<Vec<usize>, CachedProfile> = BTreeMap::new();
     merge_step_cached(
-        group1, group2, aligned, weights, scoring, gap, use_fft,
+        group1,
+        group2,
+        aligned,
+        weights,
+        scoring,
+        gap,
+        use_fft,
         &mut empty_cache,
-        None,                  // no constraints
+        None, // no constraints
         penalize_term_gaps,
-        false,                 // memsave_dp off
-        false,                 // c_compat off — dooneiteration always rebuilds cpmx
-        false,                 // use_cache off — same reason
+        false, // memsave_dp off
+        false, // c_compat off — dooneiteration always rebuilds cpmx
+        false, // use_cache off — same reason
     )
 }
 
@@ -1562,12 +1843,20 @@ fn merge_step_cached(
     //   alignment seqs. Used by R-1-residual investigation.
     let dump_inputs = std::env::var_os("RS_DP_DUMP").is_some();
     let dp_dump_step = if dump_inputs {
-        let s1: Vec<String> = group1.iter().map(|&i| String::from_utf8_lossy(&aligned[i]).into_owned()).collect();
-        let s2: Vec<String> = group2.iter().map(|&i| String::from_utf8_lossy(&aligned[i]).into_owned()).collect();
+        let s1: Vec<String> = group1
+            .iter()
+            .map(|&i| String::from_utf8_lossy(&aligned[i]).into_owned())
+            .collect();
+        let s2: Vec<String> = group2
+            .iter()
+            .map(|&i| String::from_utf8_lossy(&aligned[i]).into_owned())
+            .collect();
         let w1: Vec<f64> = group1.iter().map(|&i| weights[i]).collect();
         let w2: Vec<f64> = group2.iter().map(|&i| weights[i]).collect();
         Some((s1, s2, w1, w2))
-    } else { None };
+    } else {
+        None
+    };
 
     // Look up cached profiles or build from sequences
     let key1 = sorted_key(group1);
@@ -1607,7 +1896,6 @@ fn merge_step_cached(
         (prof, eff)
     };
 
-
     // C uses Falign (FFT-accelerated) for ALL steps when ffttry is true
     // (nlen > clus, which is always true). G__align11 is only used when
     // FFT is disabled (use_fft=false) and both groups are single sequences.
@@ -1616,9 +1904,7 @@ fn merge_step_cached(
     // C's disttbfast passes `outgap, outgap` for headgp/tailgp in G__align11
     // and A__align. With the -O flag (always set by mafft script), outgap=0,
     // which means no penalty is applied to terminal gaps (TERMGAPFAC=0).
-    let aln = if !use_fft && group1.len() == 1 && group2.len() == 1
-        && constraints.is_none()
-    {
+    let aln = if !use_fft && group1.len() == 1 && group2.len() == 1 && constraints.is_none() {
         // G__align11 path: flat gap penalty, character-level scoring.
         // Only used when FFT is disabled and no constraints. With constraints
         // (L-INS-i / E-INS-i / G-INS-i), single-vs-single merges still need
@@ -1636,10 +1922,14 @@ fn merge_step_cached(
         // Without it, `--nofft --exp > 0` diverged at tied-trace
         // gap positions (R-1b closure).
         pairwise_align11_ex(
-            &aligned[group1[0]], &aligned[group2[0]],
-            &scoring.consweight_matrix, &scoring.amino_map,
-            scoring.gap.open as f64, scoring.gap.extend as f64,
-            penalize_term_gaps, penalize_term_gaps,
+            &aligned[group1[0]],
+            &aligned[group2[0]],
+            &scoring.consweight_matrix,
+            &scoring.amino_map,
+            scoring.gap.open as f64,
+            scoring.gap.extend as f64,
+            penalize_term_gaps,
+            penalize_term_gaps,
         )
     } else if use_fft {
         // C uses Falign for ALL steps when use_fft=true (ffttry = nlen > clus,
@@ -1693,39 +1983,83 @@ fn merge_step_cached(
         // Group-local sum-1 normalized weights (matches C's
         // `fastconjuction_noname` `peff[m] /= total`, tddis.c:552-556).
         const MINIMUM_WEIGHT: f64 = 0.00001;
-        let w1: Vec<f64> = group1.iter().map(|&i| weights[i].max(MINIMUM_WEIGHT)).collect();
-        let w2: Vec<f64> = group2.iter().map(|&i| weights[i].max(MINIMUM_WEIGHT)).collect();
+        let w1: Vec<f64> = group1
+            .iter()
+            .map(|&i| weights[i].max(MINIMUM_WEIGHT))
+            .collect();
+        let w2: Vec<f64> = group2
+            .iter()
+            .map(|&i| weights[i].max(MINIMUM_WEIGHT))
+            .collect();
         let s1: f64 = w1.iter().sum();
         let s2: f64 = w2.iter().sum();
-        let w1n: Vec<f64> = if s1 > 0.0 { w1.iter().map(|w| w / s1).collect() } else { vec![1.0; group1.len()] };
-        let w2n: Vec<f64> = if s2 > 0.0 { w2.iter().map(|w| w / s2).collect() } else { vec![1.0; group2.len()] };
+        let w1n: Vec<f64> = if s1 > 0.0 {
+            w1.iter().map(|w| w / s1).collect()
+        } else {
+            vec![1.0; group1.len()]
+        };
+        let w2n: Vec<f64> = if s2 > 0.0 {
+            w2.iter().map(|w| w / s2).collect()
+        } else {
+            vec![1.0; group2.len()]
+        };
         let imp = mafft_align::build_imp_matrix(
             table,
-            group1, group2,
-            &g1_seq_refs, &g2_seq_refs,
-            &w1n, &w2n,
-            prof1.length, prof2.length,
+            group1,
+            group2,
+            &g1_seq_refs,
+            &g2_seq_refs,
+            &w1n,
+            &w2n,
+            prof1.length,
+            prof2.length,
             mafft_align::FASTATHRESHOLD_DEFAULT,
         );
         if std::env::var_os("RUST_IMP_DUMP").is_some() {
             let s00 = imp.first().and_then(|r| r.first()).copied().unwrap_or(0.0);
-            let s100 = if imp.len()>100 && imp[100].len()>100 { imp[100][100] } else { 0.0 };
-            let s300 = if imp.len()>300 && imp[300].len()>300 { imp[300][300] } else { 0.0 };
-            eprintln!("[RUST_IMP] g1={:?} g2={:?} lgth1={} lgth2={} eff1={:?} eff2={:?} imp[0,0]={:.4} imp[100,100]={:.4} imp[300,300]={:.4}",
-                group1, group2, prof1.length, prof2.length, w1n, w2n, s00, s100, s300);
+            let s100 = if imp.len() > 100 && imp[100].len() > 100 {
+                imp[100][100]
+            } else {
+                0.0
+            };
+            let s300 = if imp.len() > 300 && imp[300].len() > 300 {
+                imp[300][300]
+            } else {
+                0.0
+            };
+            eprintln!(
+                "[RUST_IMP] g1={:?} g2={:?} lgth1={} lgth2={} eff1={:?} eff2={:?} imp[0,0]={:.4} imp[100,100]={:.4} imp[300,300]={:.4}",
+                group1, group2, prof1.length, prof2.length, w1n, w2n, s00, s100, s300
+            );
             for &gi in group1 {
                 for &gj in group2 {
                     let regs = table.get(gi, gj);
                     for (idx, r) in regs.iter().enumerate().take(3) {
-                        eprintln!("[RUST_IMP] lh[{},{}] e{}: opt={:.6} imp={:.6} overlapaa={} s1={} e1={} s2={} e2={}",
-                            gi, gj, idx, r.opt, r.importance, r.overlapaa, r.start1, r.end1, r.start2, r.end2);
+                        eprintln!(
+                            "[RUST_IMP] lh[{},{}] e{}: opt={:.6} imp={:.6} overlapaa={} s1={} e1={} s2={} e2={}",
+                            gi,
+                            gj,
+                            idx,
+                            r.opt,
+                            r.importance,
+                            r.overlapaa,
+                            r.start1,
+                            r.end1,
+                            r.start2,
+                            r.end2
+                        );
                     }
                 }
             }
         }
         mafft_align::profile_align_imp(
-            &prof1, &prof2, &scoring.consweight_matrix, gap,
-            penalize_term_gaps, penalize_term_gaps, Some(&imp),
+            &prof1,
+            &prof2,
+            &scoring.consweight_matrix,
+            gap,
+            penalize_term_gaps,
+            penalize_term_gaps,
+            Some(&imp),
         )
     } else if memsave_dp {
         // `--memsave`: route through the Hirschberg DP. Mirrors C
@@ -1733,8 +2067,12 @@ fn merge_step_cached(
         // For inputs that fit in memory, the alignment is the same
         // as `profile_align` — only memory layout differs.
         mafft_align::msalignmm(
-            &prof1, &prof2, &scoring.consweight_matrix, gap,
-            penalize_term_gaps, penalize_term_gaps,
+            &prof1,
+            &prof2,
+            &scoring.consweight_matrix,
+            gap,
+            penalize_term_gaps,
+            penalize_term_gaps,
         )
     } else {
         // Non-FFT, no-constraints fallback (`--nofft` path or single-vs-
@@ -1743,8 +2081,12 @@ fn merge_step_cached(
         // FFT-NS-2/L-INS-i/E-INS-i defaults), true → outgap=1
         // (G-INS-i and `--parttree`).
         profile_align(
-            &prof1, &prof2, &scoring.consweight_matrix, gap,
-            penalize_term_gaps, penalize_term_gaps,
+            &prof1,
+            &prof2,
+            &scoring.consweight_matrix,
+            gap,
+            penalize_term_gaps,
+            penalize_term_gaps,
         )
     };
 
@@ -1754,9 +2096,18 @@ fn merge_step_cached(
     let mut gaptable2 = Vec::with_capacity(new_width);
     for op in &aln.operations {
         match op {
-            AlignOp::Match => { gaptable1.push(b'o'); gaptable2.push(b'o'); }
-            AlignOp::Delete => { gaptable1.push(b'o'); gaptable2.push(b'-'); }
-            AlignOp::Insert => { gaptable1.push(b'-'); gaptable2.push(b'o'); }
+            AlignOp::Match => {
+                gaptable1.push(b'o');
+                gaptable2.push(b'o');
+            }
+            AlignOp::Delete => {
+                gaptable1.push(b'o');
+                gaptable2.push(b'-');
+            }
+            AlignOp::Insert => {
+                gaptable1.push(b'-');
+                gaptable2.push(b'o');
+            }
         }
     }
 
@@ -1769,18 +2120,24 @@ fn merge_step_cached(
         let norm_eff1 = eff1 / total_eff;
         let norm_eff2 = eff2 / total_eff;
         let merged_prof = blend_profiles_exact(
-            &prof1, &prof2,
-            norm_eff1, norm_eff2,
-            &gaptable1, &gaptable2,
+            &prof1,
+            &prof2,
+            norm_eff1,
+            norm_eff2,
+            &gaptable1,
+            &gaptable2,
             scoring.nalphabets,
         );
         let mut merged_key = group1.to_vec();
         merged_key.extend_from_slice(group2);
         merged_key.sort();
-        cache.insert(merged_key, CachedProfile {
-            profile: merged_prof,
-            eff: total_eff,
-        });
+        cache.insert(
+            merged_key,
+            CachedProfile {
+                profile: merged_prof,
+                eff: total_eff,
+            },
+        );
     }
 
     // Remove child caches (they won't be needed again)
@@ -1797,33 +2154,57 @@ fn merge_step_cached(
         match op {
             AlignOp::Match => {
                 for (gi, &idx) in group1.iter().enumerate() {
-                    new_seqs_g1[gi].push(if cursor1 < width1 { aligned[idx][cursor1] } else { b'-' });
+                    new_seqs_g1[gi].push(if cursor1 < width1 {
+                        aligned[idx][cursor1]
+                    } else {
+                        b'-'
+                    });
                 }
                 for (gi, &idx) in group2.iter().enumerate() {
-                    new_seqs_g2[gi].push(if cursor2 < width2 { aligned[idx][cursor2] } else { b'-' });
+                    new_seqs_g2[gi].push(if cursor2 < width2 {
+                        aligned[idx][cursor2]
+                    } else {
+                        b'-'
+                    });
                 }
                 cursor1 += 1;
                 cursor2 += 1;
             }
             AlignOp::Delete => {
                 for (gi, &idx) in group1.iter().enumerate() {
-                    new_seqs_g1[gi].push(if cursor1 < width1 { aligned[idx][cursor1] } else { b'-' });
+                    new_seqs_g1[gi].push(if cursor1 < width1 {
+                        aligned[idx][cursor1]
+                    } else {
+                        b'-'
+                    });
                 }
-                for gi in 0..group2.len() { new_seqs_g2[gi].push(b'-'); }
+                for gi in 0..group2.len() {
+                    new_seqs_g2[gi].push(b'-');
+                }
                 cursor1 += 1;
             }
             AlignOp::Insert => {
-                for gi in 0..group1.len() { new_seqs_g1[gi].push(b'-'); }
+                for gi in 0..group1.len() {
+                    new_seqs_g1[gi].push(b'-');
+                }
                 for (gi, &idx) in group2.iter().enumerate() {
-                    new_seqs_g2[gi].push(if cursor2 < width2 { aligned[idx][cursor2] } else { b'-' });
+                    new_seqs_g2[gi].push(if cursor2 < width2 {
+                        aligned[idx][cursor2]
+                    } else {
+                        b'-'
+                    });
                 }
                 cursor2 += 1;
             }
         }
     }
 
-    for (gi, &idx) in group1.iter().enumerate() { aligned[idx] = new_seqs_g1[gi].clone(); }
-    for (gi, &idx) in group2.iter().enumerate() { aligned[idx] = new_seqs_g2[gi].clone(); }
+    for (gi, &idx) in group1.iter().enumerate() {
+        aligned[idx] = new_seqs_g1[gi].clone();
+    }
+    for (gi, &idx) in group2.iter().enumerate() {
+        aligned[idx] = new_seqs_g2[gi].clone();
+    }
 
     // RS_DP_DUMP: write per-step inputs + outputs to the file at the env
     // var's value. Format (one tab-separated entry per line):
@@ -1834,19 +2215,40 @@ fn merge_step_cached(
     if let Some((s1, s2, w1, w2)) = dp_dump_step {
         if let Ok(path) = std::env::var("RS_DP_DUMP") {
             use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-                let out1: Vec<String> = new_seqs_g1.iter().map(|v| String::from_utf8_lossy(v).into_owned()).collect();
-                let out2: Vec<String> = new_seqs_g2.iter().map(|v| String::from_utf8_lossy(v).into_owned()).collect();
-                let _ = writeln!(f,
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
+                let out1: Vec<String> = new_seqs_g1
+                    .iter()
+                    .map(|v| String::from_utf8_lossy(v).into_owned())
+                    .collect();
+                let out2: Vec<String> = new_seqs_g2
+                    .iter()
+                    .map(|v| String::from_utf8_lossy(v).into_owned())
+                    .collect();
+                let _ = writeln!(
+                    f,
                     "g1={}\tg2={}\tw1={}\tw2={}\tpen={}\tpen_ex={}\thgp={}\ttgp={}\tfft={}\tcon={}\tout1={}\tout2={}",
-                    s1.join(";"), s2.join(";"),
-                    w1.iter().map(|x| format!("{:.10}", x)).collect::<Vec<_>>().join(","),
-                    w2.iter().map(|x| format!("{:.10}", x)).collect::<Vec<_>>().join(","),
-                    gap.open as i32, gap.extend as i32,
-                    penalize_term_gaps as u8, penalize_term_gaps as u8,
+                    s1.join(";"),
+                    s2.join(";"),
+                    w1.iter()
+                        .map(|x| format!("{:.10}", x))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    w2.iter()
+                        .map(|x| format!("{:.10}", x))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    gap.open as i32,
+                    gap.extend as i32,
+                    penalize_term_gaps as u8,
+                    penalize_term_gaps as u8,
                     use_fft as u8,
                     constraints.is_some() as u8,
-                    out1.join(";"), out2.join(";"),
+                    out1.join(";"),
+                    out2.join(";"),
                 );
             }
         }
@@ -1872,7 +2274,11 @@ fn build_profile_from_seqs(
     // then tracks orieff (= raw sum) separately for createcpmxresult blending.
     let w: Vec<f64> = group.iter().map(|&i| weights[i]).collect();
     let sum: f64 = w.iter().sum();
-    let wn: Vec<f64> = if sum > 0.0 { w.iter().map(|v| v / sum).collect() } else { vec![1.0; group.len()] };
+    let wn: Vec<f64> = if sum > 0.0 {
+        w.iter().map(|v| v / sum).collect()
+    } else {
+        vec![1.0; group.len()]
+    };
     let prof = Profile::from_aligned(&seqs, &wn, &scoring.amino_map, scoring.nalphabets);
     (prof, sum)
 }
@@ -1892,13 +2298,22 @@ fn build_profile_with_memo(
     let seqs: Vec<&[u8]> = group.iter().map(|&i| aligned[i].as_slice()).collect();
     let w: Vec<f64> = group.iter().map(|&i| weights[i]).collect();
     let sum: f64 = w.iter().sum();
-    let wn: Vec<f64> = if sum > 0.0 { w.iter().map(|v| v / sum).collect() } else { vec![1.0; group.len()] };
+    let wn: Vec<f64> = if sum > 0.0 {
+        w.iter().map(|v| v / sum).collect()
+    } else {
+        vec![1.0; group.len()]
+    };
     let firstmem = group[0] as i32;
     let icyc = group.len();
     let lgth = seqs.first().map_or(0, |s| s.len());
     let prof = Profile::from_aligned_with_memo(
-        &seqs, &wn, &scoring.amino_map, scoring.nalphabets,
-        firstmem, icyc, lgth,
+        &seqs,
+        &wn,
+        &scoring.amino_map,
+        scoring.nalphabets,
+        firstmem,
+        icyc,
+        lgth,
     );
     (prof, sum)
 }
@@ -1928,11 +2343,9 @@ pub fn blend_profiles_exact(
     let mut fgcp = vec![0.0f64; alen];
 
     // createcpmxresult: blend frequency matrices.
-    // FMA throughout: matches gcc's `-O3` fusion of `a + b*c` so the blended
-    // child-profile is bit-identical to C's. Without FMA the per-column
-    // weighted frequency accumulates 1-ULP differences that propagate into
-    // match_calc_row and flip DP tie-breaks for flat-landscape matrices
-    // (TM PAM 200 — §B.2).
+    // Keep the weighted additions in the same explicit order as C's
+    // `createcpmxresult`. Reassociation changes per-column rounding and can
+    // propagate into match_calc_row tie-breaks for flat score landscapes.
     {
         let mut p = 0usize;
         for j in 0..alen {
@@ -1998,7 +2411,10 @@ pub fn blend_profiles_exact(
     blend_fg_one_side(&mut fgcp, &prof2.fgcp, &prof2.nongap_freq, gaptable2, eff2);
 
     // Compute gap_freq from nongap_freq
-    let gap_freq: Vec<f64> = nongap_freq[..alen].iter().map(|&nf| (1.0 - nf).max(0.0)).collect();
+    let gap_freq: Vec<f64> = nongap_freq[..alen]
+        .iter()
+        .map(|&nf| (1.0 - nf).max(0.0))
+        .collect();
     let nongap_freq_trimmed = nongap_freq[..alen].to_vec();
 
     Profile {
@@ -2015,8 +2431,8 @@ pub fn blend_profiles_exact(
 /// C's createogresult logic for one side (MSalignmm.c lines 354-378).
 fn blend_og_one_side(
     result: &mut [f64],
-    ori: &[f64],     // raw opening counts
-    gf: &[f64],      // nongap_freq
+    ori: &[f64], // raw opening counts
+    gf: &[f64],  // nongap_freq
     gaptable: &[u8],
     eff: f64,
 ) {
@@ -2054,8 +2470,8 @@ fn blend_og_one_side(
 /// the merged profile was cached and reused at the next merge.
 fn blend_fg_one_side(
     result: &mut [f64],
-    ori: &[f64],     // raw closing counts
-    gf: &[f64],      // nongap_freq
+    ori: &[f64], // raw closing counts
+    gf: &[f64],  // nongap_freq
     gaptable: &[u8],
     eff: f64,
 ) {
@@ -2064,7 +2480,11 @@ fn blend_fg_one_side(
     // C treats out-of-bounds `gaptable[alen]` as non-gap (the `\0` of
     // the null-terminated string, which is != '-').
     let next_is_gap = |j: usize| -> bool {
-        if j + 1 < alen { gaptable[j + 1] == b'-' } else { false }
+        if j + 1 < alen {
+            gaptable[j + 1] == b'-'
+        } else {
+            false
+        }
     };
     for j in 0..alen {
         if gaptable[j] == b'-' {
@@ -2088,15 +2508,20 @@ fn blend_fg_one_side(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mafft_tree::{DistanceMatrix, upgma};
     use mafft_scoring::build_context;
+    use mafft_tree::{DistanceMatrix, upgma};
     use mafft_types::{ScoringModel, SeqType};
 
     fn check_alignment(result: &MultipleAlignment, original: &[Vec<u8>]) {
         let width = result.width();
         assert!(width > 0);
         for (i, seq) in result.sequences.iter().enumerate() {
-            assert_eq!(seq.len(), width, "seq {i} wrong width: {} vs {width}", seq.len());
+            assert_eq!(
+                seq.len(),
+                width,
+                "seq {i} wrong width: {} vs {width}",
+                seq.len()
+            );
             let ungapped: Vec<u8> = seq.iter().filter(|&&c| c != b'-').cloned().collect();
             assert_eq!(ungapped, original[i], "seq {i} residues not preserved");
         }
@@ -2125,7 +2550,9 @@ mod tests {
         ];
         let names = vec!["s1".into(), "s2".into(), "s3".into()];
         let mut dm = DistanceMatrix::new(3);
-        dm.set(0, 1, 0.1); dm.set(0, 2, 0.3); dm.set(1, 2, 0.2);
+        dm.set(0, 1, 0.1);
+        dm.set(0, 2, 0.3);
+        dm.set(1, 2, 0.2);
         let topo = upgma(&dm);
         let result = progressive_align(&seqs, &names, &topo, &scoring, false, None);
         check_alignment(&result, &seqs);
@@ -2144,7 +2571,11 @@ mod tests {
         ];
         let names: Vec<String> = (0..6).map(|i| format!("s{i}")).collect();
         let mut dm = DistanceMatrix::new(6);
-        for i in 0..6 { for j in (i+1)..6 { dm.set(i, j, (j-i) as f64 * 0.1); } }
+        for i in 0..6 {
+            for j in (i + 1)..6 {
+                dm.set(i, j, (j - i) as f64 * 0.1);
+            }
+        }
         let topo = upgma(&dm);
         let result = progressive_align(&seqs, &names, &topo, &scoring, false, None);
         check_alignment(&result, &seqs);

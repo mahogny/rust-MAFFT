@@ -4,7 +4,6 @@
 ///
 /// Aligns two groups of sequences by computing position-specific frequency
 /// matrices (profiles) and running affine-gap DP on the profile scores.
-
 use std::cell::RefCell;
 
 use crate::dp::{AlignOp, Alignment, GapModel};
@@ -51,8 +50,11 @@ struct DpScratch {
     mj: Vec<f64>,
     mpj: Vec<usize>,
     scarr: Vec<f64>,
-    cpmx1_sparse: Vec<Vec<(usize, f64)>>,
-    cpmx2_sparse: Vec<Vec<(usize, f64)>>,
+    bcarr: Vec<f64>,
+    cpmx1_sparse_offsets: Vec<usize>,
+    cpmx1_sparse_entries: Vec<(usize, f64)>,
+    cpmx2_sparse_offsets: Vec<usize>,
+    cpmx2_sparse_entries: Vec<(usize, f64)>,
     wmrecords: Vec<f64>,
     prevwmrecords: Vec<f64>,
     warpi: Vec<i32>,
@@ -77,8 +79,11 @@ impl DpScratch {
             mj: Vec::new(),
             mpj: Vec::new(),
             scarr: Vec::new(),
-            cpmx1_sparse: Vec::new(),
-            cpmx2_sparse: Vec::new(),
+            bcarr: Vec::new(),
+            cpmx1_sparse_offsets: Vec::new(),
+            cpmx1_sparse_entries: Vec::new(),
+            cpmx2_sparse_offsets: Vec::new(),
+            cpmx2_sparse_entries: Vec::new(),
             wmrecords: Vec::new(),
             prevwmrecords: Vec::new(),
             warpi: Vec::new(),
@@ -92,8 +97,8 @@ impl DpScratch {
 }
 
 thread_local! {
-    static DP_H_POOL: RefCell<Vec<Vec<f64>>> = const { RefCell::new(Vec::new()) };
-    static DP_IJP_POOL: RefCell<Vec<Vec<i32>>> = const { RefCell::new(Vec::new()) };
+    static DP_H_POOL: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+    static DP_IJP_POOL: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
     static DP_SCRATCH: RefCell<DpScratch> = const { RefCell::new(DpScratch::new()) };
     /// `--c-compat` opt-in: mirrors C's `static TLS` memoization in
     /// `Salignmm.c::A__align` (lines 1091-1094, 1446-1450, 2203-2206).
@@ -192,32 +197,19 @@ fn cpmx_add_opening_closing(
         let ch = unsafe { *new_seq.get_unchecked(pos) };
         let is_gap = ch == b'-' || ch == b'.';
         if is_gap {
-            if !gc_prev { opening[pos] += neweff; }
+            if !gc_prev {
+                opening[pos] += neweff;
+            }
         } else if gc_prev && pos > 0 {
             closing[pos - 1] += neweff;
         }
         gc_prev = is_gap;
     }
-    if n < lgth && !gc_prev { opening[n] += neweff; }
-    if n > 0 && gc_prev { closing[n - 1] += neweff; }
-}
-
-/// Grow `pool` so the first `rows` rows each hold at least `cols`
-/// cells. No per-cell reset — every read cell in `h` / `ijp` is
-/// unconditionally written by either the boundary init (`ijp[i][0]`,
-/// `ijp[0][j]`, `h[i][0]`, `h[0][j]`) or by the DP body before any
-/// traceback read, so stale data in unused cells (or in the
-/// `[rows..][cols..]` tail beyond the active region) cannot affect
-/// correctness. `fill` is the initial value for newly grown cells
-/// (only relevant the FIRST time a row reaches a given length).
-fn ensure_2d<T: Clone>(pool: &mut Vec<Vec<T>>, rows: usize, cols: usize, fill: T) {
-    while pool.len() < rows {
-        pool.push(Vec::new());
+    if n < lgth && !gc_prev {
+        opening[n] += neweff;
     }
-    for row in pool.iter_mut().take(rows) {
-        if row.len() < cols {
-            row.resize(cols, fill.clone());
-        }
+    if n > 0 && gc_prev {
+        closing[n - 1] += neweff;
     }
 }
 
@@ -465,14 +457,22 @@ impl Profile {
                 // as from_aligned but only for the newly added sequence,
                 // scaled by orieff/neweff.
                 cpmx_add_opening_closing(
-                    new_seq, neweff, orieff, &mut s.opening, &mut s.closing, lgth);
+                    new_seq,
+                    neweff,
+                    orieff,
+                    &mut s.opening,
+                    &mut s.closing,
+                    lgth,
+                );
             } else {
                 // From-scratch: zero+fill (matches cpmx_calc_new etc.)
                 for j in 0..lgth {
                     s.gap_freq[j] = 0.0;
                     s.opening[j] = 0.0;
                     s.closing[j] = 0.0;
-                    for i in 0..nalpha { s.freqs[i][j] = 0.0; }
+                    for i in 0..nalpha {
+                        s.freqs[i][j] = 0.0;
+                    }
                 }
                 for (seq, &w) in sequences.iter().zip(weights.iter()) {
                     let n = seq.len().min(lgth);
@@ -482,16 +482,24 @@ impl Profile {
                         let is_gap = ch == b'-' || ch == b'.';
                         if is_gap {
                             s.gap_freq[pos] += w;
-                            if !gc_prev { s.opening[pos] += w; }
+                            if !gc_prev {
+                                s.opening[pos] += w;
+                            }
                         } else if gc_prev && pos > 0 {
                             s.closing[pos - 1] += w;
                         }
                         let idx = amino_map[ch as usize] as usize;
-                        if idx < nalpha { s.freqs[idx][pos] += w; }
+                        if idx < nalpha {
+                            s.freqs[idx][pos] += w;
+                        }
                         gc_prev = is_gap;
                     }
-                    if n < lgth && !gc_prev { s.opening[n] += w; }
-                    if n > 0 && gc_prev { s.closing[n - 1] += w; }
+                    if n < lgth && !gc_prev {
+                        s.opening[n] += w;
+                    }
+                    if n > 0 && gc_prev {
+                        s.closing[n - 1] += w;
+                    }
                 }
             }
             // Update memo state for next call.
@@ -502,7 +510,9 @@ impl Profile {
             // Snapshot into a fresh Profile (lengths trimmed to current lgth).
             let mut freqs = vec![vec![0.0f64; nalpha]; lgth];
             for j in 0..lgth {
-                for k in 0..nalpha { freqs[j][k] = s.freqs[k][j]; }
+                for k in 0..nalpha {
+                    freqs[j][k] = s.freqs[k][j];
+                }
             }
             let gap_freq = s.gap_freq[..lgth].to_vec();
             let nongap_freq: Vec<f64> = gap_freq.iter().map(|&g| 1.0 - g).collect();
@@ -526,13 +536,7 @@ impl Profile {
     /// 1. Build `scarr[b] = sum_a(freq1[a] * matrix[a][b])` — branchless
     /// 2. Dot-product `sum_b(scarr[b] * freq2[b])` — branchless, contiguous
     #[inline]
-    pub fn match_score(
-        &self,
-        i: usize,
-        other: &Profile,
-        j: usize,
-        matrix: &[Vec<f64>],
-    ) -> f64 {
+    pub fn match_score(&self, i: usize, other: &Profile, j: usize, matrix: &[Vec<f64>]) -> f64 {
         let nalpha = self.nalphabets.min(other.nalphabets).min(matrix.len());
         let freq1 = &self.freqs[i];
         let freq2 = &other.freqs[j];
@@ -628,11 +632,17 @@ pub fn align_with_anchors_outgap(
         // would not advance both cursors (defensive — shouldn't happen with
         // a well-formed anchor list from `find_fft_anchors` since
         // `block_align` enforces monotonic ordering).
-        if a1 >= prof1.length || a2 >= prof2.length { continue; }
+        if a1 >= prof1.length || a2 >= prof2.length {
+            continue;
+        }
         let prev1 = *cut1.last().unwrap();
         let prev2 = *cut2.last().unwrap();
-        if a1 < prev1 || a2 < prev2 { continue; }
-        if a1 == prev1 && a2 == prev2 { continue; }
+        if a1 < prev1 || a2 < prev2 {
+            continue;
+        }
+        if a1 == prev1 && a2 == prev2 {
+            continue;
+        }
         cut1.push(a1);
         cut2.push(a2);
     }
@@ -726,7 +736,12 @@ pub struct BoundaryFreqs {
 
 impl Default for BoundaryFreqs {
     fn default() -> Self {
-        Self { head1: 1.0, head2: 1.0, tail1: 1.0, tail2: 1.0 }
+        Self {
+            head1: 1.0,
+            head2: 1.0,
+            tail1: 1.0,
+            tail2: 1.0,
+        }
     }
 }
 
@@ -761,8 +776,15 @@ pub fn profile_align_imp_with_tiebreak(
     strict_part_tiebreak: bool,
 ) -> Alignment {
     profile_align_imp_with_boundary(
-        prof1, prof2, matrix, gap, head_gap, tail_gap, impmtx,
-        strict_part_tiebreak, BoundaryFreqs::default(),
+        prof1,
+        prof2,
+        matrix,
+        gap,
+        head_gap,
+        tail_gap,
+        impmtx,
+        strict_part_tiebreak,
+        BoundaryFreqs::default(),
     )
 }
 
@@ -783,7 +805,18 @@ pub fn profile_align_imp_with_boundary(
     strict_part_tiebreak: bool,
     boundary: BoundaryFreqs,
 ) -> Alignment {
-    profile_align_imp_multimtx(prof1, prof2, matrix, gap, head_gap, tail_gap, impmtx, strict_part_tiebreak, boundary, None)
+    profile_align_imp_multimtx(
+        prof1,
+        prof2,
+        matrix,
+        gap,
+        head_gap,
+        tail_gap,
+        impmtx,
+        strict_part_tiebreak,
+        boundary,
+        None,
+    )
 }
 
 /// `profile_align_imp_with_boundary` with an optional multi-distance-class
@@ -806,16 +839,21 @@ fn match_calc_row_into(
     output: &mut [f64],
     scarr: &mut [f64],
     multi: Option<&crate::multimtx::MultiMtx>,
-    n: usize, m: usize, nalpha: usize,
+    n: usize,
+    m: usize,
+    nalpha: usize,
     matrix: &[Vec<f64>],
     prof1_freqs: &[Vec<f64>],
-    cpmx2_sparse: &[Vec<(usize, f64)>],
+    cpmx2_sparse_offsets: &[usize],
+    cpmx2_sparse_entries: &[(usize, f64)],
 ) {
     if let Some(mm) = multi {
         // Multi-distance-class match (C partA__align_variousdist). C's
         // calloc'd arrays give zeros for row_pos >= n (tail row).
         if row_pos >= n {
-            for j in 0..m { output[j] = 0.0; }
+            for j in 0..m {
+                output[j] = 0.0;
+            }
         } else {
             // match_row_into reuses caller's buffer (avoids per-row
             // Vec allocation; hot path in --allowshift refinement).
@@ -830,20 +868,35 @@ fn match_calc_row_into(
         }
         return;
     }
+    // Hot profile-score row: caller sizes output to m+1, scarr to nalpha,
+    // prof1_freqs has n rows, matrix is at least nalpha square, and each
+    // sparse k is emitted from 0..nalpha. Keep the C accumulation order.
+    let prof1_row = unsafe { prof1_freqs.get_unchecked(row_pos) };
     for l in 0..nalpha {
         scarr[l] = 0.0;
+        let scarr_l = &mut scarr[l];
         for j in 0..nalpha {
             // C's match_calc does NOT fuse `scarr[l] += a * b` in the
-            // reference build (lib.rs FP-contraction note); two roundings (
-            // multiply-add). Rust's `+=` followed by `*` produces two
-            // rounding steps. Use `mul_add` to match C's bit pattern.
-            scarr[l] = matrix[j][l] * prof1_freqs[row_pos][j] + scarr[l];
+            // reference build (lib.rs FP-contraction note); it performs a
+            // multiply and then an add, with two rounding steps. Keep the
+            // expression explicit rather than using `mul_add`, whose fused
+            // single rounding has caused last-ulp parity drift.
+            *scarr_l = unsafe {
+                *matrix.get_unchecked(j).get_unchecked(l) * *prof1_row.get_unchecked(j) + *scarr_l
+            };
         }
     }
     for j in 0..m {
-        output[j] = 0.0;
-        for &(k, v) in &cpmx2_sparse[j] {
-            output[j] = scarr[k] * v + output[j];
+        unsafe {
+            *output.get_unchecked_mut(j) = 0.0;
+        }
+        let start = unsafe { *cpmx2_sparse_offsets.get_unchecked(j) };
+        let end = unsafe { *cpmx2_sparse_offsets.get_unchecked(j + 1) };
+        for &(k, v) in unsafe { cpmx2_sparse_entries.get_unchecked(start..end) } {
+            unsafe {
+                let out = output.get_unchecked_mut(j);
+                *out = *scarr.get_unchecked(k) * v + *out;
+            }
         }
     }
 }
@@ -885,22 +938,36 @@ fn match_calc_row_into(
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn j_loop<const TW: bool, const STRICT: bool>(
-    m: usize, i: usize,
-    h_row: &mut [f64], ijp_row: &mut [i32],
-    cur_s: &mut [f64], prev_s: &[f64],
-    ogcp2_s: &[f64], fgcp2_s: &[f64],
-    mj_s: &mut [f64], mpj_s: &mut [usize],
+    m: usize,
+    i: usize,
+    h_row: &mut [f64],
+    ijp_row: &mut [i32],
+    cur_s: &mut [f64],
+    prev_s: &[f64],
+    ogcp2_s: &[f64],
+    fgcp2_s: &[f64],
+    mj_s: &mut [f64],
+    mpj_s: &mut [usize],
     prof2_ngf: &[f64],
-    gf1_i: f64, gf1_im1: f64,
-    fgcp1_im1: f64, ogcp1_i: f64,
-    boundary_tail2: f64, f_ext: f64,
-    mi: &mut f64, mpi: &mut usize,
+    gf1_i: f64,
+    gf1_im1: f64,
+    fgcp1_im1: f64,
+    ogcp1_i: f64,
+    boundary_tail2: f64,
+    f_ext: f64,
+    mi: &mut f64,
+    mpi: &mut usize,
     // warp state (only touched when TW == true):
-    fpenalty_shift: f64, warpbase: i32,
-    wmrecords: &mut [f64], prevwmrecords: &[f64],
-    warpi: &mut [i32], warpj: &mut [i32],
-    prevwarpi: &[i32], prevwarpj: &[i32],
-    warpis: &mut Vec<i32>, warpjs: &mut Vec<i32>,
+    fpenalty_shift: f64,
+    warpbase: i32,
+    wmrecords: &mut [f64],
+    prevwmrecords: &[f64],
+    warpi: &mut [i32],
+    warpj: &mut [i32],
+    prevwarpi: &[i32],
+    prevwarpj: &[i32],
+    warpis: &mut Vec<i32>,
+    warpjs: &mut Vec<i32>,
     warpn: &mut usize,
 ) {
     let mut mi_v = *mi;
@@ -912,17 +979,23 @@ fn j_loop<const TW: bool, const STRICT: bool>(
         // (boundary.tail{1,2}) and 1.0 otherwise.
         let gf2_j = if j < m {
             unsafe { *prof2_ngf.get_unchecked(j) }
-        } else { boundary_tail2 };
+        } else {
+            boundary_tail2
+        };
         let gf2_jm1 = unsafe { *prof2_ngf.get_unchecked(j - 1) };
 
         let prevw_jm1 = unsafe { *prev_s.get_unchecked(j - 1) };
         let mut wm = prevw_jm1;
-        unsafe { *ijp_row.get_unchecked_mut(j) = 0; }
+        unsafe {
+            *ijp_row.get_unchecked_mut(j) = 0;
+        }
 
         let g_jskip = unsafe { fgcp2_s.get_unchecked(j - 1) * gf1_i + mi_v };
         if g_jskip > wm {
             wm = g_jskip;
-            unsafe { *ijp_row.get_unchecked_mut(j) = -(j as i32 - mpi_v as i32); }
+            unsafe {
+                *ijp_row.get_unchecked_mut(j) = -(j as i32 - mpi_v as i32);
+            }
         }
 
         let g = unsafe { ogcp2_s.get_unchecked(j) * gf1_im1 + prevw_jm1 };
@@ -939,8 +1012,7 @@ fn j_loop<const TW: bool, const STRICT: bool>(
         if g_iskip > wm {
             wm = g_iskip;
             unsafe {
-                *ijp_row.get_unchecked_mut(j) =
-                    i as i32 - *mpj_s.get_unchecked(j) as i32;
+                *ijp_row.get_unchecked_mut(j) = i as i32 - *mpj_s.get_unchecked(j) as i32;
             }
         }
 
@@ -953,7 +1025,9 @@ fn j_loop<const TW: bool, const STRICT: bool>(
             }
         }
         // C `Salignmm.c:1953`: `m[j] += fpenalty_ex;` — unconditional.
-        unsafe { *mj_s.get_unchecked_mut(j) += f_ext; }
+        unsafe {
+            *mj_s.get_unchecked_mut(j) += f_ext;
+        }
 
         // Warp candidate (`Salignmm.c:1957-2003`). `if TW` is a
         // codegen-time choice; LLVM strips this entire block in the
@@ -963,17 +1037,20 @@ fn j_loop<const TW: bool, const STRICT: bool>(
             let pwj_jm1 = unsafe { *prevwarpj.get_unchecked(j - 1) };
             let pwm_jm1 = unsafe { *prevwmrecords.get_unchecked(j - 1) };
             let fpenalty_tmp = fpenalty_shift
-                + f_ext * ((i as i32 - pwi_jm1) as f64
-                         + (j as i32 - pwj_jm1) as f64);
+                + f_ext * ((i as i32 - pwi_jm1) as f64 + (j as i32 - pwj_jm1) as f64);
             let g = pwm_jm1 + fpenalty_tmp;
             if g > wm {
                 if *warpn > 0
                     && pwi_jm1 == unsafe { *warpis.get_unchecked(*warpn - 1) }
                     && pwj_jm1 == unsafe { *warpjs.get_unchecked(*warpn - 1) }
                 {
-                    unsafe { *ijp_row.get_unchecked_mut(j) = warpbase + (*warpn as i32) - 1; }
+                    unsafe {
+                        *ijp_row.get_unchecked_mut(j) = warpbase + (*warpn as i32) - 1;
+                    }
                 } else {
-                    unsafe { *ijp_row.get_unchecked_mut(j) = warpbase + (*warpn as i32); }
+                    unsafe {
+                        *ijp_row.get_unchecked_mut(j) = warpbase + (*warpn as i32);
+                    }
                     warpis.push(pwi_jm1);
                     warpjs.push(pwj_jm1);
                     *warpn += 1;
@@ -1048,8 +1125,14 @@ pub fn profile_align_imp_multimtx(
         let mut gap_clean = gap.clone();
         gap_clean.legacy_gap_cost = false;
         return profile_align_imp_with_boundary(
-            &p1, &p2, matrix, &gap_clean,
-            head_gap, tail_gap, impmtx, strict_part_tiebreak,
+            &p1,
+            &p2,
+            matrix,
+            &gap_clean,
+            head_gap,
+            tail_gap,
+            impmtx,
+            strict_part_tiebreak,
             BoundaryFreqs::default(),
         );
     }
@@ -1061,13 +1144,30 @@ pub fn profile_align_imp_multimtx(
     // the capacity already fits. Matches the C `A__align` static-TLS
     // amortisation. Put back into the pool at the bottom of the function.
     let DpScratch {
-        mut ogcp1, mut fgcp1, mut ogcp2, mut fgcp2,
-        mut initverticalw, mut currentw, mut previousw, mut lastverticalw,
-        mut mj, mut mpj, mut scarr,
-        mut cpmx1_sparse, mut cpmx2_sparse,
-        mut wmrecords, mut prevwmrecords,
-        mut warpi, mut warpj, mut prevwarpi, mut prevwarpj,
-        mut warpis, mut warpjs,
+        mut ogcp1,
+        mut fgcp1,
+        mut ogcp2,
+        mut fgcp2,
+        mut initverticalw,
+        mut currentw,
+        mut previousw,
+        mut lastverticalw,
+        mut mj,
+        mut mpj,
+        mut scarr,
+        mut bcarr,
+        mut cpmx1_sparse_offsets,
+        mut cpmx1_sparse_entries,
+        mut cpmx2_sparse_offsets,
+        mut cpmx2_sparse_entries,
+        mut wmrecords,
+        mut prevwmrecords,
+        mut warpi,
+        mut warpj,
+        mut prevwarpi,
+        mut prevwarpj,
+        mut warpis,
+        mut warpjs,
     } = DP_SCRATCH.with_borrow_mut(std::mem::take);
 
     // Compute position-specific gap cost profiles matching C's formula:
@@ -1081,17 +1181,29 @@ pub fn profile_align_imp_multimtx(
     // to match this behavior. Pooled — `clear()` releases stale contents
     // but keeps the heap buffer; `push` reuses capacity when sufficient.
     let penalty = gap.open;
-    ogcp1.clear(); ogcp1.reserve(n + 1);
-    for i in 0..n { ogcp1.push(0.5 * (1.0 - prof1.ogcp[i]) * penalty * prof1.nongap_freq[i]); }
+    ogcp1.clear();
+    ogcp1.reserve(n + 1);
+    for i in 0..n {
+        ogcp1.push(0.5 * (1.0 - prof1.ogcp[i]) * penalty * prof1.nongap_freq[i]);
+    }
     ogcp1.push(0.0); // C's calloc padding
-    fgcp1.clear(); fgcp1.reserve(n + 1);
-    for i in 0..n { fgcp1.push(0.5 * (1.0 - prof1.fgcp[i]) * penalty * prof1.nongap_freq[i]); }
+    fgcp1.clear();
+    fgcp1.reserve(n + 1);
+    for i in 0..n {
+        fgcp1.push(0.5 * (1.0 - prof1.fgcp[i]) * penalty * prof1.nongap_freq[i]);
+    }
     fgcp1.push(0.0);
-    ogcp2.clear(); ogcp2.reserve(m + 1);
-    for j in 0..m { ogcp2.push(0.5 * (1.0 - prof2.ogcp[j]) * penalty * prof2.nongap_freq[j]); }
+    ogcp2.clear();
+    ogcp2.reserve(m + 1);
+    for j in 0..m {
+        ogcp2.push(0.5 * (1.0 - prof2.ogcp[j]) * penalty * prof2.nongap_freq[j]);
+    }
     ogcp2.push(0.0);
-    fgcp2.clear(); fgcp2.reserve(m + 1);
-    for j in 0..m { fgcp2.push(0.5 * (1.0 - prof2.fgcp[j]) * penalty * prof2.nongap_freq[j]); }
+    fgcp2.clear();
+    fgcp2.reserve(m + 1);
+    for j in 0..m {
+        fgcp2.push(0.5 * (1.0 - prof2.fgcp[j]) * penalty * prof2.nongap_freq[j]);
+    }
     fgcp2.push(0.0);
 
     // Exact port of C's MSalignmm_tanni (MSalignmm.c lines 770-888).
@@ -1104,27 +1216,39 @@ pub fn profile_align_imp_multimtx(
     let gf2_0 = prof2.nongap_freq.first().copied().unwrap_or(1.0);
     let nalpha = prof1.nalphabets.min(prof2.nalphabets).min(matrix.len());
 
-    // Build sparse representation of prof2 (C's cpmxpd/cpmxpdn, lines 196-212).
-    // For each position j, store only non-zero (alphabet_index, frequency) pairs.
-    // Pooled: shrink/grow the outer Vec to length m; clear each inner Vec
-    // (preserving its capacity) before refilling. For Vec<Vec<...>> this is
-    // a big win — the inner allocations are the expensive ones.
-    if cpmx2_sparse.len() < m {
-        cpmx2_sparse.resize_with(m, Vec::new);
-    } else {
-        cpmx2_sparse.truncate(m);
-    }
-    for j in 0..m {
-        let entries = &mut cpmx2_sparse[j];
-        entries.clear();
-        entries.reserve(nalpha);
+    // Build sparse representations of both profiles (C's cpmxpd/cpmxpdn,
+    // lines 196-212). For each position, store only non-zero
+    // (alphabet_index, frequency) pairs in alphabet order.
+    cpmx1_sparse_offsets.clear();
+    cpmx1_sparse_offsets.resize(n + 1, 0);
+    cpmx1_sparse_entries.clear();
+    for i in 0..n {
+        cpmx1_sparse_offsets[i] = cpmx1_sparse_entries.len();
         for l in 0..nalpha {
-            let v = prof2.freqs[j][l];
+            let v = prof1.freqs[i][l];
             if v != 0.0 {
-                entries.push((l, v));
+                cpmx1_sparse_entries.push((l, v));
             }
         }
     }
+    cpmx1_sparse_offsets[n] = cpmx1_sparse_entries.len();
+
+    // The hot row scorer walks prof2 entries for every DP row, so keeping them
+    // in one flat buffer avoids an outer Vec lookup per column while preserving
+    // each column's alphabet-order accumulation.
+    cpmx2_sparse_offsets.clear();
+    cpmx2_sparse_offsets.resize(m + 1, 0);
+    cpmx2_sparse_entries.clear();
+    for j in 0..m {
+        cpmx2_sparse_offsets[j] = cpmx2_sparse_entries.len();
+        for l in 0..nalpha {
+            let v = prof2.freqs[j][l];
+            if v != 0.0 {
+                cpmx2_sparse_entries.push((l, v));
+            }
+        }
+    }
+    cpmx2_sparse_offsets[m] = cpmx2_sparse_entries.len();
 
     // Ensure scarr has nalpha slots; cleared lazily per-row inside
     // `match_calc_row_into` (each cell is fully overwritten by the
@@ -1146,39 +1270,15 @@ pub fn profile_align_imp_multimtx(
     // unconditionally written by the boundary init below or the DP
     // body before any traceback read). The pool is restored at the
     // end of the function before constructing the return value.
-    let mut h: Vec<Vec<f64>> = DP_H_POOL.with_borrow_mut(std::mem::take);
-    let mut ijp: Vec<Vec<i32>> = DP_IJP_POOL.with_borrow_mut(std::mem::take);
-    ensure_2d(&mut h, n + 1, m + 1, 0.0f64);
-    ensure_2d(&mut ijp, n + 1, m + 1, 0i32);
-
-    // initverticalw (C line 776): match_calc with prof2 pos 0 vs all prof1 positions.
-    // C calls match_calc with swapped profiles: cpmx2pt first, cpmx1pt second.
-    // Pooled (same Vec<Vec<...>> reuse pattern as cpmx2_sparse above).
-    if cpmx1_sparse.len() < n {
-        cpmx1_sparse.resize_with(n, Vec::new);
-    } else {
-        cpmx1_sparse.truncate(n);
-    }
-    for i in 0..n {
-        let entries = &mut cpmx1_sparse[i];
-        entries.clear();
-        entries.reserve(nalpha);
-        for l in 0..nalpha {
-            let v = prof1.freqs[i][l];
-            if v != 0.0 {
-                entries.push((l, v));
-            }
-        }
-    }
+    let h_stride = m + 1;
+    let mut h: Vec<f64> = DP_H_POOL.with_borrow_mut(std::mem::take);
+    let mut ijp: Vec<i32> = DP_IJP_POOL.with_borrow_mut(std::mem::take);
+    h.resize((n + 1) * h_stride, 0.0);
+    ijp.resize((n + 1) * h_stride, 0);
 
     // initverticalw (C line 776): match_calc(cpmx2pt, cpmx1pt, 0, lgth1, initverticalw)
     // C fills initverticalw[0..lgth1-1] (0-based), then adds gap to [1..lgth1].
     // Result: [0] = pure match score (no gap), [1..n-1] = match + gap, [n] = 0 + gap.
-    //
-    // NOTE: uses `mul_add` for the same FMA-rounding reason as
-    // `match_calc_row` above. Without this, --tm 200 / flat-landscape
-    // matrices accumulate 1-ULP boundary differences that flip DP
-    // tie-breaks in the first retree pass (§B.2).
     //
     // Pooled: resize-to-fill (n+1 zeros). Entry [n] is C's calloc padding;
     // entries [0..n] are explicitly overwritten by the if/else below.
@@ -1189,13 +1289,8 @@ pub fn profile_align_imp_multimtx(
         let col = mm.match_col(n);
         initverticalw[..n].copy_from_slice(&col[..n]);
     } else {
-        // Reuse the pooled `scarr_buf` (already sized to nalpha and used
-        // by `match_calc_row`). We're outside the closure's call window so
-        // no aliasing concern. — Actually we can't; the closure captured
-        // it by move. Use a small stack-allocated array via Vec instead.
-        // The boundary init runs once per call so the alloc cost is
-        // negligible vs the inner DP.
-        let mut bcarr: Vec<f64> = vec![0.0f64; nalpha];
+        bcarr.clear();
+        bcarr.resize(nalpha, 0.0);
         for l in 0..nalpha {
             bcarr[l] = 0.0;
             for j in 0..nalpha {
@@ -1204,7 +1299,9 @@ pub fn profile_align_imp_multimtx(
         }
         for i in 0..n {
             initverticalw[i] = 0.0;
-            for &(k, v) in &cpmx1_sparse[i] {
+            let start = cpmx1_sparse_offsets[i];
+            let end = cpmx1_sparse_offsets[i + 1];
+            for &(k, v) in &cpmx1_sparse_entries[start..end] {
                 initverticalw[i] = bcarr[k] * v + initverticalw[i];
             }
         }
@@ -1219,17 +1316,8 @@ pub fn profile_align_imp_multimtx(
         for i in 1..=n {
             // C `Salignmm.c:1793`:
             //   initverticalw[i] += (ogcp1[0]*headgapfreq2 + fgcp1[i-1]*gapfreq2pt[0]);
-            // Apple clang at -O3 with FP_CONTRACT=on lowers this to:
-            //   fmul d3, fgcp1, gapfreq2pt0   ; t1 = fgcp1[i-1] * gf2_0 (plain mul)
-            //   fmadd d0, ogcp1, hgf2, d3     ; t2 = ogcp1[0]*hgf2 + t1 (single FMA)
-            //   fadd d0, initvert, d0         ; initverticalw += t2 (plain add)
-            // The nested-mul_add form `fma(C,D, fma(A,B, init))` differs in
-            // FP rounding from clang's `init + (A*B + C*D)` order — and that
-            // 1-ULP boundary mismatch propagates into refinement DP
-            // tie-breaks when `--exp` is non-zero (which adds a per-row
-            // `fpenalty_ex * i` term that amplifies the drift). Match
-            // clang's order exactly here, identical to the `currentw`
-            // init below.
+            // The reference Linux C build does not fuse this; keep the two products and
+            // subsequent adds explicit so the rounding order stays visible.
             let t1 = fgcp1[i - 1] * gf2_0;
             let t2 = ogcp1[0] * hgf2 + t1;
             initverticalw[i] += t2;
@@ -1248,8 +1336,8 @@ pub fn profile_align_imp_multimtx(
         let row = mm.match_row(0, m);
         currentw[..m].copy_from_slice(&row[..m]);
     } else {
-        // Same pattern as initverticalw above — small boundary-init buffer.
-        let mut bcarr: Vec<f64> = vec![0.0f64; nalpha];
+        bcarr.clear();
+        bcarr.resize(nalpha, 0.0);
         for l in 0..nalpha {
             bcarr[l] = 0.0;
             for j in 0..nalpha {
@@ -1258,7 +1346,9 @@ pub fn profile_align_imp_multimtx(
         }
         for j in 0..m {
             currentw[j] = 0.0;
-            for &(k, v) in &cpmx2_sparse[j] {
+            let start = cpmx2_sparse_offsets[j];
+            let end = cpmx2_sparse_offsets[j + 1];
+            for &(k, v) in &cpmx2_sparse_entries[start..end] {
                 currentw[j] = bcarr[k] * v + currentw[j];
             }
         }
@@ -1275,15 +1365,23 @@ pub fn profile_align_imp_multimtx(
                     let sn: usize = parts[0].parse().ok()?;
                     let sm: usize = parts[1].parse().ok()?;
                     Some(n == sn && m == sm)
-                } else { None }
+                } else {
+                    None
+                }
             })
             .unwrap_or(false);
         if shape_ok {
             use std::io::Write;
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
                 let lim = m.min(5);
                 let _ = write!(fp, "R_INITROW_PREIMP");
-                for k in 0..lim { let _ = write!(fp, " {:.17e}", currentw[k]); }
+                for k in 0..lim {
+                    let _ = write!(fp, " {:.17e}", currentw[k]);
+                }
                 let _ = writeln!(fp);
             }
         }
@@ -1298,10 +1396,8 @@ pub fn profile_align_imp_multimtx(
         for j in 1..=m {
             // C `Salignmm.c:1747`:
             //   currentw[j] += (ogcp2[0]*headgapfreq1 + fgcp2[j-1]*gapfreq1pt[0]);
-            // Apple clang at -O3 with FP_CONTRACT=on lowers this to:
-            //   fmul d3, fgcp2, gapfreq1pt0   ; t1 = fgcp2[j-1] * gapfreq1pt[0] (plain mul)
-            //   fmadd d0, ogcp2, hgf1, d3     ; t2 = ogcp2[0]*hgf1 + t1 (single FMA)
-            //   fadd d0, currentw, d0         ; currentw += t2 (plain add)
+            // The reference Linux C build does not fuse this; keep the two products and
+            // subsequent adds explicit so the rounding order stays visible.
             let t1 = fgcp2[j - 1] * gf1_0;
             let t2 = ogcp2[0] * hgf1 + t1;
             currentw[j] += t2;
@@ -1310,8 +1406,12 @@ pub fn profile_align_imp_multimtx(
         }
     }
 
-    for j in 0..=m { h[0][j] = currentw[j]; }
-    for i in 0..=n { h[i][0] = initverticalw[i]; }
+    for j in 0..=m {
+        h[j] = currentw[j];
+    }
+    for i in 0..=n {
+        h[i * h_stride] = initverticalw[i];
+    }
 
     // Pooled. The DP body reads mj[j] / mpj[j] only for j in 1..=m, so
     // mj[0]/mpj[0] never matter. mj[1..=m] is initialised by the loop
@@ -1322,10 +1422,9 @@ pub fn profile_align_imp_multimtx(
     mpj.resize(m + 1, 0);
     for j in 1..=m {
         let gf2_jm1 = prof2.nongap_freq.get(j - 1).copied().unwrap_or(0.0);
-        // FMA: same rationale as the inner DP gap-candidate computations
-        // above (see line 655). Without FMA the column tracker `mj[j]`
-        // starts 1-ULP off C's value for flat-landscape matrices (TM
-        // PAM 200), and that drift propagates into tie-break decisions.
+        // Keep the same explicit multiply/add shape as the inner DP
+        // gap-candidate computations. Reassociation changes rounding and can
+        // propagate into tie-break decisions on flat score landscapes.
         mj[j] = ogcp1[1] * gf2_jm1 + (currentw[j - 1]);
         mpj[j] = 0;
     }
@@ -1335,7 +1434,6 @@ pub fn profile_align_imp_multimtx(
     // pinned. Gated on RS_H_DUMP + RS_H_DUMP_SHAPE. Mirrors the C-side
     // dumps so each value can be diffed directly by prefix.
     if let Ok(path) = std::env::var("RS_H_DUMP") {
-        use std::io::Write;
         let shape_ok = std::env::var("RS_H_DUMP_SHAPE")
             .ok()
             .and_then(|s| {
@@ -1344,21 +1442,28 @@ pub fn profile_align_imp_multimtx(
                     let sn: usize = parts[0].parse().ok()?;
                     let sm: usize = parts[1].parse().ok()?;
                     Some(n == sn && m == sm)
-                } else { None }
+                } else {
+                    None
+                }
             })
             .unwrap_or(false);
         if shape_ok {
+            use std::io::Write;
             if let Ok(mut fp) = std::fs::OpenOptions::new()
-                .create(true).append(true).open(&path)
+                .create(true)
+                .append(true)
+                .open(&path)
             {
-                fn dump_vec(fp: &mut std::fs::File, label: &str, v: &[f64]) {
+                let dump_vec = |fp: &mut std::fs::File, label: &str, v: &[f64]| {
                     let _ = write!(fp, "{}", label);
-                    for x in v { let _ = write!(fp, " {:.17e}", x); }
+                    for x in v {
+                        let _ = write!(fp, " {:.17e}", x);
+                    }
                     let _ = writeln!(fp);
-                }
-                fn dump_scalar(fp: &mut std::fs::File, label: &str, x: f64) {
+                };
+                let dump_scalar = |fp: &mut std::fs::File, label: &str, x: f64| {
                     let _ = writeln!(fp, "{} {:.17e}", label, x);
-                }
+                };
                 dump_vec(&mut fp, "R_INITROW", &currentw[..m]);
                 dump_vec(&mut fp, "R_INITVERT", &initverticalw[..n]);
                 dump_vec(&mut fp, "R_OGCP1", &ogcp1[..n]);
@@ -1373,9 +1478,6 @@ pub fn profile_align_imp_multimtx(
                 dump_scalar(&mut fp, "R_HGF1", hgf1);
                 dump_scalar(&mut fp, "R_HGF2", hgf2);
                 dump_vec(&mut fp, "R_MJ_INIT", &mj[1..=m]);
-                // impmtx is added to currentw inside the if-let above (line
-                // ~963). Dump impmtx[0][0..5] and impmtx[i][0] for a few i
-                // to compare against C's imp_match_out_vead behaviour.
                 if let Some(imp) = impmtx {
                     if !imp.is_empty() {
                         let row0 = &imp[0];
@@ -1384,13 +1486,11 @@ pub fn profile_align_imp_multimtx(
                     }
                     let nrows = imp.len().min(5);
                     let mut col0: Vec<f64> = Vec::with_capacity(nrows);
-                    for i in 0..nrows {
-                        col0.push(imp[i].first().copied().unwrap_or(0.0));
+                    for row in imp.iter().take(nrows) {
+                        col0.push(row.first().copied().unwrap_or(0.0));
                     }
                     dump_vec(&mut fp, "R_IMP_COL0_HEAD", &col0);
                 }
-                // Verify the cpmx col-0 weight at residue 12 (M) is exactly 1.0
-                // for our 1-seq cluster; if not, weight scaling is the source.
                 if !prof1.freqs.is_empty() && prof1.freqs[0].len() > 12 {
                     dump_scalar(&mut fp, "R_PROF1_F0_M", prof1.freqs[0][12]);
                 }
@@ -1401,8 +1501,12 @@ pub fn profile_align_imp_multimtx(
         }
     }
 
-    for i in 0..=n { ijp[i][0] = i as i32 + 1; }
-    for j in 0..=m { ijp[0][j] = -(j as i32 + 1); }
+    for i in 0..=n {
+        ijp[i * h_stride] = i as i32 + 1;
+    }
+    for j in 0..=m {
+        ijp[j] = -(j as i32 + 1);
+    }
 
     // Pooled. previousw is fully overwritten by the i-loop swap (mem::swap
     // with currentw), then index 0 is set from initverticalw[i-1]; the rest
@@ -1481,8 +1585,17 @@ pub fn profile_align_imp_multimtx(
         // Batch match_calc for row i (C line 816: ist+i)
         // Fills currentw[0..m-1]. Position m doesn't exist in prof2.
         match_calc_row_into(
-            i, &mut currentw, &mut scarr[..nalpha],
-            multi, n, m, nalpha, matrix, &prof1.freqs, &cpmx2_sparse,
+            i,
+            &mut currentw,
+            &mut scarr[..nalpha],
+            multi,
+            n,
+            m,
+            nalpha,
+            matrix,
+            &prof1.freqs,
+            &cpmx2_sparse_offsets,
+            &cpmx2_sparse_entries,
         );
         // C: imp_match_out_vead(currentw, i, lgth2) — add impmtx[i][:] (Salignmm.c:1848).
         if let Some(imp) = impmtx {
@@ -1502,7 +1615,11 @@ pub fn profile_align_imp_multimtx(
         // branch per cell. For long profiles (~hundreds of residues) this
         // is a measurable win. (fgcp1_im1 / ogcp1_i were previously read
         // inside the j-loop and re-loaded every iteration.)
-        let gf1_i = if i < n { prof1.nongap_freq[i] } else { boundary.tail1 };
+        let gf1_i = if i < n {
+            prof1.nongap_freq[i]
+        } else {
+            boundary.tail1
+        };
         let fgcp1_im1 = fgcp1[i - 1];
         let ogcp1_i = ogcp1[i];
         // Bind h[i] / ijp[i] to local mutable slices: hoists the outer-Vec
@@ -1513,8 +1630,9 @@ pub fn profile_align_imp_multimtx(
         // to once per row instead of M times per row.
         // SAFETY: i < lasti <= n+1 and h/ijp are sized (n+1) x (m+1).
         // CONFIRMED MICRO-WIN ~ a few % on long FFT-NS-i inputs.
-        let h_row: &mut [f64] = &mut h[i];
-        let ijp_row: &mut [i32] = &mut ijp[i];
+        let row_start = i * h_stride;
+        let h_row: &mut [f64] = &mut h[row_start..row_start + h_stride];
+        let ijp_row: &mut [i32] = &mut ijp[row_start..row_start + h_stride];
         // Bind shared cold slices to locals so the inner loop sees them
         // as `&[T]` of statically-known length-bound rather than re-deriving
         // a slice pointer per access. This is purely about giving LLVM
@@ -1534,9 +1652,7 @@ pub fn profile_align_imp_multimtx(
         // matching this behavior is required for bit-identity to C's
         // A__align inner DP, which surfaces as tie-break divergences for
         // matrices with flatter score landscapes (e.g. BL50).
-        let mut mi = unsafe {
-            ogcp2_s.get_unchecked(1) * gf1_im1 + (*prev_s.get_unchecked(0))
-        };
+        let mut mi = unsafe { ogcp2_s.get_unchecked(1) * gf1_im1 + (*prev_s.get_unchecked(0)) };
         let mut mpi: usize = 0;
 
         // Dispatch the j-loop body to a const-generic specialisation.
@@ -1547,52 +1663,132 @@ pub fn profile_align_imp_multimtx(
         // amortised over `m` inner cells.
         match (try_warp, strict_part_tiebreak) {
             (false, false) => j_loop::<false, false>(
-                m, i, h_row, ijp_row, cur_s, prev_s,
-                ogcp2_s, fgcp2_s, mj_s, mpj_s, prof2_ngf,
-                gf1_i, gf1_im1, fgcp1_im1, ogcp1_i,
-                boundary.tail2, f_ext,
-                &mut mi, &mut mpi,
-                fpenalty_shift, warpbase,
-                &mut wmrecords, &prevwmrecords,
-                &mut warpi, &mut warpj,
-                &prevwarpi, &prevwarpj,
-                &mut warpis, &mut warpjs, &mut warpn,
+                m,
+                i,
+                h_row,
+                ijp_row,
+                cur_s,
+                prev_s,
+                ogcp2_s,
+                fgcp2_s,
+                mj_s,
+                mpj_s,
+                prof2_ngf,
+                gf1_i,
+                gf1_im1,
+                fgcp1_im1,
+                ogcp1_i,
+                boundary.tail2,
+                f_ext,
+                &mut mi,
+                &mut mpi,
+                fpenalty_shift,
+                warpbase,
+                &mut wmrecords,
+                &prevwmrecords,
+                &mut warpi,
+                &mut warpj,
+                &prevwarpi,
+                &prevwarpj,
+                &mut warpis,
+                &mut warpjs,
+                &mut warpn,
             ),
             (false, true) => j_loop::<false, true>(
-                m, i, h_row, ijp_row, cur_s, prev_s,
-                ogcp2_s, fgcp2_s, mj_s, mpj_s, prof2_ngf,
-                gf1_i, gf1_im1, fgcp1_im1, ogcp1_i,
-                boundary.tail2, f_ext,
-                &mut mi, &mut mpi,
-                fpenalty_shift, warpbase,
-                &mut wmrecords, &prevwmrecords,
-                &mut warpi, &mut warpj,
-                &prevwarpi, &prevwarpj,
-                &mut warpis, &mut warpjs, &mut warpn,
+                m,
+                i,
+                h_row,
+                ijp_row,
+                cur_s,
+                prev_s,
+                ogcp2_s,
+                fgcp2_s,
+                mj_s,
+                mpj_s,
+                prof2_ngf,
+                gf1_i,
+                gf1_im1,
+                fgcp1_im1,
+                ogcp1_i,
+                boundary.tail2,
+                f_ext,
+                &mut mi,
+                &mut mpi,
+                fpenalty_shift,
+                warpbase,
+                &mut wmrecords,
+                &prevwmrecords,
+                &mut warpi,
+                &mut warpj,
+                &prevwarpi,
+                &prevwarpj,
+                &mut warpis,
+                &mut warpjs,
+                &mut warpn,
             ),
             (true, false) => j_loop::<true, false>(
-                m, i, h_row, ijp_row, cur_s, prev_s,
-                ogcp2_s, fgcp2_s, mj_s, mpj_s, prof2_ngf,
-                gf1_i, gf1_im1, fgcp1_im1, ogcp1_i,
-                boundary.tail2, f_ext,
-                &mut mi, &mut mpi,
-                fpenalty_shift, warpbase,
-                &mut wmrecords, &prevwmrecords,
-                &mut warpi, &mut warpj,
-                &prevwarpi, &prevwarpj,
-                &mut warpis, &mut warpjs, &mut warpn,
+                m,
+                i,
+                h_row,
+                ijp_row,
+                cur_s,
+                prev_s,
+                ogcp2_s,
+                fgcp2_s,
+                mj_s,
+                mpj_s,
+                prof2_ngf,
+                gf1_i,
+                gf1_im1,
+                fgcp1_im1,
+                ogcp1_i,
+                boundary.tail2,
+                f_ext,
+                &mut mi,
+                &mut mpi,
+                fpenalty_shift,
+                warpbase,
+                &mut wmrecords,
+                &prevwmrecords,
+                &mut warpi,
+                &mut warpj,
+                &prevwarpi,
+                &prevwarpj,
+                &mut warpis,
+                &mut warpjs,
+                &mut warpn,
             ),
             (true, true) => j_loop::<true, true>(
-                m, i, h_row, ijp_row, cur_s, prev_s,
-                ogcp2_s, fgcp2_s, mj_s, mpj_s, prof2_ngf,
-                gf1_i, gf1_im1, fgcp1_im1, ogcp1_i,
-                boundary.tail2, f_ext,
-                &mut mi, &mut mpi,
-                fpenalty_shift, warpbase,
-                &mut wmrecords, &prevwmrecords,
-                &mut warpi, &mut warpj,
-                &prevwarpi, &prevwarpj,
-                &mut warpis, &mut warpjs, &mut warpn,
+                m,
+                i,
+                h_row,
+                ijp_row,
+                cur_s,
+                prev_s,
+                ogcp2_s,
+                fgcp2_s,
+                mj_s,
+                mpj_s,
+                prof2_ngf,
+                gf1_i,
+                gf1_im1,
+                fgcp1_im1,
+                ogcp1_i,
+                boundary.tail2,
+                f_ext,
+                &mut mi,
+                &mut mpi,
+                fpenalty_shift,
+                warpbase,
+                &mut wmrecords,
+                &prevwmrecords,
+                &mut warpi,
+                &mut warpj,
+                &prevwarpi,
+                &prevwarpj,
+                &mut warpis,
+                &mut warpjs,
+                &mut warpn,
             ),
         }
         lastverticalw[i] = currentw[m - 1];
@@ -1617,28 +1813,42 @@ pub fn profile_align_imp_multimtx(
                     let sn: usize = parts[0].parse().ok()?;
                     let sm: usize = parts[1].parse().ok()?;
                     Some(n == sn && m == sm)
-                } else { None }
+                } else {
+                    None
+                }
             })
             .unwrap_or(false);
         if shape_ok {
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
                 // Dump prof1.freqs[0] and prof2.freqs[0] for input diffing.
                 let nalpha = prof1.nalphabets.min(prof2.nalphabets).min(matrix.len());
                 let _ = write!(fp, "R_PROF1_F0");
-                for k in 0..nalpha { let _ = write!(fp, " {:.17e}", prof1.freqs[0][k]); }
+                for k in 0..nalpha {
+                    let _ = write!(fp, " {:.17e}", prof1.freqs[0][k]);
+                }
                 let _ = writeln!(fp);
                 let _ = write!(fp, "R_PROF2_F0");
-                for k in 0..nalpha { let _ = write!(fp, " {:.17e}", prof2.freqs[0][k]); }
+                for k in 0..nalpha {
+                    let _ = write!(fp, " {:.17e}", prof2.freqs[0][k]);
+                }
                 let _ = writeln!(fp);
                 let _ = write!(fp, "R_MATRIX_R0");
-                for k in 0..nalpha { let _ = write!(fp, " {:.17e}", matrix[0][k]); }
+                for k in 0..nalpha {
+                    let _ = write!(fp, " {:.17e}", matrix[0][k]);
+                }
                 let _ = writeln!(fp);
                 // Row 12 = M (col-0 residue of both BB12003 seq3/seq4):
                 // if MATRIX_R0 matches but R12 differs, makedynamicmtx is
                 // applying a non-uniform shift; if R12 also matches, the
                 // divergence is in the match_calc summation order.
                 let _ = write!(fp, "R_MATRIX_R12");
-                for k in 0..nalpha { let _ = write!(fp, " {:.17e}", matrix[12][k]); }
+                for k in 0..nalpha {
+                    let _ = write!(fp, " {:.17e}", matrix[12][k]);
+                }
                 let _ = writeln!(fp);
                 // EFF cannot be dumped here — profile_align_imp_with_boundary
                 // doesn't see the weights vector. They're captured upstream
@@ -1646,7 +1856,7 @@ pub fn profile_align_imp_multimtx(
                 for ii in 1..=n {
                     let _ = write!(fp, "R_H i={}", ii);
                     for jj in 0..m {
-                        let _ = write!(fp, " {:.17e}", h[ii][jj]);
+                        let _ = write!(fp, " {:.17e}", h[ii * h_stride + jj]);
                     }
                     let _ = writeln!(fp);
                 }
@@ -1674,46 +1884,48 @@ pub fn profile_align_imp_multimtx(
     // TERMGAPFAC and TERMGAPFAC_EX are both 0.0 (Salignmm.c:12-13), so the
     // additive correction terms drop out.
     if !tail_gap {
-        let last_row_corner = h[n - 1][m - 1];
+        let last_row_start = (n - 1) * h_stride;
+        let last_row_corner = h[last_row_start + m - 1];
         if impmtx.is_some() {
             // Atracking_localhom port: forward scan, `>=`, includes corner.
             let mut wm = lastverticalw[0];
             for i in 0..n {
                 if lastverticalw[i] >= wm {
                     wm = lastverticalw[i];
-                    ijp[n][m] = (n - i) as i32;
+                    ijp[n * h_stride + m] = (n - i) as i32;
                 }
             }
             for j in 0..m {
-                if h[n - 1][j] >= wm {
-                    wm = h[n - 1][j];
-                    ijp[n][m] = -((m - j) as i32);
+                let h_last_j = h[last_row_start + j];
+                if h_last_j >= wm {
+                    wm = h_last_j;
+                    ijp[n * h_stride + m] = -((m - j) as i32);
                 }
             }
-            h[n][m] = wm;
+            h[n * h_stride + m] = wm;
         } else {
             // Atracking port: reverse scan, strict `>`, excludes corner,
             // then corner fallback.
             let mut wm = last_row_corner - 1.0;
             for j in (0..m - 1).rev() {
-                let g = h[n - 1][j];
+                let g = h[last_row_start + j];
                 if g > wm {
                     wm = g;
-                    ijp[n][m] = -((m - j) as i32);
+                    ijp[n * h_stride + m] = -((m - j) as i32);
                 }
             }
             for i in (0..n - 1).rev() {
                 let g = lastverticalw[i];
                 if g > wm {
                     wm = g;
-                    ijp[n][m] = (n - i) as i32;
+                    ijp[n * h_stride + m] = (n - i) as i32;
                 }
             }
             if last_row_corner > wm {
                 wm = last_row_corner;
-                ijp[n][m] = 0;
+                ijp[n * h_stride + m] = 0;
             }
-            h[n][m] = wm;
+            h[n * h_stride + m] = wm;
         }
     }
 
@@ -1726,7 +1938,7 @@ pub fn profile_align_imp_multimtx(
     let mut k = 0;
     while k <= klim {
         let (ifi, jfi): (i32, i32);
-        let v = ijp[iin as usize][jin as usize];
+        let v = ijp[iin as usize * h_stride + jin as usize];
         if v >= warpbase {
             // Warp transition (`Salignmm.c:479-482`). Jump to anchor
             // (warpis[idx], warpjs[idx]).
@@ -1784,7 +1996,9 @@ pub fn profile_align_imp_multimtx(
             l -= 1;
         }
 
-        if iin <= 0 || jin <= 0 { break; }
+        if iin <= 0 || jin <= 0 {
+            break;
+        }
         // Emit diagonal match
         gaptable1.push(b'o');
         gaptable2.push(b'o');
@@ -1801,23 +2015,34 @@ pub fn profile_align_imp_multimtx(
     for k in 0..gaptable1.len() {
         match (gaptable1[k], gaptable2[k]) {
             (b'o', b'o') => ops.push(AlignOp::Match),
-            (b'o', b'-') => ops.push(AlignOp::Delete),  // gap in prof2
-            (b'-', b'o') => ops.push(AlignOp::Insert),  // gap in prof1
+            (b'o', b'-') => ops.push(AlignOp::Delete), // gap in prof2
+            (b'-', b'o') => ops.push(AlignOp::Insert), // gap in prof1
             _ => {}
         }
     }
 
-    let best_score = h[n][m];
+    let best_score = h[n * h_stride + m];
 
     if let Ok(f) = std::env::var("RS_DP_CORNER") {
         use std::io::Write;
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALL_NO: AtomicUsize = AtomicUsize::new(0);
         let cn = CALL_NO.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-            let corner = h[n - 1][m - 1];
-            let _ = writeln!(fp, "call={} constraint={} wm={:.18e} h[n-1][m-1]={:.18e} h[n][m]={:.18e}",
-                cn, if impmtx.is_some() {1} else {0}, best_score, corner, h[n][m]);
+        if let Ok(mut fp) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&f)
+        {
+            let corner = h[(n - 1) * h_stride + m - 1];
+            let _ = writeln!(
+                fp,
+                "call={} constraint={} wm={:.18e} h[n-1][m-1]={:.18e} h[n][m]={:.18e}",
+                cn,
+                if impmtx.is_some() { 1 } else { 0 },
+                best_score,
+                corner,
+                h[n * h_stride + m]
+            );
         }
     }
     if let Ok(prefix) = std::env::var("RS_IJP_DUMP_PREFIX") {
@@ -1826,14 +2051,32 @@ pub fn profile_align_imp_multimtx(
         static CALL_NO2: AtomicUsize = AtomicUsize::new(0);
         let cn = CALL_NO2.fetch_add(1, Ordering::SeqCst);
         let target_call: usize = std::env::var("RS_IJP_DUMP_CALL")
-            .ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         if cn == target_call {
             let fname = format!("{}_call_{}.txt", prefix, cn);
             if let Ok(mut fp) = std::fs::File::create(&fname) {
-                let _ = writeln!(fp, "n={} m={} corner_h={:.18e} best={:.18e}", n, m, h[n-1][m-1], best_score);
+                let _ = writeln!(
+                    fp,
+                    "n={} m={} corner_h={:.18e} best={:.18e}",
+                    n,
+                    m,
+                    h[(n - 1) * h_stride + m - 1],
+                    best_score
+                );
                 for i in 0..=n {
                     for j in 0..=m {
-                        let _ = writeln!(fp, "ijp[{}][{}]={} h[{}][{}]={:.18e}", i, j, ijp[i][j], i, j, h[i][j]);
+                        let _ = writeln!(
+                            fp,
+                            "ijp[{}][{}]={} h[{}][{}]={:.18e}",
+                            i,
+                            j,
+                            ijp[i * h_stride + j],
+                            i,
+                            j,
+                            h[i * h_stride + j]
+                        );
                     }
                 }
             }
@@ -1853,21 +2096,34 @@ pub fn profile_align_imp_multimtx(
     // Return the scratch Vecs to the thread-local pool too. Each one
     // keeps its current capacity, so the next call on this thread
     // benefits from amortised allocation when input sizes are
-    // comparable. The `match_calc_row` closure consumed `scarr` and
-    // `cpmx2_sparse` by move (it had to so the closure could carry the
-    // mutable scarr borrow); recover them by dropping the closure and
-    // putting the moved values back via the helpers' returns. Actually
-    // simpler: we already destructured the pool at function entry, so
+    // comparable. We already destructured the pool at function entry, so
     // here we only need to put each named local back.
     DP_SCRATCH.with_borrow_mut(|s| {
         *s = DpScratch {
-            ogcp1, fgcp1, ogcp2, fgcp2,
-            initverticalw, currentw, previousw, lastverticalw,
-            mj, mpj, scarr,
-            cpmx1_sparse, cpmx2_sparse,
-            wmrecords, prevwmrecords,
-            warpi, warpj, prevwarpi, prevwarpj,
-            warpis, warpjs,
+            ogcp1,
+            fgcp1,
+            ogcp2,
+            fgcp2,
+            initverticalw,
+            currentw,
+            previousw,
+            lastverticalw,
+            mj,
+            mpj,
+            scarr,
+            bcarr,
+            cpmx1_sparse_offsets,
+            cpmx1_sparse_entries,
+            cpmx2_sparse_offsets,
+            cpmx2_sparse_entries,
+            wmrecords,
+            prevwmrecords,
+            warpi,
+            warpj,
+            prevwarpi,
+            prevwarpj,
+            warpis,
+            warpjs,
         };
     });
 
@@ -1922,7 +2178,12 @@ pub fn pairwise_align11_ex(
     let n = seq1.len();
     let m = seq2.len();
     if n == 0 || m == 0 {
-        return Alignment { seq1: Vec::new(), seq2: Vec::new(), score: 0.0, operations: Vec::new() };
+        return Alignment {
+            seq1: Vec::new(),
+            seq2: Vec::new(),
+            score: 0.0,
+            operations: Vec::new(),
+        };
     }
 
     let nalpha = matrix.len();
@@ -1932,7 +2193,11 @@ pub fn pairwise_align11_ex(
     let score_pair = |c1: u8, c2: u8| -> f64 {
         let i = amino_map[c1 as usize] as usize;
         let j = amino_map[c2 as usize] as usize;
-        if i < nalpha && j < nalpha { matrix[i][j] } else { 0.0 }
+        if i < nalpha && j < nalpha {
+            matrix[i][j]
+        } else {
+            0.0
+        }
     };
 
     // initverticalw: match_calc_mtx(seq2, seq1, 0, lgth1)
@@ -1963,8 +2228,12 @@ pub fn pairwise_align11_ex(
     let mut h = vec![vec![0.0f64; m + 1]; n + 1];
     let mut ijp = vec![vec![0i32; m + 1]; n + 1];
 
-    for j in 0..=m { h[0][j] = currentw[j]; }
-    for i in 0..=n { h[i][0] = initverticalw[i]; }
+    for j in 0..=m {
+        h[0][j] = currentw[j];
+    }
+    for i in 0..=n {
+        h[i][0] = initverticalw[i];
+    }
 
     // m[j] = currentw[j-1], NO ogcp multiplication (C line 1218)
     let mut mj = vec![f64::NEG_INFINITY; m + 1];
@@ -1974,12 +2243,18 @@ pub fn pairwise_align11_ex(
         mpj[j] = 0;
     }
 
-    for i in 0..=n { ijp[i][0] = i as i32 + 1; }
-    for j in 0..=m { ijp[0][j] = -(j as i32 + 1); }
+    for i in 0..=n {
+        ijp[i][0] = i as i32 + 1;
+    }
+    for j in 0..=m {
+        ijp[0][j] = -(j as i32 + 1);
+    }
 
     let mut previousw = vec![0.0f64; m + 1];
     let mut lastverticalw = vec![0.0f64; n + 1];
-    if m > 0 { lastverticalw[0] = currentw[m - 1]; }
+    if m > 0 {
+        lastverticalw[0] = currentw[m - 1];
+    }
 
     let lasti = if tail_gap { n + 1 } else { n };
     for i in 1..lasti {
@@ -2052,7 +2327,9 @@ pub fn pairwise_align11_ex(
             currentw[j] += wm;
             h[i][j] = currentw[j];
         }
-        if m > 0 { lastverticalw[i] = currentw[m - 1]; }
+        if m > 0 {
+            lastverticalw[i] = currentw[m - 1];
+        }
     }
 
     // Tail gap handling
@@ -2090,12 +2367,27 @@ pub fn pairwise_align11_ex(
             (iin - 1, jin - 1)
         };
         let mut l = iin - ifi;
-        while l > 1 { gaptable1.push(b'o'); gaptable2.push(b'-'); k += 1; l -= 1; }
+        while l > 1 {
+            gaptable1.push(b'o');
+            gaptable2.push(b'-');
+            k += 1;
+            l -= 1;
+        }
         let mut l = jin - jfi;
-        while l > 1 { gaptable1.push(b'-'); gaptable2.push(b'o'); k += 1; l -= 1; }
-        if iin <= 0 || jin <= 0 { break; }
-        gaptable1.push(b'o'); gaptable2.push(b'o'); k += 1;
-        iin = ifi; jin = jfi;
+        while l > 1 {
+            gaptable1.push(b'-');
+            gaptable2.push(b'o');
+            k += 1;
+            l -= 1;
+        }
+        if iin <= 0 || jin <= 0 {
+            break;
+        }
+        gaptable1.push(b'o');
+        gaptable2.push(b'o');
+        k += 1;
+        iin = ifi;
+        jin = jfi;
     }
 
     gaptable1.reverse();
@@ -2110,7 +2402,12 @@ pub fn pairwise_align11_ex(
         }
     }
 
-    Alignment { seq1: Vec::new(), seq2: Vec::new(), score: h[n][m], operations: ops }
+    Alignment {
+        seq1: Vec::new(),
+        seq2: Vec::new(),
+        score: h[n][m],
+        operations: ops,
+    }
 }
 
 #[cfg(test)]
@@ -2119,7 +2416,9 @@ mod tests {
 
     fn simple_setup() -> (Vec<Vec<f64>>, [u8; 256]) {
         let mut mtx = vec![vec![-100.0f64; 5]; 5];
-        for i in 0..4 { mtx[i][i] = 100.0; }
+        for i in 0..4 {
+            mtx[i][i] = 100.0;
+        }
         let mut map = [0xFFu8; 256];
         map[b'A' as usize] = 0;
         map[b'C' as usize] = 1;
@@ -2206,7 +2505,10 @@ mod tests {
         let w2 = vec![0.5, 0.5];
         // First call: cluster of 2 sequences.
         let _p2 = Profile::from_aligned_with_memo(
-            &two_seqs, &w2, &map, 5, 0 /*firstmem*/, 2 /*icyc*/, 4 /*lgth*/);
+            &two_seqs, &w2, &map, 5, 0, /*firstmem*/
+            2, /*icyc*/
+            4, /*lgth*/
+        );
         // Second call: cluster of 3 sequences (extends with one more).
         // C's effective normalized weights are 1/3 each. In incremental
         // form (per cpmx_calc_add): new cpmx = old * (1 - 1/3) + 1/3 * delta_new.
@@ -2215,8 +2517,7 @@ mod tests {
         // re-normalizes weights to sum to 1.0 within the new cluster.
         let three_seqs: Vec<&[u8]> = vec![b"ACGT", b"AC-T", b"AGGT"];
         let w3 = vec![1.0 / 3.0; 3];
-        let p3_incr = Profile::from_aligned_with_memo(
-            &three_seqs, &w3, &map, 5, 0, 3, 4);
+        let p3_incr = Profile::from_aligned_with_memo(&three_seqs, &w3, &map, 5, 0, 3, 4);
         // Compare to from-scratch on the 3-way cluster.
         let p3_scratch = Profile::from_aligned(&three_seqs, &w3, &map, 5);
         // Note: incremental path uses the old cpmx (built from 2 seqs
@@ -2234,7 +2535,10 @@ mod tests {
         }
         // Allow up to a few ULP — the incremental path has different
         // FP rounding than from-scratch.
-        assert!(max_diff < 1e-14,
-            "incremental vs from-scratch diverge by {:.3e}", max_diff);
+        assert!(
+            max_diff < 1e-14,
+            "incremental vs from-scratch diverge by {:.3e}",
+            max_diff
+        );
     }
 }

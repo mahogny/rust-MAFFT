@@ -11,8 +11,7 @@ use std::os::raw::{c_double, c_int};
 use std::path::PathBuf;
 
 fn bb20027_fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/bali3.BB20027.fa")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bali3.BB20027.fa")
 }
 
 use mafft_tree::{Topology, sequence_weights};
@@ -26,34 +25,47 @@ unsafe fn c_counteff(topo: &Topology) -> Vec<f64> {
     let nseq = topo.nseq as c_int;
     let nsteps = topo.steps.len();
 
-    let topol: *mut *mut *mut c_int = unsafe { alloc_zero(
-        nsteps * std::mem::size_of::<*mut *mut c_int>()) } as _;
+    let topol: *mut *mut *mut c_int =
+        unsafe { alloc_zero(nsteps * std::mem::size_of::<*mut *mut c_int>()) } as _;
     for k in 0..nsteps {
-        let row: *mut *mut c_int = unsafe { alloc_zero(
-            2 * std::mem::size_of::<*mut c_int>()) } as _;
+        let row: *mut *mut c_int =
+            unsafe { alloc_zero(2 * std::mem::size_of::<*mut c_int>()) } as _;
         let left = &topo.steps[k].left;
-        let left_arr: *mut c_int = unsafe { alloc_zero(
-            (left.len() + 1) * std::mem::size_of::<c_int>()) } as _;
+        let left_arr: *mut c_int =
+            unsafe { alloc_zero((left.len() + 1) * std::mem::size_of::<c_int>()) } as _;
         for (i, &s) in left.iter().enumerate() {
-            unsafe { *left_arr.add(i) = s as c_int; }
+            unsafe {
+                *left_arr.add(i) = s as c_int;
+            }
         }
-        unsafe { *left_arr.add(left.len()) = -1; }
-        unsafe { *row.add(0) = left_arr; }
+        unsafe {
+            *left_arr.add(left.len()) = -1;
+        }
+        unsafe {
+            *row.add(0) = left_arr;
+        }
         let right = &topo.steps[k].right;
-        let right_arr: *mut c_int = unsafe { alloc_zero(
-            (right.len() + 1) * std::mem::size_of::<c_int>()) } as _;
+        let right_arr: *mut c_int =
+            unsafe { alloc_zero((right.len() + 1) * std::mem::size_of::<c_int>()) } as _;
         for (i, &s) in right.iter().enumerate() {
-            unsafe { *right_arr.add(i) = s as c_int; }
+            unsafe {
+                *right_arr.add(i) = s as c_int;
+            }
         }
-        unsafe { *right_arr.add(right.len()) = -1; }
-        unsafe { *row.add(1) = right_arr; }
-        unsafe { *topol.add(k) = row; }
+        unsafe {
+            *right_arr.add(right.len()) = -1;
+        }
+        unsafe {
+            *row.add(1) = right_arr;
+        }
+        unsafe {
+            *topol.add(k) = row;
+        }
     }
-    let len: *mut *mut c_double = unsafe { alloc_zero(
-        nsteps * std::mem::size_of::<*mut c_double>()) } as _;
+    let len: *mut *mut c_double =
+        unsafe { alloc_zero(nsteps * std::mem::size_of::<*mut c_double>()) } as _;
     for k in 0..nsteps {
-        let row: *mut c_double = unsafe { alloc_zero(
-            2 * std::mem::size_of::<c_double>()) } as _;
+        let row: *mut c_double = unsafe { alloc_zero(2 * std::mem::size_of::<c_double>()) } as _;
         unsafe {
             *row.add(0) = topo.steps[k].left_length;
             *row.add(1) = topo.steps[k].right_length;
@@ -80,15 +92,25 @@ fn bb20027_pass1_widths_step_by_step() {
     let engine = mafft_core::MafftEngine::new(mafft_core::AlignmentMode::FftNs2);
     let msa = engine.align(&input);
     let nsteps_per_pass = msa.sequences.len() - 1; // 28 for BB20027
-    eprintln!("step_trace.len() = {}, nsteps_per_pass = {}",
-              msa.step_trace.len(), nsteps_per_pass);
-    eprintln!("\n=== pass 1 step widths (last {} steps) ===", nsteps_per_pass);
-    for (i, st) in msa.step_trace.iter()
+    eprintln!(
+        "step_trace.len() = {}, nsteps_per_pass = {}",
+        msa.step_trace.len(),
+        nsteps_per_pass
+    );
+    eprintln!(
+        "\n=== pass 1 step widths (last {} steps) ===",
+        nsteps_per_pass
+    );
+    for (i, st) in msa
+        .step_trace
+        .iter()
         .skip(msa.step_trace.len().saturating_sub(nsteps_per_pass))
         .enumerate()
     {
-        eprintln!("  step {}: clus1={} clus2={} width={} score={:.1}",
-                  i, st.clus1, st.clus2, st.width, st.score);
+        eprintln!(
+            "  step {}: clus1={} clus2={} width={} score={:.1}",
+            i, st.clus1, st.clus2, st.width, st.score
+        );
     }
 }
 
@@ -99,7 +121,11 @@ fn bb20027_pass1_weights_match_c() {
     let engine = mafft_core::MafftEngine::new(mafft_core::AlignmentMode::FftNs2);
     let msa = engine.align(&input);
     let topo = msa.guide_tree.expect("guide_tree missing");
-    eprintln!("BB20027 pass-1 topology: {} seqs, {} steps", topo.nseq, topo.steps.len());
+    eprintln!(
+        "BB20027 pass-1 topology: {} seqs, {} steps",
+        topo.nseq,
+        topo.steps.len()
+    );
 
     let rust_w = sequence_weights(&topo);
 
@@ -117,10 +143,15 @@ fn bb20027_pass1_weights_match_c() {
         let d = (rust_w[i] - c_w[i]).abs();
         max_diff = max_diff.max(d);
         let flag = if d > 1e-12 { " <-- DIFF" } else { "" };
-        println!("{:<5} {:<22.16} {:<22.16} {:<14.3e}{}",
-                 i, rust_w[i], c_w[i], d, flag);
+        println!(
+            "{:<5} {:<22.16} {:<22.16} {:<14.3e}{}",
+            i, rust_w[i], c_w[i], d, flag
+        );
     }
     println!("max |diff| = {:.3e}", max_diff);
-    assert!(max_diff < 1e-10,
-        "BB20027 pass-1 weights diverge by up to {:.3e}", max_diff);
+    assert!(
+        max_diff < 1e-10,
+        "BB20027 pass-1 weights diverge by up to {:.3e}",
+        max_diff
+    );
 }

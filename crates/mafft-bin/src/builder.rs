@@ -27,7 +27,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::{run_from_with_progress, MafftError, Progress, StderrProgress};
+use crate::{MafftError, Progress, StderrProgress, run_from_with_progress};
 
 /// Builds a `mafft-rs` argv and runs it in-process via [`crate::run_from`].
 ///
@@ -54,7 +54,14 @@ impl std::fmt::Debug for Mafft {
         f.debug_struct("Mafft")
             .field("argv", &self.argv)
             .field("input", &self.input)
-            .field("progress", &self.progress.as_ref().map(|_| "<custom>").unwrap_or("<stderr>"))
+            .field(
+                "progress",
+                &self
+                    .progress
+                    .as_ref()
+                    .map(|_| "<custom>")
+                    .unwrap_or("<stderr>"),
+            )
             .finish()
     }
 }
@@ -68,7 +75,11 @@ impl Default for Mafft {
 impl Mafft {
     /// Start a new invocation. `argv[0]` is `"mafft-rs"`.
     pub fn new() -> Self {
-        Self { argv: vec![OsString::from("mafft-rs")], input: None, progress: None }
+        Self {
+            argv: vec![OsString::from("mafft-rs")],
+            input: None,
+            progress: None,
+        }
     }
 
     // --- escape hatches -------------------------------------------------
@@ -259,8 +270,10 @@ mod tests {
             .nuc()
             .input("in.fasta")
             .to_argv();
-        let argv: Vec<String> =
-            argv.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let argv: Vec<String> = argv
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
         assert_eq!(
             argv,
             vec![
@@ -296,8 +309,10 @@ mod tests {
             .option("bl", "45")
             .arg("--quiet")
             .to_argv();
-        let argv: Vec<String> =
-            argv.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let argv: Vec<String> = argv
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
         assert_eq!(
             argv,
             vec!["mafft-rs", "--leavegappyregion", "--bl", "45", "--quiet"]

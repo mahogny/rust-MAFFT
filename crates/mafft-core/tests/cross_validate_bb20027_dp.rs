@@ -36,7 +36,8 @@ unsafe fn init_c_protein() {
 /// to keep alive).
 unsafe fn alloc_c_char_mtx(seqs: &[Vec<u8>], capacity: usize) -> (Vec<*mut c_char>, Vec<Vec<u8>>) {
     let cap = capacity.max(seqs.iter().map(|s| s.len()).max().unwrap_or(0)) + 16;
-    let mut rows: Vec<Vec<u8>> = seqs.iter()
+    let mut rows: Vec<Vec<u8>> = seqs
+        .iter()
         .map(|s| {
             let mut v = vec![0u8; cap];
             v[..s.len()].copy_from_slice(s);
@@ -44,7 +45,8 @@ unsafe fn alloc_c_char_mtx(seqs: &[Vec<u8>], capacity: usize) -> (Vec<*mut c_cha
             v
         })
         .collect();
-    let ptrs: Vec<*mut c_char> = rows.iter_mut()
+    let ptrs: Vec<*mut c_char> = rows
+        .iter_mut()
         .map(|r| r.as_mut_ptr() as *mut c_char)
         .collect();
     (ptrs, rows)
@@ -87,8 +89,8 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     let use_fft = std::env::var("REPLAY_NOFFT").is_err();
     eprintln!("Replay use_fft={}", use_fft);
     let raw_seqs: Vec<Vec<u8>> = input.sequences.iter().map(|s| s.data.clone()).collect();
-    let pre_step12 = progressive_align_partial(
-        &raw_seqs, &rebuilt_tree, &scoring, use_fft, None, 12);
+    let pre_step12 =
+        progressive_align_partial(&raw_seqs, &rebuilt_tree, &scoring, use_fft, None, 12);
 
     let g1_seqs: Vec<Vec<u8>> = group1.iter().map(|&i| pre_step12[i].clone()).collect();
     let g2_seqs: Vec<Vec<u8>> = group2.iter().map(|&i| pre_step12[i].clone()).collect();
@@ -106,22 +108,32 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     let w1n: Vec<f64> = raw_w1.iter().map(|w| w / orieff1).collect();
     let w2n: Vec<f64> = raw_w2.iter().map(|w| w / orieff2).collect();
 
-    use mafft_align::{Profile, profile_align, GapModel, AlignOp};
+    use mafft_align::{AlignOp, GapModel, Profile, profile_align};
     let r1: Vec<&[u8]> = g1_seqs.iter().map(|s| s.as_slice()).collect();
     let r2: Vec<&[u8]> = g2_seqs.iter().map(|s| s.as_slice()).collect();
     let prof1 = Profile::from_aligned(&r1, &w1n, &scoring.amino_map, scoring.nalphabets);
     let prof2 = Profile::from_aligned(&r2, &w2n, &scoring.amino_map, scoring.nalphabets);
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
-    let rust_aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, false, false);
+    let rust_aln = profile_align(
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        false,
+        false,
+    );
     let rust_width = rust_aln.operations.len();
-    eprintln!("\nRust profile_align: width={} score={:.4}", rust_width, rust_aln.score);
+    eprintln!(
+        "\nRust profile_align: width={} score={:.4}",
+        rust_width, rust_aln.score
+    );
 
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
     let penalty: c_int = unsafe { std::ptr::addr_of!(mafft_sys::penalty).read() };
     let penalty_ex: c_int = unsafe { std::ptr::addr_of!(mafft_sys::penalty_ex).read() };
-    let n_dynamicmtx = unsafe {
-        std::ptr::addr_of!(mafft_sys::n_dis_consweight_multi).read()
-    };
+    let n_dynamicmtx = unsafe { std::ptr::addr_of!(mafft_sys::n_dis_consweight_multi).read() };
     let alloclen = (lgth1 + lgth2 + 100) as c_int;
     let n1 = g1_seqs.len();
     let n2 = g2_seqs.len();
@@ -132,23 +144,42 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     let mut dumdb = 0.0f64;
     let c_score = unsafe {
         mafft_sys::A__align(
-            n_dynamicmtx, penalty, penalty_ex,
-            mseq1_ptrs.as_mut_ptr(), mseq2_ptrs.as_mut_ptr(),
-            e1.as_mut_ptr(), e2.as_mut_ptr(),
-            n1 as c_int, n2 as c_int, alloclen,
-            0, &mut dumdb,
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(),
-            0, 0, -1, 0,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            orieff1, orieff2,
+            n_dynamicmtx,
+            penalty,
+            penalty_ex,
+            mseq1_ptrs.as_mut_ptr(),
+            mseq2_ptrs.as_mut_ptr(),
+            e1.as_mut_ptr(),
+            e2.as_mut_ptr(),
+            n1 as c_int,
+            n2 as c_int,
+            alloclen,
+            0,
+            &mut dumdb,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            0,
+            -1,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            orieff1,
+            orieff2,
         )
     };
     let c_width = unsafe {
         let p = mseq1_ptrs[0];
         let mut w = 0usize;
-        while *p.add(w) != 0 { w += 1; }
+        while *p.add(w) != 0 {
+            w += 1;
+        }
         w
     };
     eprintln!("\nC A__align: width={} score={:.4}", c_width, c_score);
@@ -157,7 +188,9 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     // Read C alignments.
     let read = |ptr: *mut c_char, w: usize| {
         let mut v = vec![0u8; w];
-        for i in 0..w { v[i] = unsafe { *ptr.add(i) as u8 }; }
+        for i in 0..w {
+            v[i] = unsafe { *ptr.add(i) as u8 };
+        }
         v
     };
     let c_aln1: Vec<Vec<u8>> = mseq1_ptrs.iter().map(|&p| read(p, c_width)).collect();
@@ -166,22 +199,36 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     // Reconstruct Rust alignment from operations.
     let mut r_aln1 = vec![Vec::<u8>::with_capacity(rust_width); n1];
     let mut r_aln2 = vec![Vec::<u8>::with_capacity(rust_width); n2];
-    let mut c1 = 0usize; let mut c2 = 0usize;
+    let mut c1 = 0usize;
+    let mut c2 = 0usize;
     for op in &rust_aln.operations {
         match op {
             AlignOp::Match => {
-                for k in 0..n1 { r_aln1[k].push(g1_seqs[k][c1]); }
-                for k in 0..n2 { r_aln2[k].push(g2_seqs[k][c2]); }
-                c1 += 1; c2 += 1;
+                for k in 0..n1 {
+                    r_aln1[k].push(g1_seqs[k][c1]);
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(g2_seqs[k][c2]);
+                }
+                c1 += 1;
+                c2 += 1;
             }
             AlignOp::Delete => {
-                for k in 0..n1 { r_aln1[k].push(g1_seqs[k][c1]); }
-                for k in 0..n2 { r_aln2[k].push(b'-'); }
+                for k in 0..n1 {
+                    r_aln1[k].push(g1_seqs[k][c1]);
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(b'-');
+                }
                 c1 += 1;
             }
             AlignOp::Insert => {
-                for k in 0..n1 { r_aln1[k].push(b'-'); }
-                for k in 0..n2 { r_aln2[k].push(g2_seqs[k][c2]); }
+                for k in 0..n1 {
+                    r_aln1[k].push(b'-');
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(g2_seqs[k][c2]);
+                }
                 c2 += 1;
             }
         }
@@ -191,7 +238,12 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
     {
         use std::io::Write;
         let mut f = std::fs::File::create("/tmp/test_step12_rust.fa").unwrap();
-        writeln!(f, ">TEST_RUST width={} score={:.4}", rust_width, rust_aln.score).unwrap();
+        writeln!(
+            f,
+            ">TEST_RUST width={} score={:.4}",
+            rust_width, rust_aln.score
+        )
+        .unwrap();
         for (k, s) in r_aln1.iter().enumerate() {
             writeln!(f, ">g1_{}", k).unwrap();
             f.write_all(s).unwrap();
@@ -220,11 +272,24 @@ fn bb20027_step12_rust_dp_vs_c_aalign_cell_by_cell() {
         let mut first_diff: Option<usize> = None;
         for col in 0..rust_width {
             let mut differs = false;
-            for k in 0..n1 { if r_aln1[k][col] != c_aln1[k][col] { differs = true; break; } }
-            if !differs {
-                for k in 0..n2 { if r_aln2[k][col] != c_aln2[k][col] { differs = true; break; } }
+            for k in 0..n1 {
+                if r_aln1[k][col] != c_aln1[k][col] {
+                    differs = true;
+                    break;
+                }
             }
-            if differs { first_diff = Some(col); break; }
+            if !differs {
+                for k in 0..n2 {
+                    if r_aln2[k][col] != c_aln2[k][col] {
+                        differs = true;
+                        break;
+                    }
+                }
+            }
+            if differs {
+                first_diff = Some(col);
+                break;
+            }
         }
         if let Some(col) = first_diff {
             eprintln!("\nFirst diverging column: {} (of {})", col, rust_width);
@@ -273,7 +338,7 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     assert_eq!(rebuilt_tree.steps.len(), 28, "expected 28 merge steps");
 
     let step13 = &rebuilt_tree.steps[13];
-    let group1 = &step13.left;  // 8 leaves
+    let group1 = &step13.left; // 8 leaves
     let group2 = &step13.right; // 2 leaves
     assert_eq!(group1.len(), 8, "step 13 left should be 8-way");
     assert_eq!(group2.len(), 2, "step 13 right should be 2-way");
@@ -288,25 +353,36 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
 
     // Replay pass 1 progressive up to step 12 (n_steps = 13 runs steps
     // 0..=12 and stops before step 13 — exactly what we want).
-    let raw_seqs: Vec<Vec<u8>> = input.sequences.iter()
-        .map(|s| s.data.clone()).collect();
+    let raw_seqs: Vec<Vec<u8>> = input.sequences.iter().map(|s| s.data.clone()).collect();
     let pre_step13_state = progressive_align_partial(
-        &raw_seqs, &rebuilt_tree, &scoring,
-        true,  // use_fft (default mode)
-        None,  // no shift
-        13,    // run 13 steps (0..=12)
+        &raw_seqs,
+        &rebuilt_tree,
+        &scoring,
+        true, // use_fft (default mode)
+        None, // no shift
+        13,   // run 13 steps (0..=12)
     );
 
     // Extract the 8-way and 2-way profile sequences as they stood
     // entering step 13.
-    let g1_seqs: Vec<Vec<u8>> = group1.iter().map(|&i| pre_step13_state[i].clone()).collect();
-    let g2_seqs: Vec<Vec<u8>> = group2.iter().map(|&i| pre_step13_state[i].clone()).collect();
+    let g1_seqs: Vec<Vec<u8>> = group1
+        .iter()
+        .map(|&i| pre_step13_state[i].clone())
+        .collect();
+    let g2_seqs: Vec<Vec<u8>> = group2
+        .iter()
+        .map(|&i| pre_step13_state[i].clone())
+        .collect();
     let lgth1 = g1_seqs[0].len();
     let lgth2 = g2_seqs[0].len();
-    assert!(g1_seqs.iter().all(|s| s.len() == lgth1),
-        "g1 seqs not all same width — replay broken?");
-    assert!(g2_seqs.iter().all(|s| s.len() == lgth2),
-        "g2 seqs not all same width — replay broken?");
+    assert!(
+        g1_seqs.iter().all(|s| s.len() == lgth1),
+        "g1 seqs not all same width — replay broken?"
+    );
+    assert!(
+        g2_seqs.iter().all(|s| s.len() == lgth2),
+        "g2 seqs not all same width — replay broken?"
+    );
     eprintln!("Pre-step-13: lgth1={}, lgth2={}", lgth1, lgth2);
 
     // Compute per-leaf weights (normalized within each cluster).
@@ -325,7 +401,7 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     // But the divergence reproduces in --nofft too, and the non-FFT
     // path is simpler to compare against A__align directly. Use
     // profile_align here.
-    use mafft_align::{Profile, profile_align, GapModel};
+    use mafft_align::{GapModel, Profile, profile_align};
     let r1: Vec<&[u8]> = g1_seqs.iter().map(|s| s.as_slice()).collect();
     let r2: Vec<&[u8]> = g2_seqs.iter().map(|s| s.as_slice()).collect();
     let prof1 = Profile::from_aligned(&r1, &w1n, &scoring.amino_map, scoring.nalphabets);
@@ -334,14 +410,24 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     let gap_ext = scoring.gap.extend as f64;
     let gap = GapModel::new(gap_open, gap_ext);
     // For FFT-NS-2 default mode, outgap=0 → head/tail gap not penalized.
-    let rust_aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix,
-                                  &gap, false, false);
+    let rust_aln = profile_align(
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        false,
+        false,
+    );
     let rust_width = rust_aln.operations.len();
-    eprintln!("\nRust profile_align: width={} score={:.4}",
-              rust_width, rust_aln.score);
+    eprintln!(
+        "\nRust profile_align: width={} score={:.4}",
+        rust_width, rust_aln.score
+    );
 
     // ===== C: A__align via FFI. =====
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     // C's penalty / penalty_ex are i32 (in units of 1/1000ths).
     let penalty: c_int = unsafe { std::ptr::addr_of!(mafft_sys::penalty).read() };
@@ -349,9 +435,8 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     eprintln!("C penalty={} penalty_ex={}", penalty, penalty_ex);
 
     // C n_dis_consweight_multi is set by constants() from BLOSUM62.
-    let n_dynamicmtx: *mut *mut c_double = unsafe {
-        std::ptr::addr_of!(mafft_sys::n_dis_consweight_multi).read()
-    };
+    let n_dynamicmtx: *mut *mut c_double =
+        unsafe { std::ptr::addr_of!(mafft_sys::n_dis_consweight_multi).read() };
 
     // Allocate mseq1, mseq2 buffers large enough for the merged result.
     let alloclen = (lgth1 + lgth2 + 100) as c_int;
@@ -367,27 +452,33 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     let c_score = unsafe {
         mafft_sys::A__align(
             n_dynamicmtx,
-            penalty, penalty_ex,
+            penalty,
+            penalty_ex,
             mseq1_ptrs.as_mut_ptr(),
             mseq2_ptrs.as_mut_ptr(),
             eff1_arr.as_mut_ptr(),
             eff2_arr.as_mut_ptr(),
-            n1 as c_int, n2 as c_int,
+            n1 as c_int,
+            n2 as c_int,
             alloclen,
-            0,                          // constraint = 0
+            0, // constraint = 0
             &mut dumdb as *mut c_double,
-            std::ptr::null_mut(), std::ptr::null_mut(),  // sgap1, sgap2
-            std::ptr::null_mut(), std::ptr::null_mut(),  // egap1, egap2
-            std::ptr::null_mut(),       // chudanpt
-            0,                          // chudanref
-            std::ptr::null_mut(),       // chudanres
-            0, 0,                       // headgp=0, tailgp=0 (matches default --fft mode)
-            -1,                         // firstmem=-1 (disable memo)
-            0,                          // calledbyfulltreebase=0
-            std::ptr::null_mut(),       // cpmxchild0 (force from-scratch)
-            std::ptr::null_mut(),       // cpmxchild1
-            std::ptr::null_mut(),       // cpmxresult (don't save)
-            orieff1, orieff2,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(), // sgap1, sgap2
+            std::ptr::null_mut(),
+            std::ptr::null_mut(), // egap1, egap2
+            std::ptr::null_mut(), // chudanpt
+            0,                    // chudanref
+            std::ptr::null_mut(), // chudanres
+            0,
+            0,                    // headgp=0, tailgp=0 (matches default --fft mode)
+            -1,                   // firstmem=-1 (disable memo)
+            0,                    // calledbyfulltreebase=0
+            std::ptr::null_mut(), // cpmxchild0 (force from-scratch)
+            std::ptr::null_mut(), // cpmxchild1
+            std::ptr::null_mut(), // cpmxresult (don't save)
+            orieff1,
+            orieff2,
         )
     };
 
@@ -395,7 +486,9 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     let c_aln_width = unsafe {
         let p = mseq1_ptrs[0];
         let mut w = 0usize;
-        while *p.add(w) != 0 { w += 1; }
+        while *p.add(w) != 0 {
+            w += 1;
+        }
         w
     };
     eprintln!("\nC A__align: width={} score={:.4}", c_aln_width, c_score);
@@ -403,32 +496,54 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
     // Read aligned mseq1 / mseq2.
     let read_aln = |ptr: *mut c_char, w: usize| -> Vec<u8> {
         let mut v = vec![0u8; w];
-        for i in 0..w { v[i] = unsafe { *ptr.add(i) as u8 }; }
+        for i in 0..w {
+            v[i] = unsafe { *ptr.add(i) as u8 };
+        }
         v
     };
-    let c_aln1: Vec<Vec<u8>> = mseq1_ptrs.iter().map(|&p| read_aln(p, c_aln_width)).collect();
-    let c_aln2: Vec<Vec<u8>> = mseq2_ptrs.iter().map(|&p| read_aln(p, c_aln_width)).collect();
+    let c_aln1: Vec<Vec<u8>> = mseq1_ptrs
+        .iter()
+        .map(|&p| read_aln(p, c_aln_width))
+        .collect();
+    let c_aln2: Vec<Vec<u8>> = mseq2_ptrs
+        .iter()
+        .map(|&p| read_aln(p, c_aln_width))
+        .collect();
 
     // Reconstruct Rust-aligned sequences from rust_aln.operations.
     use mafft_align::AlignOp;
     let mut r_aln1 = vec![Vec::<u8>::with_capacity(rust_width); n1];
     let mut r_aln2 = vec![Vec::<u8>::with_capacity(rust_width); n2];
-    let mut c1 = 0usize; let mut c2 = 0usize;
+    let mut c1 = 0usize;
+    let mut c2 = 0usize;
     for op in &rust_aln.operations {
         match op {
             AlignOp::Match => {
-                for k in 0..n1 { r_aln1[k].push(g1_seqs[k][c1]); }
-                for k in 0..n2 { r_aln2[k].push(g2_seqs[k][c2]); }
-                c1 += 1; c2 += 1;
+                for k in 0..n1 {
+                    r_aln1[k].push(g1_seqs[k][c1]);
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(g2_seqs[k][c2]);
+                }
+                c1 += 1;
+                c2 += 1;
             }
             AlignOp::Delete => {
-                for k in 0..n1 { r_aln1[k].push(g1_seqs[k][c1]); }
-                for k in 0..n2 { r_aln2[k].push(b'-'); }
+                for k in 0..n1 {
+                    r_aln1[k].push(g1_seqs[k][c1]);
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(b'-');
+                }
                 c1 += 1;
             }
             AlignOp::Insert => {
-                for k in 0..n1 { r_aln1[k].push(b'-'); }
-                for k in 0..n2 { r_aln2[k].push(g2_seqs[k][c2]); }
+                for k in 0..n1 {
+                    r_aln1[k].push(b'-');
+                }
+                for k in 0..n2 {
+                    r_aln2[k].push(g2_seqs[k][c2]);
+                }
                 c2 += 1;
             }
         }
@@ -440,31 +555,52 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
         for col in 0..rust_width {
             let mut differs = false;
             for k in 0..n1 {
-                if r_aln1[k][col] != c_aln1[k][col] { differs = true; break; }
+                if r_aln1[k][col] != c_aln1[k][col] {
+                    differs = true;
+                    break;
+                }
             }
             for k in 0..n2 {
-                if r_aln2[k][col] != c_aln2[k][col] { differs = true; break; }
+                if r_aln2[k][col] != c_aln2[k][col] {
+                    differs = true;
+                    break;
+                }
             }
             if differs {
-                eprintln!("  First diverging COLUMN: {} (of {} total)", col, rust_width);
+                eprintln!(
+                    "  First diverging COLUMN: {} (of {} total)",
+                    col, rust_width
+                );
                 let col_lo = col.saturating_sub(2);
                 let col_hi = (col + 5).min(rust_width);
                 eprintln!("\n  Rust columns [{}..{}]:", col_lo, col_hi);
                 for k in 0..n1 {
-                    let s: String = r_aln1[k][col_lo..col_hi].iter().map(|&c| c as char).collect();
+                    let s: String = r_aln1[k][col_lo..col_hi]
+                        .iter()
+                        .map(|&c| c as char)
+                        .collect();
                     eprintln!("    g1[{}]: {}", k, s);
                 }
                 for k in 0..n2 {
-                    let s: String = r_aln2[k][col_lo..col_hi].iter().map(|&c| c as char).collect();
+                    let s: String = r_aln2[k][col_lo..col_hi]
+                        .iter()
+                        .map(|&c| c as char)
+                        .collect();
                     eprintln!("    g2[{}]: {}", k, s);
                 }
                 eprintln!("\n  C columns [{}..{}]:", col_lo, col_hi);
                 for k in 0..n1 {
-                    let s: String = c_aln1[k][col_lo..col_hi].iter().map(|&c| c as char).collect();
+                    let s: String = c_aln1[k][col_lo..col_hi]
+                        .iter()
+                        .map(|&c| c as char)
+                        .collect();
                     eprintln!("    g1[{}]: {}", k, s);
                 }
                 for k in 0..n2 {
-                    let s: String = c_aln2[k][col_lo..col_hi].iter().map(|&c| c as char).collect();
+                    let s: String = c_aln2[k][col_lo..col_hi]
+                        .iter()
+                        .map(|&c| c as char)
+                        .collect();
                     eprintln!("    g2[{}]: {}", k, s);
                 }
                 break;
@@ -474,6 +610,10 @@ fn bb20027_step13_rust_dp_vs_c_aalign_cell_by_cell() {
         eprintln!("  Widths differ: rust={} c={}", rust_width, c_aln_width);
     }
 
-    eprintln!("\nScores: rust={:.4} c={:.4} delta={:.4}",
-              rust_aln.score, c_score, rust_aln.score - c_score);
+    eprintln!(
+        "\nScores: rust={:.4} c={:.4} delta={:.4}",
+        rust_aln.score,
+        c_score,
+        rust_aln.score - c_score
+    );
 }

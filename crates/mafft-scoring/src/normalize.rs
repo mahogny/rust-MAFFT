@@ -6,7 +6,6 @@
 /// 2. Scale by 600 / diagonal average
 /// 3. Subtract offset
 /// 4. Round to integer (shishagonyuu)
-
 use crate::round_half_away;
 
 /// Normalize a 20x20 raw scoring matrix into final integer scores.
@@ -73,18 +72,14 @@ pub fn build_scoring_matrix(
 
 /// Normalize a raw matrix without the full pipeline (used for already-
 /// normalized matrices like JTT PAM output).
-pub fn normalize_matrix(
-    raw: &[[f64; 20]; 20],
-    freq: &[f64; 20],
-    offset: i32,
-) -> [[i32; 20]; 20] {
+pub fn normalize_matrix(raw: &[[f64; 20]; 20], freq: &[f64; 20], offset: i32) -> [[i32; 20]; 20] {
     build_scoring_matrix(raw, freq, offset, true)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blosum::{blosum_matrix, blosum_frequencies};
+    use crate::blosum::{blosum_frequencies, blosum_matrix};
     use crate::penalties::default_protein_gap_params;
 
     #[test]

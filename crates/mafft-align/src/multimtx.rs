@@ -111,7 +111,9 @@ impl<'a> MultiMtx<'a> {
     /// `+=` accumulation across distance classes starts from zero (matches
     /// the freshly-allocated-Vec behavior of [`match_row`]).
     pub fn match_row_into(&self, i1: usize, out: &mut [f64]) {
-        for v in out.iter_mut() { *v = 0.0; }
+        for v in out.iter_mut() {
+            *v = 0.0;
+        }
         let lgth2 = out.len();
         let nalpha = self.nalpha;
         let mut scarr = vec![0.0f64; nalpha];
@@ -158,10 +160,14 @@ impl<'a> MultiMtx<'a> {
                         let j = self.mask2[c][m];
                         let b1 = self.seq1[i][i1];
                         let b2 = self.seq2[j][k];
-                        if b1 == b'-' || b2 == b'-' { continue; }
+                        if b1 == b'-' || b2 == b'-' {
+                            continue;
+                        }
                         let c1 = self.amino_map[b1 as usize] as usize;
                         let c2 = self.amino_map[b2 as usize] as usize;
-                        if c1 >= self.nalpha || c2 >= self.nalpha { continue; }
+                        if c1 >= self.nalpha || c2 >= self.nalpha {
+                            continue;
+                        }
                         out[k] -= mtx[c1][c2] * self.eff1[i] * self.eff2[j];
                     }
                 }
@@ -175,14 +181,24 @@ mod tests {
     use super::*;
 
     // Build a per-class column profile [col][alpha] from member rows + weights.
-    fn build_cpmx(seqs: &[&[u8]], eff: &[f64], amino: &[u8], nalpha: usize, ncol: usize) -> Vec<Vec<f64>> {
+    fn build_cpmx(
+        seqs: &[&[u8]],
+        eff: &[f64],
+        amino: &[u8],
+        nalpha: usize,
+        ncol: usize,
+    ) -> Vec<Vec<f64>> {
         let mut p = vec![vec![0.0f64; nalpha]; ncol];
         for (s, &w) in seqs.iter().zip(eff.iter()) {
             for col in 0..ncol {
                 let b = s[col];
-                if b == b'-' { continue; }
+                if b == b'-' {
+                    continue;
+                }
                 let a = amino[b as usize] as usize;
-                if a < nalpha { p[col][a] += w; }
+                if a < nalpha {
+                    p[col][a] += w;
+                }
             }
         }
         p
@@ -190,18 +206,31 @@ mod tests {
 
     // Naive O(n1*n2) per-pair reference: match[k] = Σ_{i,j} M_{which[i][j]}[res]·eff.
     fn naive_match_row(
-        i1: usize, lgth2: usize,
-        seq1: &[&[u8]], seq2: &[&[u8]], eff1: &[f64], eff2: &[f64],
-        which: &[Vec<usize>], matrices: &[Vec<Vec<f64>>], amino: &[u8], nalpha: usize,
+        i1: usize,
+        lgth2: usize,
+        seq1: &[&[u8]],
+        seq2: &[&[u8]],
+        eff1: &[f64],
+        eff2: &[f64],
+        which: &[Vec<usize>],
+        matrices: &[Vec<Vec<f64>>],
+        amino: &[u8],
+        nalpha: usize,
     ) -> Vec<f64> {
         let mut out = vec![0.0f64; lgth2];
         for k in 0..lgth2 {
             for i in 0..seq1.len() {
                 for j in 0..seq2.len() {
-                    let b1 = seq1[i][i1]; let b2 = seq2[j][k];
-                    if b1 == b'-' || b2 == b'-' { continue; }
-                    let c1 = amino[b1 as usize] as usize; let c2 = amino[b2 as usize] as usize;
-                    if c1 >= nalpha || c2 >= nalpha { continue; }
+                    let b1 = seq1[i][i1];
+                    let b2 = seq2[j][k];
+                    if b1 == b'-' || b2 == b'-' {
+                        continue;
+                    }
+                    let c1 = amino[b1 as usize] as usize;
+                    let c2 = amino[b2 as usize] as usize;
+                    if c1 >= nalpha || c2 >= nalpha {
+                        continue;
+                    }
                     let c = which[i][j];
                     out[k] += matrices[c][c1][c2] * eff1[i] * eff2[j];
                 }
@@ -218,10 +247,14 @@ mod tests {
         amino[b'A' as usize] = 0;
         amino[b'B' as usize] = 1;
         // 2 clusters: clus1 has 2 seqs, clus2 has 2 seqs, 2 columns.
-        let s1a: &[u8] = b"AB"; let s1b: &[u8] = b"BA";
-        let s2a: &[u8] = b"AA"; let s2b: &[u8] = b"BB";
-        let seq1 = [s1a, s1b]; let seq2 = [s2a, s2b];
-        let eff1 = [0.6, 0.4]; let eff2 = [0.7, 0.3];
+        let s1a: &[u8] = b"AB";
+        let s1b: &[u8] = b"BA";
+        let s2a: &[u8] = b"AA";
+        let s2b: &[u8] = b"BB";
+        let seq1 = [s1a, s1b];
+        let seq2 = [s2a, s2b];
+        let eff1 = [0.6, 0.4];
+        let eff2 = [0.7, 0.3];
         // 2 distance classes, distinct matrices.
         let m0 = vec![vec![5.0, -1.0], vec![-1.0, 4.0]];
         let m1 = vec![vec![2.0, 0.0], vec![0.0, 1.0]];
@@ -236,40 +269,77 @@ mod tests {
         let mut eff2s = vec![vec![0.0; 2]; 2];
         let mut mask1 = vec![Vec::new(); 2];
         let mut mask2 = vec![Vec::new(); 2];
-        for i in 0..2 { for j in 0..2 {
-            let c = which[i][j];
-            eff1s[c][i] = eff1[i];
-            eff2s[c][j] = eff2[j];
-        }}
-        for c in 0..2 { for i in 0..2 { for j in 0..2 {
-            if eff1s[c][i]*eff2s[c][j] != 0.0 && c != which[i][j] {
-                mask1[c].push(i); mask2[c].push(j);
+        for i in 0..2 {
+            for j in 0..2 {
+                let c = which[i][j];
+                eff1s[c][i] = eff1[i];
+                eff2s[c][j] = eff2[j];
             }
-        }}}
-        let cpmx1s: Vec<Vec<Vec<f64>>> = (0..2).map(|c| build_cpmx(&seq1, &eff1s[c], &amino, nalpha, ncol)).collect();
-        let cpmx2s: Vec<Vec<Vec<f64>>> = (0..2).map(|c| build_cpmx(&seq2, &eff2s[c], &amino, nalpha, ncol)).collect();
-        let sparsify = |dense: &Vec<Vec<Vec<f64>>>| -> Vec<Vec<Vec<(u8,f64)>>> {
-            dense.iter().map(|cls| cls.iter().map(|col| {
-                let mut v: Vec<(u8,f64)> = Vec::new();
-                for (l, &x) in col.iter().enumerate() { if x != 0.0 { v.push((l as u8, x)); } }
-                v
-            }).collect()).collect()
+        }
+        for c in 0..2 {
+            for i in 0..2 {
+                for j in 0..2 {
+                    if eff1s[c][i] * eff2s[c][j] != 0.0 && c != which[i][j] {
+                        mask1[c].push(i);
+                        mask2[c].push(j);
+                    }
+                }
+            }
+        }
+        let cpmx1s: Vec<Vec<Vec<f64>>> = (0..2)
+            .map(|c| build_cpmx(&seq1, &eff1s[c], &amino, nalpha, ncol))
+            .collect();
+        let cpmx2s: Vec<Vec<Vec<f64>>> = (0..2)
+            .map(|c| build_cpmx(&seq2, &eff2s[c], &amino, nalpha, ncol))
+            .collect();
+        let sparsify = |dense: &Vec<Vec<Vec<f64>>>| -> Vec<Vec<Vec<(u8, f64)>>> {
+            dense
+                .iter()
+                .map(|cls| {
+                    cls.iter()
+                        .map(|col| {
+                            let mut v: Vec<(u8, f64)> = Vec::new();
+                            for (l, &x) in col.iter().enumerate() {
+                                if x != 0.0 {
+                                    v.push((l as u8, x));
+                                }
+                            }
+                            v
+                        })
+                        .collect()
+                })
+                .collect()
         };
         let cpmx1s_sparse = sparsify(&cpmx1s);
         let cpmx2s_sparse = sparsify(&cpmx2s);
 
         let mm = MultiMtx {
-            matrices: &matrices, cpmx1s: &cpmx1s, cpmx2s: &cpmx2s,
-            cpmx1s_sparse: &cpmx1s_sparse, cpmx2s_sparse: &cpmx2s_sparse,
-            mask1: &mask1, mask2: &mask2,
-            seq1: &seq1, seq2: &seq2, eff1: &eff1, eff2: &eff2,
-            amino_map: &amino, nalpha,
+            matrices: &matrices,
+            cpmx1s: &cpmx1s,
+            cpmx2s: &cpmx2s,
+            cpmx1s_sparse: &cpmx1s_sparse,
+            cpmx2s_sparse: &cpmx2s_sparse,
+            mask1: &mask1,
+            mask2: &mask2,
+            seq1: &seq1,
+            seq2: &seq2,
+            eff1: &eff1,
+            eff2: &eff2,
+            amino_map: &amino,
+            nalpha,
         };
         for i1 in 0..ncol {
             let got = mm.match_row(i1, ncol);
-            let want = naive_match_row(i1, ncol, &seq1, &seq2, &eff1, &eff2, &which, &matrices, &amino, nalpha);
+            let want = naive_match_row(
+                i1, ncol, &seq1, &seq2, &eff1, &eff2, &which, &matrices, &amino, nalpha,
+            );
             for k in 0..ncol {
-                assert!((got[k]-want[k]).abs() < 1e-12, "i1={i1} k={k} got={} want={}", got[k], want[k]);
+                assert!(
+                    (got[k] - want[k]).abs() < 1e-12,
+                    "i1={i1} k={k} got={} want={}",
+                    got[k],
+                    want[k]
+                );
             }
         }
     }
@@ -279,37 +349,69 @@ mod tests {
         // 1 class, no masks -> equals plain cpmx·M·cpmx.
         let nalpha = 2;
         let mut amino = vec![255u8; 256];
-        amino[b'A' as usize] = 0; amino[b'B' as usize] = 1;
-        let s1a: &[u8] = b"AB"; let s2a: &[u8] = b"BA";
-        let seq1 = [s1a]; let seq2 = [s2a];
-        let eff1 = [1.0]; let eff2 = [1.0];
+        amino[b'A' as usize] = 0;
+        amino[b'B' as usize] = 1;
+        let s1a: &[u8] = b"AB";
+        let s2a: &[u8] = b"BA";
+        let seq1 = [s1a];
+        let seq2 = [s2a];
+        let eff1 = [1.0];
+        let eff2 = [1.0];
         let matrices = vec![vec![vec![5.0, -1.0], vec![-1.0, 4.0]]];
         let which = vec![vec![0usize]];
         let ncol = 2;
-        let eff1s = vec![vec![1.0]]; let eff2s = vec![vec![1.0]];
+        let eff1s = vec![vec![1.0]];
+        let eff2s = vec![vec![1.0]];
         let cpmx1s: Vec<Vec<Vec<f64>>> = vec![build_cpmx(&seq1, &eff1s[0], &amino, nalpha, ncol)];
         let cpmx2s: Vec<Vec<Vec<f64>>> = vec![build_cpmx(&seq2, &eff2s[0], &amino, nalpha, ncol)];
-        let sparsify = |dense: &Vec<Vec<Vec<f64>>>| -> Vec<Vec<Vec<(u8,f64)>>> {
-            dense.iter().map(|cls| cls.iter().map(|col| {
-                let mut v: Vec<(u8,f64)> = Vec::new();
-                for (l, &x) in col.iter().enumerate() { if x != 0.0 { v.push((l as u8, x)); } }
-                v
-            }).collect()).collect()
+        let sparsify = |dense: &Vec<Vec<Vec<f64>>>| -> Vec<Vec<Vec<(u8, f64)>>> {
+            dense
+                .iter()
+                .map(|cls| {
+                    cls.iter()
+                        .map(|col| {
+                            let mut v: Vec<(u8, f64)> = Vec::new();
+                            for (l, &x) in col.iter().enumerate() {
+                                if x != 0.0 {
+                                    v.push((l as u8, x));
+                                }
+                            }
+                            v
+                        })
+                        .collect()
+                })
+                .collect()
         };
         let cpmx1s_sparse = sparsify(&cpmx1s);
         let cpmx2s_sparse = sparsify(&cpmx2s);
-        let mask1 = vec![Vec::new()]; let mask2 = vec![Vec::new()];
+        let mask1 = vec![Vec::new()];
+        let mask2 = vec![Vec::new()];
         let mm = MultiMtx {
-            matrices: &matrices, cpmx1s: &cpmx1s, cpmx2s: &cpmx2s,
-            cpmx1s_sparse: &cpmx1s_sparse, cpmx2s_sparse: &cpmx2s_sparse,
-            mask1: &mask1, mask2: &mask2,
-            seq1: &seq1, seq2: &seq2, eff1: &eff1, eff2: &eff2,
-            amino_map: &amino, nalpha,
+            matrices: &matrices,
+            cpmx1s: &cpmx1s,
+            cpmx2s: &cpmx2s,
+            cpmx1s_sparse: &cpmx1s_sparse,
+            cpmx2s_sparse: &cpmx2s_sparse,
+            mask1: &mask1,
+            mask2: &mask2,
+            seq1: &seq1,
+            seq2: &seq2,
+            eff1: &eff1,
+            eff2: &eff2,
+            amino_map: &amino,
+            nalpha,
         };
         let got = mm.match_row(0, ncol);
-        let want = naive_match_row(0, ncol, &seq1, &seq2, &eff1, &eff2, &which, &matrices, &amino, nalpha);
+        let want = naive_match_row(
+            0, ncol, &seq1, &seq2, &eff1, &eff2, &which, &matrices, &amino, nalpha,
+        );
         for k in 0..ncol {
-            assert!((got[k]-want[k]).abs() < 1e-12, "k={k} got={} want={}", got[k], want[k]);
+            assert!(
+                (got[k] - want[k]).abs() < 1e-12,
+                "k={k} got={} want={}",
+                got[k],
+                want[k]
+            );
         }
     }
 }

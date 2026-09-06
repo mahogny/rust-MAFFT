@@ -72,10 +72,11 @@ pub fn read_fasta_from_reader_casepreserve<R: BufRead>(reader: R) -> Result<Sequ
     if sequences.is_empty() {
         return Err(IoError::EmptyInput);
     }
-    let seq_type = detect_seq_type(
-        &sequences.iter().map(|s| s.data.clone()).collect::<Vec<_>>(),
-    );
-    Ok(SequenceSet { sequences, seq_type })
+    let seq_type = detect_seq_type(&sequences.iter().map(|s| s.data.clone()).collect::<Vec<_>>());
+    Ok(SequenceSet {
+        sequences,
+        seq_type,
+    })
 }
 
 /// Case-preserving sequence normaliser — strips only whitespace and
@@ -132,11 +133,12 @@ pub fn read_fasta_from_reader<R: BufRead>(reader: R) -> Result<SequenceSet, IoEr
         return Err(IoError::EmptyInput);
     }
 
-    let seq_type = detect_seq_type(
-        &sequences.iter().map(|s| s.data.clone()).collect::<Vec<_>>(),
-    );
+    let seq_type = detect_seq_type(&sequences.iter().map(|s| s.data.clone()).collect::<Vec<_>>());
 
-    let mut set = SequenceSet { sequences, seq_type };
+    let mut set = SequenceSet {
+        sequences,
+        seq_type,
+    };
     apply_case_convention(&mut set);
     Ok(set)
 }
@@ -212,10 +214,7 @@ pub fn write_fasta(seqs: &SequenceSet, path: impl AsRef<Path>) -> Result<(), IoE
 /// Write a `SequenceSet` as FASTA to any writer.
 ///
 /// Uses 60-character line width by default (matching the C output).
-pub fn write_fasta_to_writer<W: Write>(
-    seqs: &SequenceSet,
-    mut writer: W,
-) -> Result<(), IoError> {
+pub fn write_fasta_to_writer<W: Write>(seqs: &SequenceSet, mut writer: W) -> Result<(), IoError> {
     write_fasta_to_writer_with_width(seqs, &mut writer, DEFAULT_LINE_WIDTH)
 }
 
@@ -304,7 +303,10 @@ mod tests {
         let input = b">a\nMNGTegdnFYVPFSNKTGLARSPYEY\n>b\nMNGTEGDNFYVPFSNKTGLARSPYEY\n";
         let seqs = read_fasta_from_reader(io::Cursor::new(&input[..])).unwrap();
         assert_eq!(seqs.seq_type, mafft_types::SeqType::Protein);
-        assert_eq!(seqs.sequences[0].data, b"MNGTEGDNFYVPFSNKTGLARSPYEY".to_vec());
+        assert_eq!(
+            seqs.sequences[0].data,
+            b"MNGTEGDNFYVPFSNKTGLARSPYEY".to_vec()
+        );
     }
 
     #[test]
@@ -320,7 +322,10 @@ mod tests {
     fn apply_case_convention_is_idempotent_and_follows_seq_type() {
         // Safe to re-apply after `--nuc` / `--amino` override the type.
         let mut set = SequenceSet {
-            sequences: vec![Sequence { name: "a".into(), data: b"AtGc".to_vec() }],
+            sequences: vec![Sequence {
+                name: "a".into(),
+                data: b"AtGc".to_vec(),
+            }],
             seq_type: mafft_types::SeqType::Dna,
         };
         apply_case_convention(&mut set);
@@ -337,8 +342,10 @@ mod tests {
     fn case_fold_does_not_disturb_type_detection() {
         // Detection runs on the pre-fold residues and is case-insensitive,
         // so a lowercase and an uppercase copy detect the same type.
-        let upper = read_fasta_from_reader(io::Cursor::new(&b">a\nACGTACGTACGTACGT\n"[..])).unwrap();
-        let lower = read_fasta_from_reader(io::Cursor::new(&b">a\nacgtacgtacgtacgt\n"[..])).unwrap();
+        let upper =
+            read_fasta_from_reader(io::Cursor::new(&b">a\nACGTACGTACGTACGT\n"[..])).unwrap();
+        let lower =
+            read_fasta_from_reader(io::Cursor::new(&b">a\nacgtacgtacgtacgt\n"[..])).unwrap();
         assert_eq!(upper.seq_type, lower.seq_type);
         assert_eq!(upper.sequences[0].data, lower.sequences[0].data);
     }

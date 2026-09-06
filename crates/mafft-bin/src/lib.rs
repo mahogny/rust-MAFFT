@@ -1,11 +1,15 @@
+use std::cell::OnceCell;
 use std::io::{self, BufReader, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
 
-use mafft_core::{MafftEngine, AlignmentMode};
-use mafft_io::{read_fasta, read_fasta_from_reader, read_fasta_casepreserve, read_fasta_from_reader_casepreserve};
-use mafft_types::{Sequence, SequenceSet, ScoringModel};
+use mafft_core::{AlignmentMode, MafftEngine};
+use mafft_io::{
+    read_fasta, read_fasta_casepreserve, read_fasta_from_reader,
+    read_fasta_from_reader_casepreserve,
+};
+use mafft_types::{ScoringModel, Sequence, SequenceSet};
 
 pub mod builder;
 pub mod progress;
@@ -555,33 +559,67 @@ struct Args {
 /// MAFFT v7, which this is a port of) and points at the docs site for
 /// mode-specific references and BibTeX.
 fn print_citation(out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "rust-MAFFT v{} — port of MAFFT 7.526", env!("CARGO_PKG_VERSION"))?;
+    writeln!(
+        out,
+        "rust-MAFFT v{} — port of MAFFT 7.526",
+        env!("CARGO_PKG_VERSION")
+    )?;
     writeln!(out)?;
-    writeln!(out, "If you use this software in published work, please cite the")?;
-    writeln!(out, "original MAFFT paper. The scientific contribution is by")?;
-    writeln!(out, "Kazutaka Katoh and colleagues at CBRC; this Rust port preserves")?;
+    writeln!(
+        out,
+        "If you use this software in published work, please cite the"
+    )?;
+    writeln!(
+        out,
+        "original MAFFT paper. The scientific contribution is by"
+    )?;
+    writeln!(
+        out,
+        "Kazutaka Katoh and colleagues at CBRC; this Rust port preserves"
+    )?;
     writeln!(out, "their algorithm byte-for-byte.")?;
     writeln!(out)?;
     writeln!(out, "  Katoh, K., & Standley, D. M. (2013).")?;
-    writeln!(out, "  MAFFT multiple sequence alignment software version 7:")?;
+    writeln!(
+        out,
+        "  MAFFT multiple sequence alignment software version 7:"
+    )?;
     writeln!(out, "  improvements in performance and usability.")?;
     writeln!(out, "  Molecular Biology and Evolution, 30(4), 772-780.")?;
     writeln!(out, "  doi: 10.1093/molbev/mst010")?;
     writeln!(out)?;
-    writeln!(out, "Mode-specific references (cite additionally when relevant):")?;
+    writeln!(
+        out,
+        "Mode-specific references (cite additionally when relevant):"
+    )?;
     writeln!(out)?;
-    writeln!(out, "  FFT-NS-1/2:        Katoh et al. 2002, NAR 30(14):3059-3066")?;
+    writeln!(
+        out,
+        "  FFT-NS-1/2:        Katoh et al. 2002, NAR 30(14):3059-3066"
+    )?;
     writeln!(out, "                     doi: 10.1093/nar/gkf436")?;
-    writeln!(out, "  L/G/E-INS-i:       Katoh et al. 2005, NAR 33(2):511-518")?;
+    writeln!(
+        out,
+        "  L/G/E-INS-i:       Katoh et al. 2005, NAR 33(2):511-518"
+    )?;
     writeln!(out, "                     doi: 10.1093/nar/gki198")?;
-    writeln!(out, "  --parttree:        Katoh & Toh 2007, Bioinformatics 23(3):372-374")?;
-    writeln!(out, "                     doi: 10.1093/bioinformatics/btl592")?;
+    writeln!(
+        out,
+        "  --parttree:        Katoh & Toh 2007, Bioinformatics 23(3):372-374"
+    )?;
+    writeln!(
+        out,
+        "                     doi: 10.1093/bioinformatics/btl592"
+    )?;
     writeln!(out)?;
     writeln!(out, "Full citation guidance and BibTeX entries:")?;
     writeln!(out, "  https://luksgrin.github.io/rust-MAFFT/citation/")?;
     writeln!(out)?;
     writeln!(out, "Machine-readable form (CITATION.cff):")?;
-    writeln!(out, "  https://github.com/luksgrin/rust-MAFFT/blob/main/CITATION.cff")?;
+    writeln!(
+        out,
+        "  https://github.com/luksgrin/rust-MAFFT/blob/main/CITATION.cff"
+    )?;
     Ok(())
 }
 
@@ -615,24 +653,35 @@ fn apply_progname_defaults(args: &mut Args) {
 /// for boolean mode flags we check that *no* alternative mode is already
 /// on (so `linsi --globalpair` correctly switches to global pairwise).
 fn apply_progname_dispatch(progname: &str, args: &mut Args) {
-    let no_pair_mode_set =
-        !args.localpair && !args.globalpair && !args.genafpair
-        && !args.qinsi && !args.xinsi && !args.scarnalike;
+    let no_pair_mode_set = !args.localpair
+        && !args.globalpair
+        && !args.genafpair
+        && !args.qinsi
+        && !args.xinsi
+        && !args.scarnalike;
     let set_maxit_if_default = |m: &mut Option<usize>, v: usize| {
-        if m.is_none() { *m = Some(v); }
+        if m.is_none() {
+            *m = Some(v);
+        }
     };
 
     match progname {
         "linsi" => {
-            if no_pair_mode_set { args.localpair = true; }
+            if no_pair_mode_set {
+                args.localpair = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 1000);
         }
         "ginsi" => {
-            if no_pair_mode_set { args.globalpair = true; }
+            if no_pair_mode_set {
+                args.globalpair = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 1000);
         }
         "einsi" => {
-            if no_pair_mode_set { args.genafpair = true; }
+            if no_pair_mode_set {
+                args.genafpair = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 1000);
         }
         "fftns" => {
@@ -644,18 +693,26 @@ fn apply_progname_dispatch(progname: &str, args: &mut Args) {
             set_maxit_if_default(&mut args.maxiterate, 2);
         }
         "nwns" => {
-            if !args.nofft { args.nofft = true; }
+            if !args.nofft {
+                args.nofft = true;
+            }
         }
         "nwnsi" => {
-            if !args.nofft { args.nofft = true; }
+            if !args.nofft {
+                args.nofft = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 2);
         }
         "qinsi" => {
-            if no_pair_mode_set { args.qinsi = true; }
+            if no_pair_mode_set {
+                args.qinsi = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 1000);
         }
         "xinsi" => {
-            if no_pair_mode_set { args.xinsi = true; }
+            if no_pair_mode_set {
+                args.xinsi = true;
+            }
             set_maxit_if_default(&mut args.maxiterate, 1000);
         }
         _ => {} // Not a recognised shortcut (likely "mafft-rs" or unrelated)
@@ -686,7 +743,11 @@ pub struct MafftError {
 
 impl MafftError {
     fn new(code: i32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), clap: None }
+        Self {
+            code,
+            message: message.into(),
+            clap: None,
+        }
     }
 
     fn from_clap(err: clap::Error) -> Self {
@@ -740,6 +801,26 @@ fn in_pool<R: Send>(pool: Option<&rayon::ThreadPool>, f: impl FnOnce() -> R + Se
         Some(p) => p.install(f),
         None => f(),
     }
+}
+
+thread_local! {
+    static SINGLE_THREAD_POOL: OnceCell<Option<rayon::ThreadPool>> = const { OnceCell::new() };
+}
+
+#[cfg(test)]
+fn thread_local_single_thread_pool_addr() -> Option<usize> {
+    SINGLE_THREAD_POOL.with(|pool| {
+        let pool = pool.get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(1).build().ok());
+        pool.as_ref()
+            .map(|pool| pool as *const rayon::ThreadPool as usize)
+    })
+}
+
+fn in_single_thread_pool<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+    SINGLE_THREAD_POOL.with(|pool| {
+        let pool = pool.get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(1).build().ok());
+        in_pool(pool.as_ref(), f)
+    })
 }
 
 /// `--nuc` / `--amino`: force the sequence type, overriding the
@@ -884,30 +965,32 @@ where
     // behaviour and message verbatim — these flags have been
     // non-functional in upstream MAFFT since 2018.
     if args.pdbidlist.is_some() {
-        return Err(MafftError::new(0, "--pdbidlist is temporarily unavailable, 2018/Dec.\n"));
+        return Err(MafftError::new(
+            0,
+            "--pdbidlist is temporarily unavailable, 2018/Dec.\n",
+        ));
     }
     if args.pdbfilelist.is_some() {
-        return Err(MafftError::new(0, "--pdbfilelist is temporarily unavailable, 2018/Dec.\n"));
+        return Err(MafftError::new(
+            0,
+            "--pdbfilelist is temporarily unavailable, 2018/Dec.\n",
+        ));
     }
 
     // C `scripts/mafft:1807-1810` rejects `--nodeout` combined with
     // `--maxiterate > 0` at the shell-script level (BEFORE any
     // alignment runs). Mirror the early exit and verbatim error.
     if args.nodeout && args.maxiterate.unwrap_or(0) > 0 {
-        return Err(MafftError::new(1,
-            "The --nodeout option supports only progressive method (--maxiterate 0) for now."));
+        return Err(MafftError::new(
+            1,
+            "The --nodeout option supports only progressive method (--maxiterate 0) for now.",
+        ));
     }
 
-    // Configure thread pool. This builds a LOCAL rayon pool and installs
-    // the alignment into it (see `in_pool` below) rather than calling
-    // `build_global()`: a process-global pool can only be initialised
-    // once, so a library caller invoking `run_from` repeatedly would have
-    // been stuck with the first call's `--thread` value forever. The
-    // remaining `.ok()` is not the "already initialised" swallow it used
-    // to be — a local `build()` can only fail if the OS refuses to spawn
-    // threads, and falling back to rayon's default pool there is exactly
-    // what the previous code did.
-    let pool = if args.thread > 0 {
+    // Configure thread pool. `--thread 1` uses one cached pool per caller thread: repeated
+    // Panaroo alignments avoid per-call thread creation, but different Panaroo workers do
+    // not serialize through one process-global single-thread pool.
+    let local_pool = if args.thread > 1 {
         rayon::ThreadPoolBuilder::new()
             .num_threads(args.thread)
             .build()
@@ -929,8 +1012,8 @@ where
             } else {
                 read_fasta(path)
             };
-            result.map_err(|e|
-                MafftError::new(1, format!("Error reading {}: {e}", path.display())))?
+            result
+                .map_err(|e| MafftError::new(1, format!("Error reading {}: {e}", path.display())))?
         }
         None => {
             let stdin = io::stdin();
@@ -968,8 +1051,10 @@ where
     // addfile is read.
     if let Some(thresh) = args.maxambiguous {
         if !(0.0..=1.0).contains(&thresh) {
-            return Err(MafftError::new(1,
-                "The argument of --maxambiguous must be between 0.0 and 1.0"));
+            return Err(MafftError::new(
+                1,
+                "The argument of --maxambiguous must be between 0.0 and 1.0",
+            ));
         }
     }
 
@@ -985,8 +1070,12 @@ where
     // diagnostic. Mirror that here so users get the same error
     // surface.
     if args.memsave
-        && (args.localpair || args.globalpair || args.genafpair
-            || args.qinsi || args.xinsi || args.scarnalike)
+        && (args.localpair
+            || args.globalpair
+            || args.genafpair
+            || args.qinsi
+            || args.xinsi
+            || args.scarnalike)
     {
         return Err(MafftError::new(1, "Impossible"));
     }
@@ -1004,14 +1093,19 @@ where
     if !args.seed_files.is_empty() && args.seedtable.is_some() {
         // `scripts/mafft:1963-1965`: "Use either one of seedtable and seed.
         // Not both."
-        return Err(MafftError::new(1, "Use either one of seedtable and seed.  Not both."));
+        return Err(MafftError::new(
+            1,
+            "Use either one of seedtable and seed.  Not both.",
+        ));
     }
     let add_arg = args.add.as_ref().or(args.addfragments.as_ref());
     if args.seedtable.is_some() && add_arg.is_some() {
         // `scripts/mafft:1281-1284`: "Use either ONE of --seed,
         // --seedtable, --addprofile and --add."
-        return Err(MafftError::new(1,
-            "Impossible\nUse either ONE of --seed, --seedtable, --addprofile and --add."));
+        return Err(MafftError::new(
+            1,
+            "Impossible\nUse either ONE of --seed, --seedtable, --addprofile and --add.",
+        ));
     }
     if args.seedtable.is_some() && (args.parttree || args.dpparttree) {
         // `scripts/mafft:1880-1883`: parttree + seed/seedtable is Impossible.
@@ -1034,15 +1128,20 @@ where
     if !args.seed_files.is_empty() {
         let mut groups: Vec<Vec<Vec<u8>>> = Vec::with_capacity(args.seed_files.len());
         for path in &args.seed_files {
-            let seed_set = read_fasta_casepreserve(path).map_err(|e|
-                MafftError::new(1, format!("Error reading {}: {e}", path.display())))?;
+            let seed_set = read_fasta_casepreserve(path).map_err(|e| {
+                MafftError::new(1, format!("Error reading {}: {e}", path.display()))
+            })?;
             groups.push(seed_set.sequences.iter().map(|s| s.data.clone()).collect());
             // Prepend renamed (gap-stripped) seed sequences to the input
             // ahead of the user data — matching C's `multi2hat3s` output
             // followed by `cat infile2 >> infile` (`scripts/mafft:2435`).
             for s in &seed_set.sequences {
-                let ungapped: Vec<u8> = s.data.iter().copied()
-                    .filter(|&c| c != b'-' && c != b'.').collect();
+                let ungapped: Vec<u8> = s
+                    .data
+                    .iter()
+                    .copied()
+                    .filter(|&c| c != b'-' && c != b'.')
+                    .collect();
                 let renamed = Sequence {
                     name: format!("_seed_{}", s.name),
                     data: ungapped,
@@ -1057,42 +1156,57 @@ where
     }
     let total_nseq = input.nseq();
     if !args.quiet && seed_seq_count > 0 {
-        progress.message(&format!("--seed: {} seed sequences across {} file(s)",
-                  seed_seq_count, args.seed_files.len()));
+        progress.message(&format!(
+            "--seed: {} seed sequences across {} file(s)",
+            seed_seq_count,
+            args.seed_files.len()
+        ));
     }
 
-    // `--anysymbol` / `--preservecase`: snapshot the originals (case and
-    // non-standard chars intact) and substitute X (protein) / n (DNA)
-    // for any character outside the alignment alphabet before passing
-    // the sequences to the DP. After alignment we restore the original
-    // characters via name-keyed lookup. Mirrors C `replaceu` +
-    // `restoreu` (`mafft-upstream/core/replaceu.c`, `restoreu.c`).
+    // C MAFFT substitutes X (protein) / n (DNA) for any character outside the
+    // alignment alphabet before passing sequences to the DP. With `--anysymbol` /
+    // `--preservecase`, it restores the original characters after alignment.
+    // Mirrors C `replaceu` + `restoreu` (`mafft-upstream/core/replaceu.c`,
+    // `restoreu.c`).
     let anysymbol = args.anysymbol || args.preservecase;
     let originals: Option<std::collections::HashMap<String, Vec<u8>>> = if anysymbol {
-        let is_dna = input.seq_type.is_nucleotide();
-        let map: std::collections::HashMap<String, Vec<u8>> = input.sequences.iter()
-            .map(|s| (s.name.clone(), s.data.clone())).collect();
-        for s in input.sequences.iter_mut() {
-            replace_unusual(&mut s.data, is_dna);
-        }
+        let map: std::collections::HashMap<String, Vec<u8>> = input
+            .sequences
+            .iter()
+            .map(|s| (s.name.clone(), s.data.clone()))
+            .collect();
         Some(map)
     } else {
         None
     };
+    let is_dna = input.seq_type.is_nucleotide();
+    for s in input.sequences.iter_mut() {
+        replace_unusual(&mut s.data, is_dna);
+    }
+    if !anysymbol && add_arg.is_none() {
+        strip_input_gaps(&mut input);
+    }
 
     // Check SCARNA-like mode (requires DASH client — network service)
     if args.scarnalike {
-        return Err(MafftError::new(1,
+        return Err(MafftError::new(
+            1,
             "SCARNA-like mode requires the DASH structural alignment client.\n\
              Install dash_client and ensure it is in your PATH or set MAFFT_BINARIES.\n\
-             See: https://mafft.cbrc.jp/alignment/software/source.html"));
+             See: https://mafft.cbrc.jp/alignment/software/source.html",
+        ));
     }
 
     // `--auto`: pick mode + retree based on input size, mirroring
     // `scripts/mafft:1290-1343`. Overrides --localpair / --globalpair /
     // --genafpair / --parttree / --dpparttree / --maxiterate / --retree.
     let auto_choice = if args.auto {
-        let nlen = input.sequences.iter().map(|s| s.data.len()).max().unwrap_or(0);
+        let nlen = input
+            .sequences
+            .iter()
+            .map(|s| s.data.len())
+            .max()
+            .unwrap_or(0);
         Some(decide_auto(total_nseq, nlen))
     } else {
         None
@@ -1113,24 +1227,24 @@ where
     if !args.seed_files.is_empty() || args.seedtable.is_some() {
         mode = match mode {
             AlignmentMode::FftNs2 => AlignmentMode::FftNsi { iterations: 2 },
-            AlignmentMode::FftNsi { iterations } => {
-                AlignmentMode::FftNsi { iterations: iterations.max(2) }
-            }
-            AlignmentMode::LInsi { iterations } => {
-                AlignmentMode::LInsi { iterations: iterations.max(2) }
-            }
-            AlignmentMode::GInsi { iterations } => {
-                AlignmentMode::GInsi { iterations: iterations.max(2) }
-            }
-            AlignmentMode::EInsi { iterations } => {
-                AlignmentMode::EInsi { iterations: iterations.max(2) }
-            }
-            AlignmentMode::QInsi { iterations } => {
-                AlignmentMode::QInsi { iterations: iterations.max(2) }
-            }
-            AlignmentMode::XInsi { iterations } => {
-                AlignmentMode::XInsi { iterations: iterations.max(2) }
-            }
+            AlignmentMode::FftNsi { iterations } => AlignmentMode::FftNsi {
+                iterations: iterations.max(2),
+            },
+            AlignmentMode::LInsi { iterations } => AlignmentMode::LInsi {
+                iterations: iterations.max(2),
+            },
+            AlignmentMode::GInsi { iterations } => AlignmentMode::GInsi {
+                iterations: iterations.max(2),
+            },
+            AlignmentMode::EInsi { iterations } => AlignmentMode::EInsi {
+                iterations: iterations.max(2),
+            },
+            AlignmentMode::QInsi { iterations } => AlignmentMode::QInsi {
+                iterations: iterations.max(2),
+            },
+            AlignmentMode::XInsi { iterations } => AlignmentMode::XInsi {
+                iterations: iterations.max(2),
+            },
         };
     }
 
@@ -1144,14 +1258,23 @@ where
             AlignmentMode::QInsi { .. } => "Q-INS-i",
             AlignmentMode::XInsi { .. } => "X-INS-i",
         };
-        let seq_type = if input.seq_type.is_nucleotide() { "nuc" } else { "aa" };
+        let seq_type = if input.seq_type.is_nucleotide() {
+            "nuc"
+        } else {
+            "aa"
+        };
         progress.message(&format!("mafft-rs v{}", env!("CARGO_PKG_VERSION")));
-        progress.message(&format!("{total_nseq} sequences ({seq_type}), strategy: {mode_name}"));
+        progress.message(&format!(
+            "{total_nseq} sequences ({seq_type}), strategy: {mode_name}"
+        ));
     }
 
     // Build engine. With `--auto`, the retree count comes from the size
     // heuristic; otherwise the CLI `--retree` value (default 2) wins.
-    let retree = auto_choice.as_ref().map(|a| a.retree).unwrap_or(args.retree);
+    let retree = auto_choice
+        .as_ref()
+        .map(|a| a.retree)
+        .unwrap_or(args.retree);
     let mut engine = MafftEngine::new(mode).with_retree(retree);
     if let Some(op) = args.op {
         engine = engine.with_gap_open(op);
@@ -1182,8 +1305,10 @@ where
         engine.cluster_method = mafft_tree::ClusterMethod::Mix { sueff: 0.0 };
     } else if let Some(s) = args.mixedlinkage {
         if !(0.0..=1.0).contains(&s) {
-            return Err(MafftError::new(1,
-                "The argument of --mixedlinkage must be between 0.0 and 1.0"));
+            return Err(MafftError::new(
+                1,
+                "The argument of --mixedlinkage must be between 0.0 and 1.0",
+            ));
         }
         engine.cluster_method = mafft_tree::ClusterMethod::Mix { sueff: s };
     }
@@ -1204,7 +1329,7 @@ where
             "Note: --rop/--rep/--LOP/--LEXP/--GOP/--GEXP only affect C MAFFT's RNA-structure \
              paths (X-INS-i contrafold, Q-INS-i mccaskill, LARA, DAFS), which require external \
              binaries not shipped with rust-MAFFT. Flag values accepted for compatibility but \
-             have no runtime effect."
+             have no runtime effect.",
         );
     }
 
@@ -1282,8 +1407,14 @@ where
         engine = engine.with_unalign_level(unalign_level);
     }
     // `--auto` may override parttree/dpparttree based on the size heuristic.
-    let parttree = auto_choice.as_ref().map(|a| a.parttree).unwrap_or(args.parttree);
-    let dpparttree = auto_choice.as_ref().map(|a| a.dpparttree).unwrap_or(args.dpparttree);
+    let parttree = auto_choice
+        .as_ref()
+        .map(|a| a.parttree)
+        .unwrap_or(args.parttree);
+    let dpparttree = auto_choice
+        .as_ref()
+        .map(|a| a.dpparttree)
+        .unwrap_or(args.dpparttree);
     if parttree {
         engine = engine.with_parttree(true);
     }
@@ -1298,7 +1429,10 @@ where
     }
     if let Some(ref tree_path) = args.treein {
         if !tree_path.exists() {
-            return Err(MafftError::new(1, format!("Cannot open {}", tree_path.display())));
+            return Err(MafftError::new(
+                1,
+                format!("Cannot open {}", tree_path.display()),
+            ));
         }
         engine.treein_path = Some(tree_path.clone());
     }
@@ -1319,8 +1453,8 @@ where
     // `--memsavetree` overrides distance-based UPGMA tree construction with
     // C MAFFT's compacttree_memsaveselectable algorithm. `--auto` may also
     // request memsavetree in the 100k+ bracket — pass that through too.
-    let memsavetree_active = args.memsavetree
-        || auto_choice.as_ref().map(|a| a.memsavetree).unwrap_or(false);
+    let memsavetree_active =
+        args.memsavetree || auto_choice.as_ref().map(|a| a.memsavetree).unwrap_or(false);
     if memsavetree_active {
         engine.memsavetree = true;
     }
@@ -1360,11 +1494,10 @@ where
         // hand it to the engine like `--seed` would. No sequences are
         // prepended — the file's `i`/`j` reference indices into the user
         // input as supplied.
-        let text = std::fs::read_to_string(path).map_err(|e|
-            MafftError::new(1, format!("Error reading {}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| MafftError::new(1, format!("Error reading {}: {e}", path.display())))?;
         let seed_table = mafft_align::parse_hat3_seed(&text, total_nseq)
-            .map_err(|e|
-                MafftError::new(1, format!("Error parsing {}: {e}", path.display())))?;
+            .map_err(|e| MafftError::new(1, format!("Error parsing {}: {e}", path.display())))?;
         if !args.quiet {
             progress.message(&format!("--seedtable: loaded {}", path.display()));
         }
@@ -1381,112 +1514,128 @@ where
     // / `input` are rebound to shared/exclusive borrows) so this stays a
     // small, reviewable diff rather than a reindent of ~90 unchanged lines.
     let (args_ref, engine_ref, input_ref) = (&args, &engine, &mut input);
-    let mut msa = in_pool(pool.as_ref(), move || -> Result<mafft_core::MultipleAlignment, MafftError> {
+    let align = move || -> Result<mafft_core::MultipleAlignment, MafftError> {
         let (args, engine, input) = (args_ref, engine_ref, input_ref);
         Ok(if let Some(add_path) = add_file {
-        let new_input = read_fasta(add_path).map_err(|e|
-            MafftError::new(1, format!("Error reading {}: {e}", add_path.display())))?;
-        // `--nuc` / `--amino` force the addfile's type too — C passes the
-        // same `$seqtype` to `filter` (`scripts/mafft:1140`) and to every
-        // downstream binary.
-        let new_input = force_seq_type(new_input, args, false);
-        // `--maxambiguous F`: drop noisy sequences from the addfile
-        // before they reach the alignment. C `scripts/mafft:1132-1140`
-        // runs `filter -m F` only on `_addfile`, never on the primary
-        // input — we mirror that gating exactly.
-        let new_input = if let Some(thresh) = args.maxambiguous {
-            let seq_type = new_input.seq_type;
-            let (filtered, dropped) = apply_maxambiguous_filter(new_input, thresh);
-            if dropped > 0 && !args.quiet {
-                let kind = if matches!(seq_type, mafft_types::SeqType::Dna | mafft_types::SeqType::Rna) {
-                    "nucleotides"
-                } else {
-                    "amino acids"
-                };
-                progress.message(&format!(
+            let new_input = read_fasta(add_path).map_err(|e| {
+                MafftError::new(1, format!("Error reading {}: {e}", add_path.display()))
+            })?;
+            // `--nuc` / `--amino` force the addfile's type too — C passes the
+            // same `$seqtype` to `filter` (`scripts/mafft:1140`) and to every
+            // downstream binary.
+            let new_input = force_seq_type(new_input, args, false);
+            // `--maxambiguous F`: drop noisy sequences from the addfile
+            // before they reach the alignment. C `scripts/mafft:1132-1140`
+            // runs `filter -m F` only on `_addfile`, never on the primary
+            // input — we mirror that gating exactly.
+            let new_input = if let Some(thresh) = args.maxambiguous {
+                let seq_type = new_input.seq_type;
+                let (filtered, dropped) = apply_maxambiguous_filter(new_input, thresh);
+                if dropped > 0 && !args.quiet {
+                    let kind = if matches!(
+                        seq_type,
+                        mafft_types::SeqType::Dna | mafft_types::SeqType::Rna
+                    ) {
+                        "nucleotides"
+                    } else {
+                        "amino acids"
+                    };
+                    progress.message(&format!(
                     "\n\nRemoved {dropped} sequence(s) where the frequency of ambiguous {kind} > {thresh:.3}\n\n"
                 ));
-            }
-            filtered
-        } else {
-            new_input
-        };
-        // `--adjustdirection` / `--adjustdirectionaccurately` on the
-        // combined (existing + added) set, with `nadd` slicing so
-        // only the added sequences get orientation-tested. C
-        // `makedirectionlist.c:881-941` mirror.
-        let new_input = if args.adjustdirection || args.adjustdirectionaccurately {
-            use mafft_core::adjust_direction::{adjust_direction_mode_add, AdjustMode};
-            let mode = if args.adjustdirectionaccurately {
-                AdjustMode::Dp
+                }
+                filtered
             } else {
-                AdjustMode::Kmer
+                new_input
             };
-            // Combine existing + added, run adjust with nadd, split back.
-            let nadd = new_input.nseq();
-            let mut combined = input.clone();
-            combined.sequences.extend(new_input.sequences.iter().cloned());
-            let adjusted = adjust_direction_mode_add(&combined, mode, nadd);
-            mafft_types::SequenceSet {
-                sequences: adjusted.sequences.into_iter().skip(input.nseq()).collect(),
-                seq_type: new_input.seq_type,
-            }
-        } else {
-            new_input
-        };
+            // `--adjustdirection` / `--adjustdirectionaccurately` on the
+            // combined (existing + added) set, with `nadd` slicing so
+            // only the added sequences get orientation-tested. C
+            // `makedirectionlist.c:881-941` mirror.
+            let new_input = if args.adjustdirection || args.adjustdirectionaccurately {
+                use mafft_core::adjust_direction::{AdjustMode, adjust_direction_mode_add};
+                let mode = if args.adjustdirectionaccurately {
+                    AdjustMode::Dp
+                } else {
+                    AdjustMode::Kmer
+                };
+                // Combine existing + added, run adjust with nadd, split back.
+                let nadd = new_input.nseq();
+                let mut combined = input.clone();
+                combined
+                    .sequences
+                    .extend(new_input.sequences.iter().cloned());
+                let adjusted = adjust_direction_mode_add(&combined, mode, nadd);
+                mafft_types::SequenceSet {
+                    sequences: adjusted.sequences.into_iter().skip(input.nseq()).collect(),
+                    seq_type: new_input.seq_type,
+                }
+            } else {
+                new_input
+            };
 
-        if !args.quiet {
-            progress.message(&format!("Adding {} sequences to existing alignment", new_input.nseq()));
-        }
-        // `--mapout` / `--compactmapout` both imply `--keeplength` in
-        // C (`scripts/mafft:699-710` set `-Y` along with `-z`/`-Z`).
-        // Use the with-map variant so we can write the `.map` file
-        // below. The keeplength alignment itself is identical.
-        if args.keeplength && (args.mapout || args.compactmapout) {
-            let (msa, deletelist) = engine.add_to_alignment_with_map(input, &new_input);
-            // Write .map file alongside the addfile, mirroring C
-            // `scripts/mafft:2833-2837` (`cp _deletemap "$addfile.map"`).
-            let map_path = {
-                let mut p = add_path.clone();
-                p.as_mut_os_string().push(".map");
-                p
-            };
-            let map_content = if args.compactmapout {
-                build_compact_map(&deletelist, &new_input, &msa, input.nseq())
-            } else {
-                build_full_map(&deletelist, &new_input, &msa, input.nseq())
-            };
-            match std::fs::write(&map_path, map_content) {
-                Ok(_) if !args.quiet =>
-                    progress.message(&format!("Wrote insertion map to {}", map_path.display())),
-                Ok(_) => {}
-                Err(e) => eprintln!("Warning: could not write {}: {e}", map_path.display()),
+            if !args.quiet {
+                progress.message(&format!(
+                    "Adding {} sequences to existing alignment",
+                    new_input.nseq()
+                ));
             }
-            msa
-        } else {
-            engine.add_to_alignment(input, &new_input, args.keeplength)
-        }
-    } else {
-        if args.maxambiguous.is_some() && !args.quiet {
-            // Match C's behaviour: --maxambiguous without --add is a
-            // no-op (the filter only runs on the addfile). Warn so
-            // users don't expect main-input filtering.
-            progress.message("Note: --maxambiguous has no effect without --add / --addfragments");
-        }
-        // `--adjustdirection` without `--add`: every sequence is
-        // orientation-tested (n_anchor = 0 in the algorithm).
-        if args.adjustdirection || args.adjustdirectionaccurately {
-            use mafft_core::adjust_direction::{adjust_direction_mode, AdjustMode};
-            let mode = if args.adjustdirectionaccurately {
-                AdjustMode::Dp
+            // `--mapout` / `--compactmapout` both imply `--keeplength` in
+            // C (`scripts/mafft:699-710` set `-Y` along with `-z`/`-Z`).
+            // Use the with-map variant so we can write the `.map` file
+            // below. The keeplength alignment itself is identical.
+            if args.keeplength && (args.mapout || args.compactmapout) {
+                let (msa, deletelist) = engine.add_to_alignment_with_map(input, &new_input);
+                // Write .map file alongside the addfile, mirroring C
+                // `scripts/mafft:2833-2837` (`cp _deletemap "$addfile.map"`).
+                let map_path = {
+                    let mut p = add_path.clone();
+                    p.as_mut_os_string().push(".map");
+                    p
+                };
+                let map_content = if args.compactmapout {
+                    build_compact_map(&deletelist, &new_input, &msa, input.nseq())
+                } else {
+                    build_full_map(&deletelist, &new_input, &msa, input.nseq())
+                };
+                match std::fs::write(&map_path, map_content) {
+                    Ok(_) if !args.quiet => {
+                        progress.message(&format!("Wrote insertion map to {}", map_path.display()))
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("Warning: could not write {}: {e}", map_path.display()),
+                }
+                msa
             } else {
-                AdjustMode::Kmer
-            };
-            *input = adjust_direction_mode(input, mode);
-        }
-        engine.align(input)
-    })
-    })?;
+                engine.add_to_alignment(input, &new_input, args.keeplength)
+            }
+        } else {
+            if args.maxambiguous.is_some() && !args.quiet {
+                // Match C's behaviour: --maxambiguous without --add is a
+                // no-op (the filter only runs on the addfile). Warn so
+                // users don't expect main-input filtering.
+                progress
+                    .message("Note: --maxambiguous has no effect without --add / --addfragments");
+            }
+            // `--adjustdirection` without `--add`: every sequence is
+            // orientation-tested (n_anchor = 0 in the algorithm).
+            if args.adjustdirection || args.adjustdirectionaccurately {
+                use mafft_core::adjust_direction::{AdjustMode, adjust_direction_mode};
+                let mode = if args.adjustdirectionaccurately {
+                    AdjustMode::Dp
+                } else {
+                    AdjustMode::Kmer
+                };
+                *input = adjust_direction_mode(input, mode);
+            }
+            engine.align(input)
+        })
+    };
+    let mut msa = if args.thread == 1 {
+        in_single_thread_pool(align)
+    } else {
+        in_pool(local_pool.as_ref(), align)
+    }?;
 
     // --distout: write the engine's distance matrix to `<INPUT>.hat2`,
     // mirroring C MAFFT's `cp $TMPFILE/hat2 $infilename.hat2`
@@ -1502,8 +1651,7 @@ where
                     p.as_mut_os_string().push(".hat2");
                     p
                 };
-                let names: Vec<String> = input.sequences.iter()
-                    .map(|s| s.name.clone()).collect();
+                let names: Vec<String> = input.sequences.iter().map(|s| s.name.clone()).collect();
                 let mut distances: Vec<Vec<f64>> = Vec::with_capacity(dm.nseq);
                 for i in 0..dm.nseq {
                     let row_len = dm.nseq - i - 1;
@@ -1519,7 +1667,10 @@ where
                         if let Err(e) = mafft_io::write_hat2(&hat2, &mut f) {
                             eprintln!("Error writing {}: {e}", hat2_path.display());
                         } else if !args.quiet {
-                            progress.message(&format!("Wrote distance matrix to {}", hat2_path.display()));
+                            progress.message(&format!(
+                                "Wrote distance matrix to {}",
+                                hat2_path.display()
+                            ));
                         }
                     }
                     Err(e) => eprintln!("Could not create {}: {e}", hat2_path.display()),
@@ -1529,8 +1680,10 @@ where
                 eprintln!("Warning: --distout requires a file input (stdin not supported)");
             }
             (_, None) => {
-                eprintln!("Warning: --distout: engine did not produce a distance matrix \
-                          (likely --parttree or --treein path)");
+                eprintln!(
+                    "Warning: --distout: engine did not produce a distance matrix \
+                          (likely --parttree or --treein path)"
+                );
             }
         }
     }
@@ -1571,9 +1724,14 @@ where
     // from the gap-stripped original.
     if let Some(orig_map) = originals {
         for i in 0..msa.sequences.len() {
-            let Some(orig) = orig_map.get(&msa.names[i]) else { continue };
-            let orig_no_gaps: Vec<u8> = orig.iter().copied()
-                .filter(|c| *c != b'-' && *c != b'.').collect();
+            let Some(orig) = orig_map.get(&msa.names[i]) else {
+                continue;
+            };
+            let orig_no_gaps: Vec<u8> = orig
+                .iter()
+                .copied()
+                .filter(|c| *c != b'-' && *c != b'.')
+                .collect();
             let mut k = 0;
             for c in msa.sequences[i].iter_mut() {
                 if *c != b'-' && *c != b'.' && k < orig_no_gaps.len() {
@@ -1630,8 +1788,8 @@ where
                 //
                 // Selfscore uses the BASE matrix diagonal (no offsetLN shift)
                 // per `splittbfast.c:3011-3017`.
-                let raw_seqs: Vec<Vec<u8>> = input.sequences.iter()
-                    .map(|s| s.data.clone()).collect();
+                let raw_seqs: Vec<Vec<u8>> =
+                    input.sequences.iter().map(|s| s.data.clone()).collect();
                 let base_matrix = &scoring.consweight_matrix;
                 let amino_map = &scoring.amino_map;
                 let nalpha = base_matrix.len();
@@ -1639,26 +1797,38 @@ where
                 // n_disLN-equivalent: shift residue×residue cells by
                 // `-offsetLN`. Cells involving non-residue indices stay 0.
                 let nscored = scoring.nscoredalphabets;
-                let mut dist_matrix: Vec<Vec<f64>> = (0..nalpha).map(|i| (0..nalpha).map(|j| {
-                    if i < nscored && j < nscored {
-                        base_matrix[i][j] - offset_ln
-                    } else {
-                        0.0
-                    }
-                }).collect()).collect();
+                let mut dist_matrix: Vec<Vec<f64>> = (0..nalpha)
+                    .map(|i| {
+                        (0..nalpha)
+                            .map(|j| {
+                                if i < nscored && j < nscored {
+                                    base_matrix[i][j] - offset_ln
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect();
                 // Mirror C's `makedynamicmtx` '−' row/col skip
                 // (`mltaln9.c:15197-15203`): the gap-index row/col is NOT
                 // shifted so it stays zero, matching C's amino_dynamicmtx.
                 let gap_idx = amino_map[b'-' as usize] as usize;
                 if gap_idx < nalpha {
-                    for j in 0..nalpha { dist_matrix[gap_idx][j] = 0.0; }
-                    for i in 0..nalpha { dist_matrix[i][gap_idx] = 0.0; }
+                    for j in 0..nalpha {
+                        dist_matrix[gap_idx][j] = 0.0;
+                    }
+                    for i in 0..nalpha {
+                        dist_matrix[i][gap_idx] = 0.0;
+                    }
                 }
                 let selfscore_diag = |i: usize| -> i64 {
                     let mut s = 0.0f64;
                     for &c in &raw_seqs[i] {
                         let idx = amino_map[c as usize] as usize;
-                        if idx < nalpha { s += base_matrix[idx][idx]; }
+                        if idx < nalpha {
+                            s += base_matrix[idx][idx];
+                        }
                     }
                     s as i64
                 };
@@ -1668,25 +1838,37 @@ where
                 // `G__align11_noalign` penalizes BOTH terminal gaps —
                 // equivalent to head_gap=true, tail_gap=true.
                 let pair_dp = |i: usize, j: usize| -> f64 {
-                    if i == j { return selfscore_diag(i) as f64; }
+                    if i == j {
+                        return selfscore_diag(i) as f64;
+                    }
                     let aln = mafft_align::global_align(
-                        &raw_seqs[i], &raw_seqs[j], dist_matrix_ref, amino_map, &gap, true, true,
+                        &raw_seqs[i],
+                        &raw_seqs[j],
+                        dist_matrix_ref,
+                        amino_map,
+                        &gap,
+                        true,
+                        true,
                     );
                     aln.score
                 };
-                let seqs_equal = |i: usize, j: usize| -> bool {
-                    raw_seqs[i] == raw_seqs[j]
-                };
+                let seqs_equal = |i: usize, j: usize| -> bool { raw_seqs[i] == raw_seqs[j] };
                 let orilen = |i: usize| -> usize { raw_seqs[i].len() };
                 mafft_tree::parttree_split::run_parttree_pipeline_with_scorer(
-                    raw_seqs.len(), selfscore_diag, orilen, pair_dp, seqs_equal, 50,
-                ).map(|r| mafft_tree::parttree_split::parttree_result_to_newick(&r))
+                    raw_seqs.len(),
+                    selfscore_diag,
+                    orilen,
+                    pair_dp,
+                    seqs_equal,
+                    50,
+                )
+                .map(|r| mafft_tree::parttree_split::parttree_result_to_newick(&r))
             } else if args.parttree {
                 // PartTree (cycle=2): C overwrites `infile.tree` with CALL 2's
                 // (`fromaln=1`) tree, so we use the same fromaln scoring
                 // on the FIRST-pass aligned MSA.
-                let source_msa: &Vec<Vec<u8>> = msa.first_pass_sequences
-                    .as_ref().unwrap_or(&msa.sequences);
+                let source_msa: &Vec<Vec<u8>> =
+                    msa.first_pass_sequences.as_ref().unwrap_or(&msa.sequences);
                 Some(mafft_tree::parttree_split::compute_parttree_newick_fromaln(
                     source_msa,
                     &scoring.consweight_matrix,
@@ -1694,8 +1876,9 @@ where
                     scoring.gap.open as f64,
                 ))
             } else {
-                msa.guide_tree.as_ref().map(|t|
-                    mafft_tree::topology_to_newick(t, &msa.names))
+                msa.guide_tree
+                    .as_ref()
+                    .map(|t| mafft_tree::topology_to_newick(t, &msa.names))
             };
             if let Some(mut newick) = newick_opt {
                 // C `mltaln9.c:2818` appends `#by loadtree\n` to the
@@ -1719,8 +1902,9 @@ where
                     }
                 }
                 match std::fs::write(&tree_path, newick) {
-                    Ok(_) if !args.quiet =>
-                        progress.message(&format!("Wrote guide tree to {}", tree_path.display())),
+                    Ok(_) if !args.quiet => {
+                        progress.message(&format!("Wrote guide tree to {}", tree_path.display()))
+                    }
                     Ok(_) => {}
                     Err(e) => eprintln!("Warning: could not write {}: {e}", tree_path.display()),
                 }
@@ -1732,12 +1916,15 @@ where
 
     // Build output SequenceSet (with gaps)
     let output_seqs = SequenceSet {
-        sequences: msa.sequences.iter().zip(msa.names.iter()).map(|(seq, name)| {
-            Sequence {
+        sequences: msa
+            .sequences
+            .iter()
+            .zip(msa.names.iter())
+            .map(|(seq, name)| Sequence {
                 name: name.clone(),
                 data: seq.clone(),
-            }
-        }).collect(),
+            })
+            .collect(),
         seq_type: input.seq_type,
     };
 
@@ -1746,8 +1933,9 @@ where
     // `run`, a caller-supplied sink for a library call).
     let write_result: Result<(), String> = match &args.output {
         Some(path) => {
-            let file = std::fs::File::create(path).map_err(|e|
-                MafftError::new(1, format!("Error creating {}: {e}", path.display())))?;
+            let file = std::fs::File::create(path).map_err(|e| {
+                MafftError::new(1, format!("Error creating {}: {e}", path.display()))
+            })?;
             let mut writer = io::BufWriter::new(file);
             write_output(&output_seqs, &mut writer, &args)
                 .map_err(|e| e.to_string())
@@ -1793,6 +1981,12 @@ fn replace_unusual(seq: &mut [u8], is_dna: bool) {
     }
 }
 
+fn strip_input_gaps(set: &mut SequenceSet) {
+    for seq in set.sequences.iter_mut() {
+        seq.data.retain(|&c| c != b'-' && c != b'.');
+    }
+}
+
 /// Resolved alignment strategy for `--auto`.
 #[derive(Debug, Clone)]
 struct AutoChoice {
@@ -1816,25 +2010,73 @@ struct AutoChoice {
 /// construction differs). Output for those sizes may diverge from C.
 fn decide_auto(nseq: usize, nlen: usize) -> AutoChoice {
     if nlen < 3000 && nseq < 100 {
-        AutoChoice { mode: AlignmentMode::LInsi { iterations: 1000 }, retree: 1, parttree: false, dpparttree: false, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::LInsi { iterations: 1000 },
+            retree: 1,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: false,
+        }
     } else if nlen < 1000 && nseq < 200 {
-        AutoChoice { mode: AlignmentMode::LInsi { iterations: 2 }, retree: 1, parttree: false, dpparttree: false, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::LInsi { iterations: 2 },
+            retree: 1,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: false,
+        }
     } else if nlen < 10000 && nseq < 500 {
-        AutoChoice { mode: AlignmentMode::FftNsi { iterations: 2 }, retree: 2, parttree: false, dpparttree: false, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::FftNsi { iterations: 2 },
+            retree: 2,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: false,
+        }
     } else if nseq < 20000 {
-        AutoChoice { mode: AlignmentMode::FftNs2, retree: 2, parttree: false, dpparttree: false, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::FftNs2,
+            retree: 2,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: false,
+        }
     } else if nseq < 100000 {
         // C: cycle=2, memsavetree on. See `scripts/mafft:1315-1321`.
-        AutoChoice { mode: AlignmentMode::FftNs2, retree: 2, parttree: false, dpparttree: false, memsavetree: true }
+        AutoChoice {
+            mode: AlignmentMode::FftNs2,
+            retree: 2,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: true,
+        }
     } else if nseq < 200000 {
         // C: cycle=1, memsavetree on. See `scripts/mafft:1322-1328`.
-        AutoChoice { mode: AlignmentMode::FftNs2, retree: 1, parttree: false, dpparttree: false, memsavetree: true }
+        AutoChoice {
+            mode: AlignmentMode::FftNs2,
+            retree: 1,
+            parttree: false,
+            dpparttree: false,
+            memsavetree: true,
+        }
     } else if nlen < 3000 {
         // PartTree + localalign distance (= --dpparttree).
-        AutoChoice { mode: AlignmentMode::FftNs2, retree: 1, parttree: true, dpparttree: true, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::FftNs2,
+            retree: 1,
+            parttree: true,
+            dpparttree: true,
+            memsavetree: false,
+        }
     } else {
         // PartTree + ktuple distance.
-        AutoChoice { mode: AlignmentMode::FftNs2, retree: 1, parttree: true, dpparttree: false, memsavetree: false }
+        AutoChoice {
+            mode: AlignmentMode::FftNs2,
+            retree: 1,
+            parttree: true,
+            dpparttree: false,
+            memsavetree: false,
+        }
     }
 }
 
@@ -1850,15 +2092,25 @@ fn determine_mode(args: &Args) -> AlignmentMode {
     // choice (including `Some(0)`).
     let iters_for = |default: usize| args.maxiterate.unwrap_or(default);
     if args.qinsi {
-        AlignmentMode::QInsi { iterations: iters_for(1000) }
+        AlignmentMode::QInsi {
+            iterations: iters_for(1000),
+        }
     } else if args.xinsi {
-        AlignmentMode::XInsi { iterations: iters_for(1000) }
+        AlignmentMode::XInsi {
+            iterations: iters_for(1000),
+        }
     } else if args.localpair {
-        AlignmentMode::LInsi { iterations: iters_for(0) }
+        AlignmentMode::LInsi {
+            iterations: iters_for(0),
+        }
     } else if args.globalpair {
-        AlignmentMode::GInsi { iterations: iters_for(0) }
+        AlignmentMode::GInsi {
+            iterations: iters_for(0),
+        }
     } else if args.genafpair {
-        AlignmentMode::EInsi { iterations: iters_for(0) }
+        AlignmentMode::EInsi {
+            iterations: iters_for(0),
+        }
     } else if let Some(n) = args.maxiterate.filter(|&n| n > 0) {
         AlignmentMode::FftNsi { iterations: n }
     } else {
@@ -1913,10 +2165,7 @@ fn clustal_strategy_label(args: &Args) -> &'static str {
 /// Returns the filtered SequenceSet plus the number of sequences
 /// removed (for the stderr report `Removed N sequence(s) where the
 /// frequency of ambiguous ... > F`).
-fn apply_maxambiguous_filter(
-    input: SequenceSet,
-    threshold: f64,
-) -> (SequenceSet, usize) {
+fn apply_maxambiguous_filter(input: SequenceSet, threshold: f64) -> (SequenceSet, usize) {
     use mafft_types::SeqType;
     let (usual, unknown): (&[u8], u8) = match input.seq_type {
         SeqType::Dna | SeqType::Rna => (b"ATGCUatgcu-", b'n'),
@@ -1926,10 +2175,7 @@ fn apply_maxambiguous_filter(
     let mut dropped = 0usize;
     for seq in input.sequences {
         // gappick0: strip gaps before counting.
-        let ungapped: Vec<u8> = seq.data.iter()
-            .copied()
-            .filter(|&b| b != b'-')
-            .collect();
+        let ungapped: Vec<u8> = seq.data.iter().copied().filter(|&b| b != b'-').collect();
         if ungapped.is_empty() {
             // Empty after gap strip → unusual fraction = 0/0 = NaN; C
             // treats this as "all ambiguous" via division-by-zero
@@ -1938,9 +2184,7 @@ fn apply_maxambiguous_filter(
             dropped += 1;
             continue;
         }
-        let unusual_count = ungapped.iter()
-            .filter(|&&b| !usual.contains(&b))
-            .count();
+        let unusual_count = ungapped.iter().filter(|&&b| !usual.contains(&b)).count();
         let frac = unusual_count as f64 / ungapped.len() as f64;
         if frac > threshold {
             dropped += 1;
@@ -1961,9 +2205,15 @@ fn apply_maxambiguous_filter(
                 prev_was_unknown = false;
             }
         }
-        kept.push(Sequence { name: seq.name, data: collapsed });
+        kept.push(Sequence {
+            name: seq.name,
+            data: collapsed,
+        });
     }
-    let filtered = SequenceSet { sequences: kept, seq_type: input.seq_type };
+    let filtered = SequenceSet {
+        sequences: kept,
+        seq_type: input.seq_type,
+    };
     (filtered, dropped)
 }
 
@@ -1975,12 +2225,11 @@ fn apply_maxambiguous_filter(
 /// The divisor 600 unwinds C's scoring-matrix scaling (`consweight_matrix`
 /// values are 600× the canonical BLOSUM/JTT/etc. integers), so the
 /// reported number lines up with the canonical scoring-matrix units.
-fn compute_unweighted_sp_score(
-    seqs: &[Vec<u8>],
-    scoring: &mafft_types::ScoringContext,
-) -> f64 {
+fn compute_unweighted_sp_score(seqs: &[Vec<u8>], scoring: &mafft_types::ScoringContext) -> f64 {
     let nseq = seqs.len();
-    if nseq < 2 { return 0.0; }
+    if nseq < 2 {
+        return 0.0;
+    }
     let mut total = 0.0f64;
     for i in 1..nseq {
         for j in 0..i {
@@ -1997,11 +2246,7 @@ fn compute_unweighted_sp_score(
 /// matches C's `while (*p1 == '-')` loop). Matches mostly use
 /// `consweight_matrix` (f64) for byte-identity with C's
 /// `(double)amino_dis[c1][c2]` cast.
-fn naivepairscore11(
-    seq1: &[u8],
-    seq2: &[u8],
-    scoring: &mafft_types::ScoringContext,
-) -> f64 {
+fn naivepairscore11(seq1: &[u8], seq2: &[u8], scoring: &mafft_types::ScoringContext) -> f64 {
     let map = &scoring.amino_map;
     let mtx = &scoring.consweight_matrix;
     let mtx_size = mtx.len();
@@ -2012,17 +2257,24 @@ fn naivepairscore11(
     while k < len {
         let a = seq1[k];
         let b = seq2[k];
-        if a == b'-' && b == b'-' { k += 1; continue; }
+        if a == b'-' && b == b'-' {
+            k += 1;
+            continue;
+        }
         if a == b'-' {
             score += penalty;
             k += 1;
-            while k < len && seq1[k] == b'-' { k += 1; }
+            while k < len && seq1[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         if b == b'-' {
             score += penalty;
             k += 1;
-            while k < len && seq2[k] == b'-' { k += 1; }
+            while k < len && seq2[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         let i = map[a as usize] as usize;
@@ -2069,17 +2321,21 @@ fn build_nodeout_density_section(
     let nseq = topology.nseq;
 
     // Per-leaf density (port of setdensity, mltaln9.c:1366-1395).
-    let density: Vec<f64> = (0..nseq).map(|i| {
-        let mut s = 0.0f64;
-        for j in 0..nseq {
-            if j == i { continue; }
-            let d = dm.get(i, j);
-            if d < 1.0 {
-                s += 2.0 - d;
+    let density: Vec<f64> = (0..nseq)
+        .map(|i| {
+            let mut s = 0.0f64;
+            for j in 0..nseq {
+                if j == i {
+                    continue;
+                }
+                let d = dm.get(i, j);
+                if d < 1.0 {
+                    s += 2.0 - d;
+                }
             }
-        }
-        s
-    }).collect();
+            s
+        })
+        .collect();
 
     let mut out = String::new();
     out.push_str("\nDensity:");
@@ -2104,21 +2360,21 @@ fn build_nodeout_density_section(
         best
     };
     for (k, step) in topology.steps.iter().enumerate() {
-        let _ = write!(
-            out,
-            "\nNode {}, Height={:.6}\n",
-            k + 1, step_heights[k]
-        );
+        let _ = write!(out, "\nNode {}, Height={:.6}\n", k + 1, step_heights[k]);
         let left = &step.left;
         let densest_left = getdensest(left);
         let _ = write!(out, "{}:", densest_left + 1);
-        for &m in left { let _ = write!(out, " {}", m + 1); }
+        for &m in left {
+            let _ = write!(out, " {}", m + 1);
+        }
         out.push('\n');
 
         let right = &step.right;
         let densest_right = getdensest(right);
         let _ = write!(out, "{}:", densest_right + 1);
-        for &m in right { let _ = write!(out, " {}", m + 1); }
+        for &m in right {
+            let _ = write!(out, " {}", m + 1);
+        }
         out.push('\n');
     }
     out
@@ -2147,7 +2403,9 @@ fn build_full_map(
         let mut dropped = vec![false; len];
         for &(p, run) in dl {
             for k in 0..run {
-                if p + k < len { dropped[p + k] = true; }
+                if p + k < len {
+                    dropped[p + k] = true;
+                }
             }
         }
         let _ = writeln!(out, ">{}", new_input.sequences[i].name);
@@ -2194,13 +2452,17 @@ fn build_compact_map(
     let mut out = String::new();
     out.push_str("# Insertion in added sequence > Position in reference\n");
     for (i, dl) in deletelist.iter().enumerate() {
-        if dl.is_empty() { continue; }
+        if dl.is_empty() {
+            continue;
+        }
         let addbk: &[u8] = &new_input.sequences[i].data;
         let len = addbk.len();
         let mut dropped = vec![false; len];
         for &(p, run) in dl {
             for k in 0..run {
-                if p + k < len { dropped[p + k] = true; }
+                if p + k < len {
+                    dropped[p + k] = true;
+                }
             }
         }
         let _ = writeln!(out, ">{}", new_input.sequences[i].name);
@@ -2257,16 +2519,16 @@ fn write_output<W: Write>(
             let marks = mafft_io::compute_clustal_marks(seqs);
             let label = clustal_strategy_label(args);
             mafft_io::write_clustal_full(
-                seqs, writer, None, args.namelength,
-                Some(marks.as_str()), Some(label),
+                seqs,
+                writer,
+                None,
+                args.namelength,
+                Some(marks.as_str()),
+                Some(label),
             )
         }
-        "phylip" | "phy" => {
-            mafft_io::write_phylip(seqs, writer, None, args.namelength)
-        }
-        _ => {
-            mafft_io::write_fasta_to_writer_with_width(seqs, writer, args.linewidth)
-        }
+        "phylip" | "phy" => mafft_io::write_phylip(seqs, writer, None, args.namelength),
+        _ => mafft_io::write_fasta_to_writer_with_width(seqs, writer, args.linewidth),
     }
 }
 
@@ -2498,14 +2760,22 @@ mod tests {
     fn gap_penalty_flags_parse_signed_floats() {
         let a = Args::parse_from([
             "mafft-rs",
-            "--exp", "0.1",
-            "--shiftpenalty", "3.0",
-            "--lop", "-3.0",
-            "--lep", "0.2",
-            "--lexp", "-0.2",
-            "--gop", "-1.53",
-            "--gep", "0.15",
-            "--gexp", "-0.05",
+            "--exp",
+            "0.1",
+            "--shiftpenalty",
+            "3.0",
+            "--lop",
+            "-3.0",
+            "--lep",
+            "0.2",
+            "--lexp",
+            "-0.2",
+            "--gop",
+            "-1.53",
+            "--gep",
+            "0.15",
+            "--gexp",
+            "-0.05",
         ]);
         assert_eq!(a.exp, Some(0.1));
         assert_eq!(a.shiftpenalty, Some(3.0));
@@ -2541,14 +2811,20 @@ TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
 
     fn protein_set() -> SequenceSet {
         SequenceSet {
-            sequences: vec![Sequence { name: "p".into(), data: b"MKALVWQHY".to_vec() }],
+            sequences: vec![Sequence {
+                name: "p".into(),
+                data: b"MKALVWQHY".to_vec(),
+            }],
             seq_type: mafft_types::SeqType::Protein,
         }
     }
 
     fn dna_set() -> SequenceSet {
         SequenceSet {
-            sequences: vec![Sequence { name: "d".into(), data: b"ACGTACGTAC".to_vec() }],
+            sequences: vec![Sequence {
+                name: "d".into(),
+                data: b"ACGTACGTAC".to_vec(),
+            }],
             seq_type: mafft_types::SeqType::Dna,
         }
     }
@@ -2608,7 +2884,8 @@ TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
         let err = run_from(
             ["mafft-rs", "--nodeout", "--maxiterate", "5", "unread.fa"],
             &mut out,
-        ).expect_err("--nodeout with --maxiterate > 0 must fail");
+        )
+        .expect_err("--nodeout with --maxiterate > 0 must fail");
         assert_eq!(err.code(), 1);
         assert_eq!(
             err.message(),
@@ -2620,12 +2897,17 @@ TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
     #[test]
     fn run_from_returns_err_for_unreadable_input() {
         let mut out = Vec::new();
-        let err = run_from(["mafft-rs", "/nonexistent/mafft-rs-test-input.fa"], &mut out)
-            .expect_err("a missing input file must fail");
+        let err = run_from(
+            ["mafft-rs", "/nonexistent/mafft-rs-test-input.fa"],
+            &mut out,
+        )
+        .expect_err("a missing input file must fail");
         assert_eq!(err.code(), 1);
         assert!(
-            err.message().starts_with("Error reading /nonexistent/mafft-rs-test-input.fa: "),
-            "unexpected message: {}", err.message()
+            err.message()
+                .starts_with("Error reading /nonexistent/mafft-rs-test-input.fa: "),
+            "unexpected message: {}",
+            err.message()
         );
         assert!(out.is_empty());
     }
@@ -2644,7 +2926,8 @@ TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
                 path.clone().into_os_string(),
             ],
             &mut out,
-        ).expect_err("--memsave with --localpair must fail");
+        )
+        .expect_err("--memsave with --localpair must fail");
         assert_eq!(err.code(), 1);
         assert_eq!(err.message(), "Impossible");
         assert!(out.is_empty());
@@ -2697,6 +2980,19 @@ TTGGCTAGCTTGGACCATTGCAGCTACCCATGGAACTTGGGCCATTAGGCTTTGACGTAG
         std::fs::remove_file(&path).ok();
     }
 
+    #[test]
+    fn normal_alignment_input_strips_existing_gaps() {
+        let mut set = SequenceSet {
+            sequences: vec![Sequence {
+                name: "a".into(),
+                data: b"A-C.D".to_vec(),
+            }],
+            seq_type: mafft_types::SeqType::Protein,
+        };
+        strip_input_gaps(&mut set);
+        assert_eq!(set.sequences[0].data, b"ACD");
+    }
+
     /// `--preservecase` keeps the input's own case for nucleotides, so a
     /// mixed-case input survives the round trip verbatim.
     #[test]
@@ -2710,10 +3006,21 @@ ATGGCTAGCTTGGACCATTGCAGGTACCCTTGGAACTTGGCCATTAGGCATTGACCTAGG
 atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
 ";
         let path = write_tmp_fasta("preservecase", MIXED);
-        let out = Mafft::new().quiet().arg("--preservecase").input(&path).run_to_vec().unwrap();
+        let out = Mafft::new()
+            .quiet()
+            .arg("--preservecase")
+            .input(&path)
+            .run_to_vec()
+            .unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert!(text.contains("ATGGCtagcTTGG"), "original case must survive: {text}");
-        assert!(text.contains("atggcaagctta"), "original case must survive: {text}");
+        assert!(
+            text.contains("ATGGCtagcTTGG"),
+            "original case must survive: {text}"
+        );
+        assert!(
+            text.contains("atggcaagctta"),
+            "original case must survive: {text}"
+        );
         std::fs::remove_file(&path).ok();
     }
 
@@ -2728,7 +3035,8 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
                 path.clone().into_os_string(),
             ],
             &mut out,
-        ).expect("alignment should succeed");
+        )
+        .expect("alignment should succeed");
         assert!(out.starts_with(b">"));
         assert_eq!(out.iter().filter(|&&c| c == b'>').count(), 4);
         std::fs::remove_file(&path).ok();
@@ -2740,9 +3048,19 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
         // (`mafft_io::compute_clustal_marks`), so they are a direct,
         // deterministic read-out of what `--amino` forced.
         let path = write_tmp_fasta("amino-e2e", DNA_FASTA);
-        let auto = Mafft::new().quiet().format("clustal").input(&path).run_to_vec().unwrap();
-        let forced =
-            Mafft::new().quiet().format("clustal").amino().input(&path).run_to_vec().unwrap();
+        let auto = Mafft::new()
+            .quiet()
+            .format("clustal")
+            .input(&path)
+            .run_to_vec()
+            .unwrap();
+        let forced = Mafft::new()
+            .quiet()
+            .format("clustal")
+            .amino()
+            .input(&path)
+            .run_to_vec()
+            .unwrap();
         assert!(!auto.is_empty());
         assert_ne!(
             auto, forced,
@@ -2769,7 +3087,8 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
                 path.clone().into_os_string(),
             ],
             &mut via_argv,
-        ).expect("argv run should succeed");
+        )
+        .expect("argv run should succeed");
         let via_builder = Mafft::new()
             .auto()
             .adjust_direction()
@@ -2799,7 +3118,8 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
             ],
             &mut out,
             &sink,
-        ).expect("alignment should succeed");
+        )
+        .expect("alignment should succeed");
         let msgs = seen.lock().unwrap().clone();
         assert!(
             msgs.iter().any(|m| m.starts_with("mafft-rs v")),
@@ -2854,15 +3174,24 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
             ],
             &mut out,
             &sink,
-        ).unwrap();
-        assert!(seen.lock().unwrap().is_empty(), "{:?}", seen.lock().unwrap());
+        )
+        .unwrap();
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "{:?}",
+            seen.lock().unwrap()
+        );
         std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn builder_progress_sink_is_used() {
         let path = write_tmp_fasta("progress-builder", DNA_FASTA);
-        let silent = Mafft::new().progress(SilentProgress).input(&path).run_to_vec().unwrap();
+        let silent = Mafft::new()
+            .progress(SilentProgress)
+            .input(&path)
+            .run_to_vec()
+            .unwrap();
         let default = Mafft::new().input(&path).run_to_vec().unwrap();
         assert_eq!(silent, default);
         assert!(!silent.is_empty());
@@ -2889,9 +3218,13 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
             ],
             &mut out,
             &sink,
-        ).expect("alignment should succeed");
+        )
+        .expect("alignment should succeed");
         let msgs = seen.lock().unwrap().clone();
-        assert!(msgs.iter().any(|m| m.starts_with("Alignment: ")), "{msgs:?}");
+        assert!(
+            msgs.iter().any(|m| m.starts_with("Alignment: ")),
+            "{msgs:?}"
+        );
         assert!(
             !msgs.iter().any(|m| m.contains("sum-of-pairs score")),
             "--scoreout output must not go through the progress sink: {msgs:?}"
@@ -2911,21 +3244,21 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
         let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
         let dynref: &(dyn Progress + Sync) = &sink;
         let outs: Vec<Vec<u8>> = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..4).map(|_| {
-                let path = path.clone();
-                scope.spawn(move || {
-                    let mut out = Vec::new();
-                    run_from_with_progress(
-                        [
-                            std::ffi::OsString::from("mafft-rs"),
-                            path.into_os_string(),
-                        ],
-                        &mut out,
-                        dynref,
-                    ).expect("alignment should succeed");
-                    out
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    let path = path.clone();
+                    scope.spawn(move || {
+                        let mut out = Vec::new();
+                        run_from_with_progress(
+                            [std::ffi::OsString::from("mafft-rs"), path.into_os_string()],
+                            &mut out,
+                            dynref,
+                        )
+                        .expect("alignment should succeed");
+                        out
+                    })
                 })
-            }).collect();
+                .collect();
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
         // Every thread produced the same alignment...
@@ -2933,8 +3266,29 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
         assert!(!outs[0].is_empty());
         // ...and every thread's progress reached the one shared sink.
         let msgs = seen.lock().unwrap();
-        assert_eq!(msgs.iter().filter(|m| m.starts_with("Alignment: ")).count(), 4);
+        assert_eq!(
+            msgs.iter().filter(|m| m.starts_with("Alignment: ")).count(),
+            4
+        );
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn thread_one_pool_is_cached_per_caller_thread() {
+        let first = thread_local_single_thread_pool_addr();
+        let second = thread_local_single_thread_pool_addr();
+        assert!(first.is_some());
+        assert_eq!(first, second);
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let other_barrier = barrier.clone();
+        let other = std::thread::spawn(move || {
+            let addr = thread_local_single_thread_pool_addr();
+            other_barrier.wait();
+            addr
+        });
+        barrier.wait();
+        assert_ne!(first, other.join().unwrap());
     }
 
     /// A library caller may run many alignments in one process; the
@@ -2955,7 +3309,8 @@ atggcaagcttagacctttgcaggtacgcatggaactagggcctttaggcattgacctag
                     path.clone().into_os_string(),
                 ],
                 &mut out,
-            ).expect("alignment should succeed");
+            )
+            .expect("alignment should succeed");
             if let Some(p) = &prev {
                 assert_eq!(p, &out, "thread count must not change the alignment");
             }

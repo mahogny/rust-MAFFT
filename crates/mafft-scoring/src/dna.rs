@@ -1,5 +1,4 @@
 /// DNA scoring matrices from DNA.h.
-
 use crate::round_half_away;
 
 /// Generate a DNA scoring matrix via Kimura PAM model.
@@ -14,10 +13,10 @@ pub fn generate_dna_pam(kimura_r: i32, pam_n: usize, offset: i32) -> [[i32; 4]; 
 
     // Kimura rate matrix
     let rate = [
-        [0.0, kr,  1.0, 1.0],
-        [kr,  0.0, 1.0, 1.0],
-        [1.0, 1.0, 0.0, kr ],
-        [1.0, 1.0, kr,  0.0],
+        [0.0, kr, 1.0, 1.0],
+        [kr, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, kr],
+        [1.0, 1.0, kr, 0.0],
     ];
 
     // Compute mutability and delta
@@ -25,7 +24,9 @@ pub fn generate_dna_pam(kimura_r: i32, pam_n: usize, offset: i32) -> [[i32; 4]; 
     let mut total = 0.0;
     for i in 0..4 {
         let mut m = 0.0;
-        for j in 0..4 { m += rate[i][j] * freq[j]; }
+        for j in 0..4 {
+            m += rate[i][j] * freq[j];
+        }
         mutability[i] = m;
         total += m * freq[i];
     }
@@ -45,13 +46,17 @@ pub fn generate_dna_pam(kimura_r: i32, pam_n: usize, offset: i32) -> [[i32; 4]; 
 
     // Exponentiate: pamx = pam1^pam_n
     let mut pamx = [[0.0f64; 4]; 4];
-    for i in 0..4 { pamx[i][i] = 1.0; } // identity
+    for i in 0..4 {
+        pamx[i][i] = 1.0;
+    } // identity
     for _ in 0..pam_n {
         let prev = pamx;
         for i in 0..4 {
             for j in 0..4 {
                 let mut s = 0.0;
-                for k in 0..4 { s += prev[i][k] * pam1[k][j]; }
+                for k in 0..4 {
+                    s += prev[i][k] * pam1[k][j];
+                }
                 pamx[i][j] = s;
             }
         }
@@ -67,28 +72,52 @@ pub fn generate_dna_pam(kimura_r: i32, pam_n: usize, offset: i32) -> [[i32; 4]; 
     // Log transform
     for i in 0..4 {
         for j in 0..4 {
-            if pamx[i][j] <= 0.0 { pamx[i][j] = 0.00001; }
+            if pamx[i][j] <= 0.0 {
+                pamx[i][j] = 0.00001;
+            }
             pamx[i][j] = pamx[i][j].log10() * 1000.0;
         }
     }
 
     // Normalize: subtract weighted average
     let mut average = 0.0;
-    for i in 0..4 { for j in 0..4 { average += pamx[i][j] * freq[i] * freq[j]; } }
-    for i in 0..4 { for j in 0..4 { pamx[i][j] -= average; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            average += pamx[i][j] * freq[i] * freq[j];
+        }
+    }
+    for i in 0..4 {
+        for j in 0..4 {
+            pamx[i][j] -= average;
+        }
+    }
 
     // Scale by 600 / diagonal average (C uses uniform 1/4 weighting)
     average = 0.0;
-    for i in 0..4 { average += pamx[i][i] * 0.25; }
-    for i in 0..4 { for j in 0..4 { pamx[i][j] *= 600.0 / average; } }
+    for i in 0..4 {
+        average += pamx[i][i] * 0.25;
+    }
+    for i in 0..4 {
+        for j in 0..4 {
+            pamx[i][j] *= 600.0 / average;
+        }
+    }
 
     // Subtract offset
     let ofs = offset as f64;
-    for i in 0..4 { for j in 0..4 { pamx[i][j] -= ofs; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            pamx[i][j] -= ofs;
+        }
+    }
 
     // Round
     let mut result = [[0i32; 4]; 4];
-    for i in 0..4 { for j in 0..4 { result[i][j] = round_half_away(pamx[i][j]); } }
+    for i in 0..4 {
+        for j in 0..4 {
+            result[i][j] = round_half_away(pamx[i][j]);
+        }
+    }
     result
 }
 
@@ -99,10 +128,14 @@ pub fn default_dna_matrix() -> [[i32; 26]; 26] {
 
     // Core 4x4: a(0), g(1), c(2), t(3)
     // Matches score 1000, transitions 600, transversions 0
-    m[0][0] = 1000; m[0][1] = 600;
-    m[1][0] = 600;  m[1][1] = 1000;
-    m[2][2] = 1000; m[2][3] = 600;
-    m[3][2] = 600;  m[3][3] = 1000;
+    m[0][0] = 1000;
+    m[0][1] = 600;
+    m[1][0] = 600;
+    m[1][1] = 1000;
+    m[2][2] = 1000;
+    m[2][3] = 600;
+    m[3][2] = 600;
+    m[3][3] = 1000;
 
     // Gap penalties in the matrix (index 25 = 'O')
     for i in 0..25 {
@@ -161,46 +194,90 @@ pub fn build_ribosumdis(offset: i32) -> [[i32; 37]; 37] {
 
     // Subtract weighted average
     let mut avg = 0.0;
-    for i in 0..4 { for j in 0..4 { avg += r4[i][j] * freq[i] * freq[j]; } }
-    for i in 0..4 { for j in 0..4 { r4[i][j] -= avg; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            avg += r4[i][j] * freq[i] * freq[j];
+        }
+    }
+    for i in 0..4 {
+        for j in 0..4 {
+            r4[i][j] -= avg;
+        }
+    }
 
     // Scale by 600 / diagonal average
     avg = 0.0;
-    for i in 0..4 { avg += r4[i][i] * freq[i]; }
-    for i in 0..4 { for j in 0..4 { r4[i][j] *= 600.0 / avg; } }
+    for i in 0..4 {
+        avg += r4[i][i] * freq[i];
+    }
+    for i in 0..4 {
+        for j in 0..4 {
+            r4[i][j] *= 600.0 / avg;
+        }
+    }
 
     // Subtract offset
     let ofs = offset as f64;
-    for i in 0..4 { for j in 0..4 { r4[i][j] -= ofs; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            r4[i][j] -= ofs;
+        }
+    }
 
     // Round
-    for i in 0..4 { for j in 0..4 { r4[i][j] = round_half_away(r4[i][j]) as f64; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            r4[i][j] = round_half_away(r4[i][j]) as f64;
+        }
+    }
 
     // --- Normalize ribosum16 ---
     let mut r16 = DNA_RIBOSUM16;
 
     // Subtract weighted average (4D: freq[i]*freq[j]*freq[k]*freq[m])
     avg = 0.0;
-    for i in 0..4 { for j in 0..4 { for k in 0..4 { for m in 0..4 {
-        avg += r16[i*4+j][k*4+m] * freq[i] * freq[j] * freq[k] * freq[m];
-    }}}}
-    for i in 0..16 { for j in 0..16 { r16[i][j] -= avg; } }
+    for i in 0..4 {
+        for j in 0..4 {
+            for k in 0..4 {
+                for m in 0..4 {
+                    avg += r16[i * 4 + j][k * 4 + m] * freq[i] * freq[j] * freq[k] * freq[m];
+                }
+            }
+        }
+    }
+    for i in 0..16 {
+        for j in 0..16 {
+            r16[i][j] -= avg;
+        }
+    }
 
     // Scale by 600 / base-pair diagonal average
     avg = 0.0;
-    avg += r16[0*4+3][0*4+3] * freq[0] * freq[3]; // AU
-    avg += r16[3*4+0][3*4+0] * freq[3] * freq[0]; // UA
-    avg += r16[1*4+2][1*4+2] * freq[1] * freq[2]; // CG
-    avg += r16[2*4+1][2*4+1] * freq[2] * freq[1]; // GC
-    avg += r16[1*4+3][1*4+3] * freq[1] * freq[3]; // GU
-    avg += r16[3*4+1][3*4+1] * freq[3] * freq[1]; // UG
-    for i in 0..16 { for j in 0..16 { r16[i][j] *= 600.0 / avg; } }
+    avg += r16[0 * 4 + 3][0 * 4 + 3] * freq[0] * freq[3]; // AU
+    avg += r16[3 * 4 + 0][3 * 4 + 0] * freq[3] * freq[0]; // UA
+    avg += r16[1 * 4 + 2][1 * 4 + 2] * freq[1] * freq[2]; // CG
+    avg += r16[2 * 4 + 1][2 * 4 + 1] * freq[2] * freq[1]; // GC
+    avg += r16[1 * 4 + 3][1 * 4 + 3] * freq[1] * freq[3]; // GU
+    avg += r16[3 * 4 + 1][3 * 4 + 1] * freq[3] * freq[1]; // UG
+    for i in 0..16 {
+        for j in 0..16 {
+            r16[i][j] *= 600.0 / avg;
+        }
+    }
 
     // Subtract offset
-    for i in 0..16 { for j in 0..16 { r16[i][j] -= ofs; } }
+    for i in 0..16 {
+        for j in 0..16 {
+            r16[i][j] -= ofs;
+        }
+    }
 
     // Round
-    for i in 0..16 { for j in 0..16 { r16[i][j] = round_half_away(r16[i][j]) as f64; } }
+    for i in 0..16 {
+        for j in 0..16 {
+            r16[i][j] = round_half_away(r16[i][j]) as f64;
+        }
+    }
 
     // --- Assemble 37×37 ---
     let mut dis = [[0i32; 37]; 37];
@@ -211,17 +288,25 @@ pub fn build_ribosumdis(offset: i32) -> [[i32; 37]; 37] {
         for i in 0..4 {
             for k in 0..9 {
                 for j in 0..4 {
-                    dis[m*4+i][k*4+j] = r4[i][j] as i32;
+                    dis[m * 4 + i][k * 4 + j] = r4[i][j] as i32;
                 }
             }
         }
     }
 
     // Overlay stem5-stem5 at [4..20][4..20] (first stem block)
-    for i in 0..16 { for j in 0..16 { dis[i+4][j+4] = r16[i][j] as i32; } }
+    for i in 0..16 {
+        for j in 0..16 {
+            dis[i + 4][j + 4] = r16[i][j] as i32;
+        }
+    }
 
     // Overlay stem5-stem5 at [20..36][20..36] (second stem block)
-    for i in 0..16 { for j in 0..16 { dis[i+20][j+20] = r16[i][j] as i32; } }
+    for i in 0..16 {
+        for j in 0..16 {
+            dis[i + 20][j + 20] = r16[i][j] as i32;
+        }
+    }
 
     dis
 }
@@ -249,7 +334,9 @@ mod tests {
             assert!(
                 (diff - 221).abs() <= 1,
                 "ribosumdis[{i}][{j}] offset diff: prod={}, legacy={}, diff={}",
-                prod[i][j], legacy[i][j], diff
+                prod[i][j],
+                legacy[i][j],
+                diff
             );
         }
 

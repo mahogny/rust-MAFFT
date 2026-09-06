@@ -1,9 +1,7 @@
 use std::io::Cursor;
 use std::path::PathBuf;
 
-use mafft_io::{
-    detect_seq_type, read_fasta, write_clustal, write_fasta_to_writer, write_phylip,
-};
+use mafft_io::{detect_seq_type, read_fasta, write_clustal, write_fasta_to_writer, write_phylip};
 use mafft_types::SeqType;
 
 fn test_data_path(name: &str) -> PathBuf {
@@ -86,11 +84,7 @@ fn clustal_output_has_correct_structure() {
     assert!(output.starts_with("CLUSTAL format alignment by MAFFT"));
 
     // Must contain sequence names (first word)
-    let first_word = seqs.sequences[0]
-        .name
-        .split_whitespace()
-        .next()
-        .unwrap();
+    let first_word = seqs.sequences[0].name.split_whitespace().next().unwrap();
     assert!(
         output.contains(first_word),
         "missing first sequence name: {first_word}"

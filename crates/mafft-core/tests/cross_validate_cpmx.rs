@@ -53,11 +53,14 @@ unsafe fn init_c_protein() {
 ///     cargo test -p mafft-core --release --test cross_validate_cpmx \
 ///         -- --ignored --nocapture
 #[test]
-#[cfg_attr(target_os = "linux", ignore = "free(): invalid pointer on glibc — see fn docstring")]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "free(): invalid pointer on glibc — see fn docstring"
+)]
 fn rust_blend_matches_c_blend_cell_by_cell() {
+    use mafft_align::profile_align_imp_with_boundary;
     use std::ffi::CString;
-    use std::os::raw::{c_char, c_double, c_int};
-    use mafft_align::profile_align_imp_with_boundary; // anchor unused import
+    use std::os::raw::{c_char, c_double, c_int}; // anchor unused import
     let _ = profile_align_imp_with_boundary; // silence warning
 
     // 3-way (cluster1) and 5-way (cluster2), same alignment width.
@@ -90,10 +93,10 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
     let w2 = vec![1.0 / n2 as f64; n2];
     let r1: Vec<&[u8]> = seq1.iter().map(|s| s.as_slice()).collect();
     let r2: Vec<&[u8]> = seq2.iter().map(|s| s.as_slice()).collect();
-    let prof1 = mafft_align::Profile::from_aligned(&r1, &w1,
-        &scoring.amino_map, scoring.nalphabets);
-    let prof2 = mafft_align::Profile::from_aligned(&r2, &w2,
-        &scoring.amino_map, scoring.nalphabets);
+    let prof1 =
+        mafft_align::Profile::from_aligned(&r1, &w1, &scoring.amino_map, scoring.nalphabets);
+    let prof2 =
+        mafft_align::Profile::from_aligned(&r2, &w2, &scoring.amino_map, scoring.nalphabets);
 
     // Realistic gappy gaptables: simulate a merge that inserts 4 gap
     // columns into cluster1 at positions {7, 8, 18} and 3 gap columns
@@ -104,10 +107,10 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
     let alen = len + 3; // 30
     let mut gaptable1 = vec![b'o'; alen];
     let mut gaptable2 = vec![b'o'; alen];
-    gaptable1[2] = b'-';  // gap in cluster1, residue from cluster2
+    gaptable1[2] = b'-'; // gap in cluster1, residue from cluster2
     gaptable1[14] = b'-';
     gaptable1[25] = b'-';
-    gaptable2[7] = b'-';  // gap in cluster2, residue from cluster1
+    gaptable2[7] = b'-'; // gap in cluster2, residue from cluster1
     gaptable2[8] = b'-';
     gaptable2[18] = b'-';
     // Verify counts: non-gap-1 == prof1.length, non-gap-2 == prof2.length.
@@ -124,58 +127,90 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
 
     // ===== Rust blend (our implementation). =====
     let rust_blended = mafft_core::progressive::blend_profiles_exact(
-        &prof1, &prof2, eff1, eff2, &gaptable1, &gaptable2, scoring.nalphabets,
+        &prof1,
+        &prof2,
+        eff1,
+        eff2,
+        &gaptable1,
+        &gaptable2,
+        scoring.nalphabets,
     );
 
     // ===== C blend via FFI (createcpmxresult + creategapfreqresult +
     // createogresult + createfgresult). =====
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     // Build C cpmx for prof1/prof2 via cpmx_calc_new (already verified
     // bit-identical to Rust Profile::from_aligned in another test).
     let nalpha = scoring.nalphabets;
-    let mut c_seq1: Vec<CString> = seq1.iter()
-        .map(|s| CString::new(s.clone()).unwrap()).collect();
-    let mut c_seq1_ptrs: Vec<*mut c_char> = c_seq1.iter_mut()
-        .map(|s| s.as_ptr() as *mut c_char).collect();
-    let mut c_seq2: Vec<CString> = seq2.iter()
-        .map(|s| CString::new(s.clone()).unwrap()).collect();
-    let mut c_seq2_ptrs: Vec<*mut c_char> = c_seq2.iter_mut()
-        .map(|s| s.as_ptr() as *mut c_char).collect();
+    let mut c_seq1: Vec<CString> = seq1
+        .iter()
+        .map(|s| CString::new(s.clone()).unwrap())
+        .collect();
+    let mut c_seq1_ptrs: Vec<*mut c_char> = c_seq1
+        .iter_mut()
+        .map(|s| s.as_ptr() as *mut c_char)
+        .collect();
+    let mut c_seq2: Vec<CString> = seq2
+        .iter()
+        .map(|s| CString::new(s.clone()).unwrap())
+        .collect();
+    let mut c_seq2_ptrs: Vec<*mut c_char> = c_seq2
+        .iter_mut()
+        .map(|s| s.as_ptr() as *mut c_char)
+        .collect();
 
     // C cpmx is computed on the ORIGINAL (pre-blend) sequences, length
     // = prof1.length / prof2.length, NOT the output blend length.
     let prof1_len = prof1.length; // 27
     let prof2_len = prof2.length; // 27
     let mut c_cpmx1_rows: Vec<Vec<f64>> = (0..nalpha).map(|_| vec![0.0; prof1_len]).collect();
-    let mut c_cpmx1_ptrs: Vec<*mut c_double> = c_cpmx1_rows.iter_mut()
-        .map(|r| r.as_mut_ptr()).collect();
+    let mut c_cpmx1_ptrs: Vec<*mut c_double> =
+        c_cpmx1_rows.iter_mut().map(|r| r.as_mut_ptr()).collect();
     let mut c_cpmx2_rows: Vec<Vec<f64>> = (0..nalpha).map(|_| vec![0.0; prof2_len]).collect();
-    let mut c_cpmx2_ptrs: Vec<*mut c_double> = c_cpmx2_rows.iter_mut()
-        .map(|r| r.as_mut_ptr()).collect();
+    let mut c_cpmx2_ptrs: Vec<*mut c_double> =
+        c_cpmx2_rows.iter_mut().map(|r| r.as_mut_ptr()).collect();
 
     let mut eff1_arr = vec![1.0 / n1 as f64; n1];
     let mut eff2_arr = vec![1.0 / n2 as f64; n2];
 
     unsafe {
         mafft_sys::cpmx_calc_new(
-            c_seq1_ptrs.as_mut_ptr(), c_cpmx1_ptrs.as_mut_ptr(),
-            eff1_arr.as_mut_ptr(), prof1_len as c_int, n1 as c_int);
+            c_seq1_ptrs.as_mut_ptr(),
+            c_cpmx1_ptrs.as_mut_ptr(),
+            eff1_arr.as_mut_ptr(),
+            prof1_len as c_int,
+            n1 as c_int,
+        );
         mafft_sys::cpmx_calc_new(
-            c_seq2_ptrs.as_mut_ptr(), c_cpmx2_ptrs.as_mut_ptr(),
-            eff2_arr.as_mut_ptr(), prof2_len as c_int, n2 as c_int);
+            c_seq2_ptrs.as_mut_ptr(),
+            c_cpmx2_ptrs.as_mut_ptr(),
+            eff2_arr.as_mut_ptr(),
+            prof2_len as c_int,
+            n2 as c_int,
+        );
     }
 
     // Build C gap_freq via gapcountf — on input length, not output.
     let mut c_gapf1 = vec![0.0f64; prof1_len];
     let mut c_gapf2 = vec![0.0f64; prof2_len];
     unsafe {
-        mafft_sys::gapcountf(c_gapf1.as_mut_ptr(),
-            c_seq1_ptrs.as_mut_ptr(), n1 as c_int,
-            eff1_arr.as_mut_ptr(), prof1_len as c_int);
-        mafft_sys::gapcountf(c_gapf2.as_mut_ptr(),
-            c_seq2_ptrs.as_mut_ptr(), n2 as c_int,
-            eff2_arr.as_mut_ptr(), prof2_len as c_int);
+        mafft_sys::gapcountf(
+            c_gapf1.as_mut_ptr(),
+            c_seq1_ptrs.as_mut_ptr(),
+            n1 as c_int,
+            eff1_arr.as_mut_ptr(),
+            prof1_len as c_int,
+        );
+        mafft_sys::gapcountf(
+            c_gapf2.as_mut_ptr(),
+            c_seq2_ptrs.as_mut_ptr(),
+            n2 as c_int,
+            eff2_arr.as_mut_ptr(),
+            prof2_len as c_int,
+        );
     }
     // C's gapfreq*pt[i] = 1.0 - gapfreq*pt[i] (Salignmm.c:1495,1519).
     // Then gapfreq*pt[lgth] = 1.0 (line 1531-1532).
@@ -190,14 +225,34 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
     let mut c_fg1 = vec![0.0f64; prof1_len];
     let mut c_fg2 = vec![0.0f64; prof2_len];
     unsafe {
-        mafft_sys::st_OpeningGapCount(c_og1.as_mut_ptr(), n1 as c_int,
-            c_seq1_ptrs.as_mut_ptr(), eff1_arr.as_mut_ptr(), prof1_len as c_int);
-        mafft_sys::st_FinalGapCount(c_fg1.as_mut_ptr(), n1 as c_int,
-            c_seq1_ptrs.as_mut_ptr(), eff1_arr.as_mut_ptr(), prof1_len as c_int);
-        mafft_sys::st_OpeningGapCount(c_og2.as_mut_ptr(), n2 as c_int,
-            c_seq2_ptrs.as_mut_ptr(), eff2_arr.as_mut_ptr(), prof2_len as c_int);
-        mafft_sys::st_FinalGapCount(c_fg2.as_mut_ptr(), n2 as c_int,
-            c_seq2_ptrs.as_mut_ptr(), eff2_arr.as_mut_ptr(), prof2_len as c_int);
+        mafft_sys::st_OpeningGapCount(
+            c_og1.as_mut_ptr(),
+            n1 as c_int,
+            c_seq1_ptrs.as_mut_ptr(),
+            eff1_arr.as_mut_ptr(),
+            prof1_len as c_int,
+        );
+        mafft_sys::st_FinalGapCount(
+            c_fg1.as_mut_ptr(),
+            n1 as c_int,
+            c_seq1_ptrs.as_mut_ptr(),
+            eff1_arr.as_mut_ptr(),
+            prof1_len as c_int,
+        );
+        mafft_sys::st_OpeningGapCount(
+            c_og2.as_mut_ptr(),
+            n2 as c_int,
+            c_seq2_ptrs.as_mut_ptr(),
+            eff2_arr.as_mut_ptr(),
+            prof2_len as c_int,
+        );
+        mafft_sys::st_FinalGapCount(
+            c_fg2.as_mut_ptr(),
+            n2 as c_int,
+            c_seq2_ptrs.as_mut_ptr(),
+            eff2_arr.as_mut_ptr(),
+            prof2_len as c_int,
+        );
     }
 
     // C totaleff (Salignmm.c:2105-2106): orieff1/(orieff1+orieff2).
@@ -230,10 +285,12 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
         mafft_sys::rs_createcpmxresult(
             c_blend_freqs_rows.as_mut_ptr(),
             len as c_int,
-            eff1, eff2,
+            eff1,
+            eff2,
             &mut c_cpmx1_ptrs.as_mut_ptr() as *mut *mut *mut c_double,
             &mut c_cpmx2_ptrs.as_mut_ptr() as *mut *mut *mut c_double,
-            gt1_ptr, gt2_ptr,
+            gt1_ptr,
+            gt2_ptr,
         );
     }
 
@@ -243,10 +300,12 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
         mafft_sys::rs_creategapfreqresult(
             &mut c_blend_nongap as *mut *mut f64,
             len as c_int,
-            eff1, eff2,
+            eff1,
+            eff2,
             c_nongap1.as_mut_ptr(),
             c_nongap2.as_mut_ptr(),
-            gt1_ptr, gt2_ptr,
+            gt1_ptr,
+            gt2_ptr,
         );
     }
 
@@ -256,10 +315,14 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
         mafft_sys::rs_createogresult(
             &mut c_blend_og as *mut *mut f64,
             len as c_int,
-            eff1, eff2,
-            c_og1.as_mut_ptr(), c_og2.as_mut_ptr(),
-            c_nongap1.as_mut_ptr(), c_nongap2.as_mut_ptr(),
-            gt1_ptr, gt2_ptr,
+            eff1,
+            eff2,
+            c_og1.as_mut_ptr(),
+            c_og2.as_mut_ptr(),
+            c_nongap1.as_mut_ptr(),
+            c_nongap2.as_mut_ptr(),
+            gt1_ptr,
+            gt2_ptr,
         );
     }
 
@@ -269,10 +332,14 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
         mafft_sys::rs_createfgresult(
             &mut c_blend_fg as *mut *mut f64,
             len as c_int,
-            eff1, eff2,
-            c_fg1.as_mut_ptr(), c_fg2.as_mut_ptr(),
-            c_nongap1.as_mut_ptr(), c_nongap2.as_mut_ptr(),
-            gt1_ptr, gt2_ptr,
+            eff1,
+            eff2,
+            c_fg1.as_mut_ptr(),
+            c_fg2.as_mut_ptr(),
+            c_nongap1.as_mut_ptr(),
+            c_nongap2.as_mut_ptr(),
+            gt1_ptr,
+            gt2_ptr,
         );
     }
 
@@ -340,10 +407,22 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
     }
 
     eprintln!("\nBLEND CELL-BY-CELL COMPARISON (3+5 merge, len={}):", len);
-    eprintln!("  freqs:  max|diff| = {:.3e}, diff cells = {}", fmax, fcount);
-    eprintln!("  nongap: max|diff| = {:.3e}, diff cells = {}", ngmax, ngcount);
-    eprintln!("  ogcp:   max|diff| = {:.3e}, diff cells = {}", ogmax, ogcount);
-    eprintln!("  fgcp:   max|diff| = {:.3e}, diff cells = {}", fgmax, fgcount);
+    eprintln!(
+        "  freqs:  max|diff| = {:.3e}, diff cells = {}",
+        fmax, fcount
+    );
+    eprintln!(
+        "  nongap: max|diff| = {:.3e}, diff cells = {}",
+        ngmax, ngcount
+    );
+    eprintln!(
+        "  ogcp:   max|diff| = {:.3e}, diff cells = {}",
+        ogmax, ogcount
+    );
+    eprintln!(
+        "  fgcp:   max|diff| = {:.3e}, diff cells = {}",
+        fgmax, fgcount
+    );
 
     // We expect all to match. If they don't, the diff cells tell us
     // exactly which positions to investigate.
@@ -357,11 +436,19 @@ fn rust_blend_matches_c_blend_cell_by_cell() {
     // checker on process teardown (`free(): invalid pointer` SIGABRT).
     unsafe {
         for ptr in &c_blend_freqs_rows {
-            if !ptr.is_null() { libc::free(*ptr as *mut std::ffi::c_void); }
+            if !ptr.is_null() {
+                libc::free(*ptr as *mut std::ffi::c_void);
+            }
         }
-        if !c_blend_nongap.is_null() { libc::free(c_blend_nongap as *mut std::ffi::c_void); }
-        if !c_blend_og.is_null() { libc::free(c_blend_og as *mut std::ffi::c_void); }
-        if !c_blend_fg.is_null() { libc::free(c_blend_fg as *mut std::ffi::c_void); }
+        if !c_blend_nongap.is_null() {
+            libc::free(c_blend_nongap as *mut std::ffi::c_void);
+        }
+        if !c_blend_og.is_null() {
+            libc::free(c_blend_og as *mut std::ffi::c_void);
+        }
+        if !c_blend_fg.is_null() {
+            libc::free(c_blend_fg as *mut std::ffi::c_void);
+        }
     }
 }
 
@@ -388,9 +475,14 @@ fn rust_from_scratch_matches_rust_blend() {
         b"MKEVYIAKQRQVAYIKSHFSRPAEERLT--AIEVPDQIIS--PRVGDPVQDQL".to_vec(),
     ];
     let len = seqs.iter().map(|s| s.len()).max().unwrap();
-    let seqs: Vec<Vec<u8>> = seqs.iter().map(|s| {
-        let mut v = s.clone(); v.resize(len, b'-'); v
-    }).collect();
+    let seqs: Vec<Vec<u8>> = seqs
+        .iter()
+        .map(|s| {
+            let mut v = s.clone();
+            v.resize(len, b'-');
+            v
+        })
+        .collect();
 
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
 
@@ -400,8 +492,12 @@ fn rust_from_scratch_matches_rust_blend() {
 
     // (a) From scratch on all 8 sequences with global weights summing to 1.
     let all_refs: Vec<&[u8]> = seqs.iter().map(|s| s.as_slice()).collect();
-    let prof_all = Profile::from_aligned(&all_refs, &all_weights,
-        &scoring.amino_map, scoring.nalphabets);
+    let prof_all = Profile::from_aligned(
+        &all_refs,
+        &all_weights,
+        &scoring.amino_map,
+        scoring.nalphabets,
+    );
 
     // (b) Build 3-way and 5-way separately with intra-cluster normalized
     // weights, then blend with eff1 = 3/8, eff2 = 5/8.
@@ -426,8 +522,8 @@ fn rust_from_scratch_matches_rust_blend() {
     let mut blend_freqs = vec![vec![0.0f64; scoring.nalphabets]; len];
     for j in 0..len {
         for k in 0..scoring.nalphabets {
-            blend_freqs[j][k] = prof1.freqs[j][k].mul_add(eff1, blend_freqs[j][k]);
-            blend_freqs[j][k] = prof2.freqs[j][k].mul_add(eff2, blend_freqs[j][k]);
+            blend_freqs[j][k] = prof1.freqs[j][k] * eff1 + blend_freqs[j][k];
+            blend_freqs[j][k] = prof2.freqs[j][k] * eff2 + blend_freqs[j][k];
         }
     }
 
@@ -439,21 +535,27 @@ fn rust_from_scratch_matches_rust_blend() {
             let d = (prof_all.freqs[j][k] - blend_freqs[j][k]).abs();
             if d > 0.0 {
                 if n_diff < 5 {
-                    eprintln!("DIFF: pos={} k={} from_scratch={:.20} blend={:.20} d={:.3e}",
-                        j, k, prof_all.freqs[j][k], blend_freqs[j][k], d);
+                    eprintln!(
+                        "DIFF: pos={} k={} from_scratch={:.20} blend={:.20} d={:.3e}",
+                        j, k, prof_all.freqs[j][k], blend_freqs[j][k], d
+                    );
                 }
                 n_diff += 1;
             }
             max_diff = max_diff.max(d);
         }
     }
-    eprintln!("from-scratch vs blend: max |diff| = {:.3e}, cells differing = {}",
-              max_diff, n_diff);
+    eprintln!(
+        "from-scratch vs blend: max |diff| = {:.3e}, cells differing = {}",
+        max_diff, n_diff
+    );
     if max_diff > 0.0 {
-        eprintln!("Confirms: from-scratch (cpmx_calc_new) and blend (createcpmxresult) \
+        eprintln!(
+            "Confirms: from-scratch (cpmx_calc_new) and blend (createcpmxresult) \
                    are NOT bit-identical. C uses blend at internal merges via cpmxhist; \
                    Rust uses from-scratch when not caching. This precision drift drives \
-                   pass-1 tied-DP-cell flips on BB20027 step 13.");
+                   pass-1 tied-DP-cell flips on BB20027 step 13."
+        );
     }
 }
 
@@ -462,26 +564,19 @@ fn rust_from_scratch_matches_rust_blend() {
 fn rust_profile_freqs_match_c_cpmx_calc_new() {
     // 8 aligned sequences of equal length, with realistic gaps.
     let seqs: Vec<Vec<u8>> = vec![
-        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQAPILS---RVGDGTQDNL"
-            .to_vec(),
-        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQGSILS---RVADGTQDNI"
-            .to_vec(),
-        b"MKTAYIAKQRQISFLKSHFSRQLEERLG--LIEVQAPILK---RVGDGTQDNL"
-            .to_vec(),
-        b"MKVAYVAKQRTLSWVKAHISRSAEEERLNGTLEEKVNAVPN---RVGDGTKEEI"
-            .to_vec(),
-        b"-KAVHISKVRTLSWVKAHISRSAEAERLNGTLEEKVNAVPN---RVGDGTKEEI"
-            .to_vec(),
-        b"MAA-YVAKQRTLSWVKAHISRSAEAERLNGTLEEKVNAVRN---RVGDGTAEEI"
-            .to_vec(),
-        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQAPILS---RVGDGTQDNL"
-            .to_vec(),
-        b"MKEVYIAKQRQVAYIKSHFSRPAEERLT--AIEVPDQIIS--PRVGDPVQDQL"
-            .to_vec(),
+        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQAPILS---RVGDGTQDNL".to_vec(),
+        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQGSILS---RVADGTQDNI".to_vec(),
+        b"MKTAYIAKQRQISFLKSHFSRQLEERLG--LIEVQAPILK---RVGDGTQDNL".to_vec(),
+        b"MKVAYVAKQRTLSWVKAHISRSAEEERLNGTLEEKVNAVPN---RVGDGTKEEI".to_vec(),
+        b"-KAVHISKVRTLSWVKAHISRSAEAERLNGTLEEKVNAVPN---RVGDGTKEEI".to_vec(),
+        b"MAA-YVAKQRTLSWVKAHISRSAEAERLNGTLEEKVNAVRN---RVGDGTAEEI".to_vec(),
+        b"MKTAYIAKQRQISFVKSHFSRQLEERLG--LIEVQAPILS---RVGDGTQDNL".to_vec(),
+        b"MKEVYIAKQRQVAYIKSHFSRPAEERLT--AIEVPDQIIS--PRVGDPVQDQL".to_vec(),
     ];
     // Verify all same length (pad with - if not).
     let len = seqs.iter().map(|s| s.len()).max().unwrap();
-    let seqs_padded: Vec<Vec<u8>> = seqs.iter()
+    let seqs_padded: Vec<Vec<u8>> = seqs
+        .iter()
         .map(|s| {
             let mut v = s.clone();
             v.resize(len, b'-');
@@ -497,28 +592,29 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
     // ====== Rust path ======
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
     let seq_refs: Vec<&[u8]> = seqs_padded.iter().map(|s| s.as_slice()).collect();
-    let rust_prof = Profile::from_aligned(&seq_refs, &weights,
-        &scoring.amino_map, scoring.nalphabets);
+    let rust_prof =
+        Profile::from_aligned(&seq_refs, &weights, &scoring.amino_map, scoring.nalphabets);
 
     // ====== C path ======
-    unsafe { init_c_protein(); }
+    unsafe {
+        init_c_protein();
+    }
 
     // C expects null-terminated C strings, mutable.
-    let mut c_seqs: Vec<CString> = seqs_padded.iter()
+    let mut c_seqs: Vec<CString> = seqs_padded
+        .iter()
         .map(|s| CString::new(s.clone()).unwrap())
         .collect();
-    let mut c_seq_ptrs: Vec<*mut c_char> = c_seqs.iter_mut()
+    let mut c_seq_ptrs: Vec<*mut c_char> = c_seqs
+        .iter_mut()
         .map(|s| s.as_ptr() as *mut c_char)
         .collect();
 
     // Allocate cpmx[nalphabets][lgth] for C.
     let nalpha = scoring.nalphabets;
-    let mut c_cpmx_rows: Vec<Vec<f64>> = (0..nalpha)
-        .map(|_| vec![0.0f64; len])
-        .collect();
-    let mut c_cpmx_ptrs: Vec<*mut c_double> = c_cpmx_rows.iter_mut()
-        .map(|r| r.as_mut_ptr())
-        .collect();
+    let mut c_cpmx_rows: Vec<Vec<f64>> = (0..nalpha).map(|_| vec![0.0f64; len]).collect();
+    let mut c_cpmx_ptrs: Vec<*mut c_double> =
+        c_cpmx_rows.iter_mut().map(|r| r.as_mut_ptr()).collect();
 
     let mut c_eff: Vec<f64> = weights.clone();
 
@@ -543,24 +639,34 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
             if d > 1e-15 {
                 total_diffs += 1;
                 if total_diffs <= 10 {
-                    eprintln!("DIFF: pos={} k={} rust={:.16} c={:.16} d={:.3e}",
-                              pos, k, r, c, d);
+                    eprintln!(
+                        "DIFF: pos={} k={} rust={:.16} c={:.16} d={:.3e}",
+                        pos, k, r, c, d
+                    );
                 }
             }
             max_diff = max_diff.max(d);
         }
     }
-    eprintln!("freqs: max |diff| = {:.3e}, total cells differing = {}",
-              max_diff, total_diffs);
-    assert!(max_diff < 1e-13,
-        "Rust Profile::from_aligned freqs do not bit-match C cpmx_calc_new");
+    eprintln!(
+        "freqs: max |diff| = {:.3e}, total cells differing = {}",
+        max_diff, total_diffs
+    );
+    assert!(
+        max_diff < 1e-13,
+        "Rust Profile::from_aligned freqs do not bit-match C cpmx_calc_new"
+    );
 
     // ===== Compare gap_freq: Rust vs C gapcountf =====
     let mut c_gapf = vec![0.0f64; len];
     unsafe {
-        mafft_sys::gapcountf(c_gapf.as_mut_ptr(),
-            c_seq_ptrs.as_mut_ptr(), nseq as c_int,
-            c_eff.as_mut_ptr(), len as c_int);
+        mafft_sys::gapcountf(
+            c_gapf.as_mut_ptr(),
+            c_seq_ptrs.as_mut_ptr(),
+            nseq as c_int,
+            c_eff.as_mut_ptr(),
+            len as c_int,
+        );
     }
     let mut gap_max: f64 = 0.0;
     let mut gap_diffs = 0;
@@ -576,7 +682,10 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
         }
         gap_max = gap_max.max(d);
     }
-    eprintln!("gap_freq: max |diff| = {:.3e}, cells differing = {}", gap_max, gap_diffs);
+    eprintln!(
+        "gap_freq: max |diff| = {:.3e}, cells differing = {}",
+        gap_max, gap_diffs
+    );
     assert!(gap_max < 1e-13, "Rust gap_freq != C gapcountf");
 
     // ===== Compare ogcp/fgcp: Rust raw opening/closing counts vs C
@@ -584,10 +693,20 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
     let mut c_og = vec![0.0f64; len];
     let mut c_fg = vec![0.0f64; len];
     unsafe {
-        mafft_sys::st_OpeningGapCount(c_og.as_mut_ptr(), nseq as c_int,
-            c_seq_ptrs.as_mut_ptr(), c_eff.as_mut_ptr(), len as c_int);
-        mafft_sys::st_FinalGapCount(c_fg.as_mut_ptr(), nseq as c_int,
-            c_seq_ptrs.as_mut_ptr(), c_eff.as_mut_ptr(), len as c_int);
+        mafft_sys::st_OpeningGapCount(
+            c_og.as_mut_ptr(),
+            nseq as c_int,
+            c_seq_ptrs.as_mut_ptr(),
+            c_eff.as_mut_ptr(),
+            len as c_int,
+        );
+        mafft_sys::st_FinalGapCount(
+            c_fg.as_mut_ptr(),
+            nseq as c_int,
+            c_seq_ptrs.as_mut_ptr(),
+            c_eff.as_mut_ptr(),
+            len as c_int,
+        );
     }
     let mut og_max: f64 = 0.0;
     let mut og_diffs = 0;
@@ -603,7 +722,10 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
         }
         og_max = og_max.max(d);
     }
-    eprintln!("ogcp: max |diff| = {:.3e}, cells differing = {}", og_max, og_diffs);
+    eprintln!(
+        "ogcp: max |diff| = {:.3e}, cells differing = {}",
+        og_max, og_diffs
+    );
     let mut fg_max: f64 = 0.0;
     let mut fg_diffs = 0;
     for pos in 0..len {
@@ -618,7 +740,10 @@ fn rust_profile_freqs_match_c_cpmx_calc_new() {
         }
         fg_max = fg_max.max(d);
     }
-    eprintln!("fgcp: max |diff| = {:.3e}, cells differing = {}", fg_max, fg_diffs);
+    eprintln!(
+        "fgcp: max |diff| = {:.3e}, cells differing = {}",
+        fg_max, fg_diffs
+    );
     assert!(og_max < 1e-13, "Rust ogcp != C st_OpeningGapCount");
     assert!(fg_max < 1e-13, "Rust fgcp != C st_FinalGapCount");
 }

@@ -1,8 +1,7 @@
 /// End-to-end integration tests: read real test data, align, verify output.
-
 use std::path::PathBuf;
 
-use mafft_core::{MafftEngine, AlignmentMode};
+use mafft_core::{AlignmentMode, MafftEngine};
 use mafft_io::{read_fasta, read_fasta_casepreserve};
 use mafft_types::Sequence;
 
@@ -72,8 +71,13 @@ fn align_sample_with_refinement() {
     let msa_prog = engine_prog.align(&input);
     for (i, seq) in msa_prog.sequences.iter().enumerate() {
         let residues = seq.iter().filter(|&&c| c != b'-').count();
-        assert_eq!(residues, input.sequences[i].data.len(),
-            "progressive lost residues for seq {i}: {} vs {}", residues, input.sequences[i].data.len());
+        assert_eq!(
+            residues,
+            input.sequences[i].data.len(),
+            "progressive lost residues for seq {i}: {} vs {}",
+            residues,
+            input.sequences[i].data.len()
+        );
     }
 
     // Now test with refinement
@@ -83,15 +87,23 @@ fn align_sample_with_refinement() {
     let width = msa.width();
     assert!(width > 0);
     for (i, seq) in msa.sequences.iter().enumerate() {
-        assert_eq!(seq.len(), width, "sequence {i} width mismatch after refinement");
+        assert_eq!(
+            seq.len(),
+            width,
+            "sequence {i} width mismatch after refinement"
+        );
     }
 
     // Ungapped residue counts should be preserved
     for (i, seq) in msa.sequences.iter().enumerate() {
         let residue_count = seq.iter().filter(|&&c| c != b'-').count();
-        assert_eq!(residue_count, input.sequences[i].data.len(),
+        assert_eq!(
+            residue_count,
+            input.sequences[i].data.len(),
             "sequence {i} lost residues during refinement: {} vs {}",
-            residue_count, input.sequences[i].data.len());
+            residue_count,
+            input.sequences[i].data.len()
+        );
     }
 }
 
@@ -110,9 +122,11 @@ fn fftns2_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq(), "different number of sequences");
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "FFT-NS-2 width differs: Rust={}, C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len()
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
     );
 
     let mut mismatches = 0usize;
@@ -148,9 +162,11 @@ fn fftnsi_byte_identical_to_c() {
     let msa = MafftEngine::new(AlignmentMode::FftNsi { iterations: 100 }).align(&input);
 
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "FFT-NS-i width differs: Rust={}, C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
 
     let mut mismatches = 0usize;
@@ -158,7 +174,8 @@ fn fftnsi_byte_identical_to_c() {
         if msa.sequences[i] != c_ref.sequences[i].data {
             mismatches += 1;
             if mismatches <= 3 {
-                let first_diff = msa.sequences[i].iter()
+                let first_diff = msa.sequences[i]
+                    .iter()
                     .zip(c_ref.sequences[i].data.iter())
                     .position(|(a, b)| a != b)
                     .unwrap_or(usize::MAX);
@@ -169,7 +186,10 @@ fn fftnsi_byte_identical_to_c() {
             }
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches} sequence(s) differ from C's FFT-NS-i output");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} sequence(s) differ from C's FFT-NS-i output"
+    );
 }
 
 /// Regression guard for the FFT-segmented refinement boundary-frequencies
@@ -198,7 +218,6 @@ fn fftnsi_segmented_boundary_byte_identical_to_c() {
         );
     }
 }
-
 
 /// Every NW-NS-2 merge step's `(clus1, clus2, width, score)` must match C's.
 ///
@@ -231,9 +250,11 @@ fn nofft_per_step_matches_c() {
         .collect();
 
     assert_eq!(
-        msa.step_trace.len(), expected.len(),
+        msa.step_trace.len(),
+        expected.len(),
         "step count differs: Rust has {} steps, C has {}",
-        msa.step_trace.len(), expected.len()
+        msa.step_trace.len(),
+        expected.len()
     );
 
     let mut first_mismatch: Option<usize> = None;
@@ -247,8 +268,7 @@ fn nofft_per_step_matches_c() {
             eprintln!(
                 "first step mismatch at index {i}: \
                  Rust=({} {} {} {:.1}), C=({} {} {} {:.1})",
-                got.clus1, got.clus2, got.width, got.score,
-                want.0, want.1, want.2, want.3
+                got.clus1, got.clus2, got.width, got.score, want.0, want.1, want.2, want.3
             );
         }
     }
@@ -331,7 +351,8 @@ fn nofft_op_override_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --op 2.5"
     );
     for i in 0..msa.nseq() {
@@ -364,9 +385,11 @@ fn nofft_bl80_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --bl 80 --nofft: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -396,9 +419,11 @@ fn fftns2_bl45_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --bl 45: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -441,9 +466,11 @@ fn fftns2_bl50_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --bl 50: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -469,9 +496,11 @@ fn fftns2_bl30_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --bl 30: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -502,9 +531,11 @@ fn fftns2_jtt200_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --jtt 200: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -539,9 +570,11 @@ fn nofft_tm200_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --tm 200 --nofft: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -594,9 +627,11 @@ fn fftns2_bl80_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --bl 80: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -627,7 +662,8 @@ fn nofft_ep_override_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --ep 0.5"
     );
     for i in 0..msa.nseq() {
@@ -661,7 +697,8 @@ fn rna_nofft_case_insensitive_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "RNA alignment width differs"
     );
 
@@ -670,7 +707,8 @@ fn rna_nofft_case_insensitive_identical_to_c() {
     }
     for i in 0..msa.nseq() {
         assert_eq!(
-            lower(&msa.sequences[i]), lower(&c_ref.sequences[i].data),
+            lower(&msa.sequences[i]),
+            lower(&c_ref.sequences[i].data),
             "RNA seq {i} differs from C (case-insensitive)"
         );
     }
@@ -679,7 +717,9 @@ fn rna_nofft_case_insensitive_identical_to_c() {
 /// Compute sum-of-pairs identity score for an alignment.
 fn sum_of_pairs_identity(sequences: &[Vec<u8>]) -> f64 {
     let n = sequences.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let mut total_match = 0u64;
     let mut total_aligned = 0u64;
     for i in 0..n {
@@ -697,7 +737,11 @@ fn sum_of_pairs_identity(sequences: &[Vec<u8>]) -> f64 {
             }
         }
     }
-    if total_aligned == 0 { 0.0 } else { total_match as f64 / total_aligned as f64 }
+    if total_aligned == 0 {
+        0.0
+    } else {
+        total_match as f64 / total_aligned as f64
+    }
 }
 
 #[test]
@@ -716,7 +760,7 @@ fn align_rna_sample() {
 
 #[test]
 fn diagnostic_guide_tree() {
-    use mafft_tree::{DistanceMatrix, musclesupg, ClusterMethod, ktuple_distance};
+    use mafft_tree::{ClusterMethod, DistanceMatrix, ktuple_distance, musclesupg};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let nseq = input.nseq();
@@ -735,11 +779,15 @@ fn diagnostic_guide_tree() {
     let mut count = 0;
     for i in 0..nseq {
         for j in (i + 1)..nseq {
-            if count >= 5 { break; }
+            if count >= 5 {
+                break;
+            }
             eprintln!("  d({},{}) = {:.6}", i, j, dm.get(i, j));
             count += 1;
         }
-        if count >= 5 { break; }
+        if count >= 5 {
+            break;
+        }
     }
 
     // Build tree and print first 5 merge steps
@@ -750,23 +798,29 @@ fn diagnostic_guide_tree() {
         let mut right: Vec<usize> = step.right.clone();
         left.sort();
         right.sort();
-        eprintln!("  Step {}: {:?} + {:?} (len: {:.4}, {:.4})",
-            i, left, right, step.left_length, step.right_length);
+        eprintln!(
+            "  Step {}: {:?} + {:?} (len: {:.4}, {:.4})",
+            i, left, right, step.left_length, step.right_length
+        );
     }
 
     // Basic structural check
     let last = topo.steps.last().unwrap();
     let mut all: Vec<usize> = last.left.iter().chain(last.right.iter()).copied().collect();
     all.sort();
-    assert_eq!(all, (0..nseq).collect::<Vec<_>>(), "tree doesn't cover all sequences");
+    assert_eq!(
+        all,
+        (0..nseq).collect::<Vec<_>>(),
+        "tree doesn't cover all sequences"
+    );
 }
 
 #[test]
 fn diagnostic_fft_anchoring() {
-    use mafft_types::{ScoringModel, SeqType};
-    use mafft_scoring::build_context;
-    use mafft_align::{Profile, FftAlignParams, fft_profile_align, profile_align, GapModel};
+    use mafft_align::{FftAlignParams, GapModel, Profile, fft_profile_align, profile_align};
     use mafft_fft::SegmentParams;
+    use mafft_scoring::build_context;
+    use mafft_types::{ScoringModel, SeqType};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -799,8 +853,16 @@ fn diagnostic_fft_anchoring() {
     };
     let fft_aln = fft_profile_align(&prof1, &prof2, &scoring.consweight_matrix, &fft_params);
 
-    eprintln!("Direct DP:  score={:.1}, ops={}", dp_aln.score, dp_aln.operations.len());
-    eprintln!("FFT accel:  score={:.1}, ops={}", fft_aln.score, fft_aln.operations.len());
+    eprintln!(
+        "Direct DP:  score={:.1}, ops={}",
+        dp_aln.score,
+        dp_aln.operations.len()
+    );
+    eprintln!(
+        "FFT accel:  score={:.1}, ops={}",
+        fft_aln.score,
+        fft_aln.operations.len()
+    );
 
     // Both should produce valid alignments
     assert!(dp_aln.operations.len() > 0, "DP alignment empty");
@@ -810,7 +872,12 @@ fn diagnostic_fft_anchoring() {
     if dp_aln.score != 0.0 {
         let ratio = fft_aln.score / dp_aln.score;
         eprintln!("FFT/DP score ratio: {:.4}", ratio);
-        assert!(ratio > 0.3, "FFT score too low vs DP: {:.1} vs {:.1}", fft_aln.score, dp_aln.score);
+        assert!(
+            ratio > 0.3,
+            "FFT score too low vs DP: {:.1} vs {:.1}",
+            fft_aln.score,
+            dp_aln.score
+        );
     }
 }
 
@@ -823,7 +890,9 @@ fn diagnostic_fft_vs_nofft() {
     // FFT-NS-2
     let msa_fft = MafftEngine::new(AlignmentMode::FftNs2).align(&input);
     // NW-NS-2 (pure DP, no FFT)
-    let msa_nofft = MafftEngine::new(AlignmentMode::FftNs2).with_nofft(true).align(&input);
+    let msa_nofft = MafftEngine::new(AlignmentMode::FftNs2)
+        .with_nofft(true)
+        .align(&input);
 
     let sp_fft = sum_of_pairs_identity(&msa_fft.sequences);
     let sp_nofft = sum_of_pairs_identity(&msa_nofft.sequences);
@@ -831,26 +900,45 @@ fn diagnostic_fft_vs_nofft() {
 
     eprintln!("C reference:   SP={:.4}, width={}", sp_c, c_seqs[0].len());
     eprintln!("Rust FFT-NS-2: SP={:.4}, width={}", sp_fft, msa_fft.width());
-    eprintln!("Rust NW-NS-2:  SP={:.4}, width={}", sp_nofft, msa_nofft.width());
+    eprintln!(
+        "Rust NW-NS-2:  SP={:.4}, width={}",
+        sp_nofft,
+        msa_nofft.width()
+    );
     eprintln!("FFT/C ratio:   {:.4}", sp_fft / sp_c);
     eprintln!("noFFT/C ratio: {:.4}", sp_nofft / sp_c);
-    eprintln!("FFT == noFFT:  {}", msa_fft.sequences == msa_nofft.sequences);
+    eprintln!(
+        "FFT == noFFT:  {}",
+        msa_fft.sequences == msa_nofft.sequences
+    );
 }
 
 #[test]
 fn diagnostic_retree_widths() {
     let input = read_fasta(test_data_path("sample")).unwrap();
-    
-    let msa1 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(1).align(&input);
-    let msa2 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(2).align(&input);
-    
-    eprintln!("retree=1: width={}, SP={:.4}", msa1.width(), sum_of_pairs_identity(&msa1.sequences));
-    eprintln!("retree=2: width={}, SP={:.4}", msa2.width(), sum_of_pairs_identity(&msa2.sequences));
+
+    let msa1 = MafftEngine::new(AlignmentMode::FftNs2)
+        .with_retree(1)
+        .align(&input);
+    let msa2 = MafftEngine::new(AlignmentMode::FftNs2)
+        .with_retree(2)
+        .align(&input);
+
+    eprintln!(
+        "retree=1: width={}, SP={:.4}",
+        msa1.width(),
+        sum_of_pairs_identity(&msa1.sequences)
+    );
+    eprintln!(
+        "retree=2: width={}, SP={:.4}",
+        msa2.width(),
+        sum_of_pairs_identity(&msa2.sequences)
+    );
 }
 
 #[test]
 fn diagnostic_merge_widths() {
-    use mafft_tree::{DistanceMatrix, musclesupg, ClusterMethod, ktuple_distance};
+    use mafft_tree::{ClusterMethod, DistanceMatrix, ktuple_distance, musclesupg};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let nseq = input.nseq();
@@ -859,41 +947,71 @@ fn diagnostic_merge_widths() {
     let mut dm = DistanceMatrix::new(nseq);
     for i in 0..nseq {
         for j in (i + 1)..nseq {
-            dm.set(i, j, ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6));
+            dm.set(
+                i,
+                j,
+                ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6),
+            );
         }
     }
     let topo = musclesupg(&dm, ClusterMethod::default());
 
     // Manually trace merge steps
-    let max_len = input.sequences.iter().map(|s| s.data.len()).max().unwrap_or(0);
-    let aligned: Vec<Vec<u8>> = input.sequences.iter()
-        .map(|s| { let mut p = s.data.clone(); p.resize(max_len, b'-'); p })
+    let max_len = input
+        .sequences
+        .iter()
+        .map(|s| s.data.len())
+        .max()
+        .unwrap_or(0);
+    let aligned: Vec<Vec<u8>> = input
+        .sequences
+        .iter()
+        .map(|s| {
+            let mut p = s.data.clone();
+            p.resize(max_len, b'-');
+            p
+        })
         .collect();
 
     eprintln!("Initial width: {}", aligned[0].len());
-    eprintln!("Seq lengths: min={}, max={}", 
+    eprintln!(
+        "Seq lengths: min={}, max={}",
         input.sequences.iter().map(|s| s.data.len()).min().unwrap(),
-        input.sequences.iter().map(|s| s.data.len()).max().unwrap());
+        input.sequences.iter().map(|s| s.data.len()).max().unwrap()
+    );
 
     for (step_idx, step) in topo.steps.iter().enumerate().take(10) {
         let width = aligned[0].len();
         let g1_len = step.left.len();
         let g2_len = step.right.len();
-        eprintln!("Step {}: width={}, merge {} + {} seqs", step_idx, width, g1_len, g2_len);
+        eprintln!(
+            "Step {}: width={}, merge {} + {} seqs",
+            step_idx, width, g1_len, g2_len
+        );
     }
     eprintln!("...");
     // Show last 3 steps
-    for (step_idx, step) in topo.steps.iter().enumerate().skip(topo.steps.len().saturating_sub(3)) {
-        eprintln!("Step {}: merge {} + {} seqs", step_idx, step.left.len(), step.right.len());
+    for (step_idx, step) in topo
+        .steps
+        .iter()
+        .enumerate()
+        .skip(topo.steps.len().saturating_sub(3))
+    {
+        eprintln!(
+            "Step {}: merge {} + {} seqs",
+            step_idx,
+            step.left.len(),
+            step.right.len()
+        );
     }
 }
 
 #[test]
 fn diagnostic_first_merge() {
-    use mafft_tree::{DistanceMatrix, musclesupg, ClusterMethod, ktuple_distance};
+    use mafft_align::{GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
+    use mafft_tree::{ClusterMethod, DistanceMatrix, ktuple_distance, musclesupg};
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, profile_align, GapModel};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Jtt(200), SeqType::Protein);
@@ -902,7 +1020,11 @@ fn diagnostic_first_merge() {
     let mut dm = DistanceMatrix::new(nseq);
     for i in 0..nseq {
         for j in (i + 1)..nseq {
-            dm.set(i, j, ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6));
+            dm.set(
+                i,
+                j,
+                ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6),
+            );
         }
     }
     let topo = musclesupg(&dm, ClusterMethod::default());
@@ -910,7 +1032,7 @@ fn diagnostic_first_merge() {
     // First merge step
     let step = &topo.steps[0];
     eprintln!("First merge: {:?} + {:?}", step.left, step.right);
-    
+
     let s1 = &input.sequences[step.left[0]].data;
     let s2 = &input.sequences[step.right[0]].data;
     eprintln!("  Seq {} len={}", step.left[0], s1.len());
@@ -924,14 +1046,29 @@ fn diagnostic_first_merge() {
     let prof1 = Profile::from_aligned(&seqs1, &w, &scoring.amino_map, scoring.nalphabets);
     let prof2 = Profile::from_aligned(&seqs2, &w, &scoring.amino_map, scoring.nalphabets);
     let aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
-    
+
     eprintln!("  Alignment score: {:.1}", aln.score);
     eprintln!("  Alignment width: {}", aln.operations.len());
-    
-    let matches = aln.operations.iter().filter(|op| matches!(op, mafft_align::AlignOp::Match)).count();
-    let deletes = aln.operations.iter().filter(|op| matches!(op, mafft_align::AlignOp::Delete)).count();
-    let inserts = aln.operations.iter().filter(|op| matches!(op, mafft_align::AlignOp::Insert)).count();
-    eprintln!("  Match={}, Delete={}, Insert={}", matches, deletes, inserts);
+
+    let matches = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, mafft_align::AlignOp::Match))
+        .count();
+    let deletes = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, mafft_align::AlignOp::Delete))
+        .count();
+    let inserts = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, mafft_align::AlignOp::Insert))
+        .count();
+    eprintln!(
+        "  Match={}, Delete={}, Insert={}",
+        matches, deletes, inserts
+    );
 }
 
 #[test]
@@ -941,22 +1078,28 @@ fn diagnostic_distance_check() {
     // Print first 10 pairwise distances with high precision
     let mut count = 0;
     for i in 0..input.nseq() {
-        for j in (i+1)..input.nseq() {
-            if count >= 10 { break; }
+        for j in (i + 1)..input.nseq() {
+            if count >= 10 {
+                break;
+            }
             let d = ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6);
             eprintln!("d({},{}) = {:.15}", i, j, d);
             count += 1;
         }
-        if count >= 10 { break; }
+        if count >= 10 {
+            break;
+        }
     }
 }
 
 #[test]
 fn diagnostic_merge_trace() {
-    use mafft_tree::{DistanceMatrix, musclesupg, ClusterMethod, ktuple_distance, sequence_weights};
+    use mafft_align::{AlignOp, GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
+    use mafft_tree::{
+        ClusterMethod, DistanceMatrix, ktuple_distance, musclesupg, sequence_weights,
+    };
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, profile_align, GapModel, AlignOp};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Jtt(200), SeqType::Protein);
@@ -966,7 +1109,11 @@ fn diagnostic_merge_trace() {
     let mut dm = DistanceMatrix::new(nseq);
     for i in 0..nseq {
         for j in (i + 1)..nseq {
-            dm.set(i, j, ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6));
+            dm.set(
+                i,
+                j,
+                ktuple_distance(&input.sequences[i].data, &input.sequences[j].data, 6),
+            );
         }
     }
     let topo = musclesupg(&dm, ClusterMethod::default());
@@ -993,14 +1140,37 @@ fn diagnostic_merge_trace() {
         let prof2 = Profile::from_aligned(&seqs2, &w2n, &scoring.amino_map, scoring.nalphabets);
         let aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
 
-        let matches = aln.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-        let deletes = aln.operations.iter().filter(|op| matches!(op, AlignOp::Delete)).count();
-        let inserts = aln.operations.iter().filter(|op| matches!(op, AlignOp::Insert)).count();
+        let matches = aln
+            .operations
+            .iter()
+            .filter(|op| matches!(op, AlignOp::Match))
+            .count();
+        let deletes = aln
+            .operations
+            .iter()
+            .filter(|op| matches!(op, AlignOp::Delete))
+            .count();
+        let inserts = aln
+            .operations
+            .iter()
+            .filter(|op| matches!(op, AlignOp::Insert))
+            .count();
 
-        eprintln!("Step {:2}: {:?}+{:?} w1={:.6} w2={:.6} prof1={} prof2={} score={:.1} ops={} M/D/I={}/{}/{}",
-            step_idx, step.left, step.right, sum1, sum2,
-            prof1.length, prof2.length, aln.score,
-            aln.operations.len(), matches, deletes, inserts);
+        eprintln!(
+            "Step {:2}: {:?}+{:?} w1={:.6} w2={:.6} prof1={} prof2={} score={:.1} ops={} M/D/I={}/{}/{}",
+            step_idx,
+            step.left,
+            step.right,
+            sum1,
+            sum2,
+            prof1.length,
+            prof2.length,
+            aln.score,
+            aln.operations.len(),
+            matches,
+            deletes,
+            inserts
+        );
 
         // Apply alignment to sequences (simplified — just track widths)
         let new_width = aln.operations.len();
@@ -1010,7 +1180,11 @@ fn diagnostic_merge_trace() {
             for op in &aln.operations {
                 match op {
                     AlignOp::Match | AlignOp::Delete => {
-                        new_seq.push(if cursor < width1 { aligned[idx][cursor] } else { b'-' });
+                        new_seq.push(if cursor < width1 {
+                            aligned[idx][cursor]
+                        } else {
+                            b'-'
+                        });
                         cursor += 1;
                     }
                     AlignOp::Insert => new_seq.push(b'-'),
@@ -1024,7 +1198,11 @@ fn diagnostic_merge_trace() {
             for op in &aln.operations {
                 match op {
                     AlignOp::Match | AlignOp::Insert => {
-                        new_seq.push(if cursor < width2 { aligned[idx][cursor] } else { b'-' });
+                        new_seq.push(if cursor < width2 {
+                            aligned[idx][cursor]
+                        } else {
+                            b'-'
+                        });
                         cursor += 1;
                     }
                     AlignOp::Delete => new_seq.push(b'-'),
@@ -1042,16 +1220,20 @@ fn diagnostic_alignment_diff() {
     let engine = MafftEngine::new(AlignmentMode::FftNs2);
     let msa = engine.align(&input);
 
-    eprintln!("Rust width: {}, C width: {}", msa.width(), c_ref.sequences[0].data.len());
-    
+    eprintln!(
+        "Rust width: {}, C width: {}",
+        msa.width(),
+        c_ref.sequences[0].data.len()
+    );
+
     // Count identical columns
     let rust_width = msa.width();
     let c_width = c_ref.sequences[0].data.len();
-    
+
     // Compare first sequence's alignment character by character
     let r0 = &msa.sequences[0];
     let c0 = &c_ref.sequences[0].data;
-    
+
     // Find first difference
     let min_len = r0.len().min(c0.len());
     let mut first_diff = min_len;
@@ -1061,21 +1243,31 @@ fn diagnostic_alignment_diff() {
             break;
         }
     }
-    
+
     if first_diff < min_len {
-        eprintln!("First diff at col {}: Rust='{}' C='{}'", 
-            first_diff, r0[first_diff] as char, c0[first_diff] as char);
+        eprintln!(
+            "First diff at col {}: Rust='{}' C='{}'",
+            first_diff, r0[first_diff] as char, c0[first_diff] as char
+        );
         // Show context around first diff
         let start = first_diff.saturating_sub(5);
         let end = (first_diff + 10).min(min_len);
-        eprintln!("Rust seq0[{}..{}]: {}", start, end, 
-            String::from_utf8_lossy(&r0[start..end]));
-        eprintln!("C    seq0[{}..{}]: {}", start, end,
-            String::from_utf8_lossy(&c0[start..end]));
+        eprintln!(
+            "Rust seq0[{}..{}]: {}",
+            start,
+            end,
+            String::from_utf8_lossy(&r0[start..end])
+        );
+        eprintln!(
+            "C    seq0[{}..{}]: {}",
+            start,
+            end,
+            String::from_utf8_lossy(&c0[start..end])
+        );
     } else {
         eprintln!("Seq 0 matches for first {} chars!", min_len);
     }
-    
+
     // Count total matching columns across all sequences
     let mut total_match = 0u64;
     let mut total_cols = 0u64;
@@ -1088,11 +1280,17 @@ fn diagnostic_alignment_diff() {
                     break;
                 }
             }
-            if all_match { total_match += 1; }
+            if all_match {
+                total_match += 1;
+            }
             total_cols += 1;
         }
-        eprintln!("Matching columns: {}/{} ({:.1}%)", total_match, total_cols,
-            100.0 * total_match as f64 / total_cols as f64);
+        eprintln!(
+            "Matching columns: {}/{} ({:.1}%)",
+            total_match,
+            total_cols,
+            100.0 * total_match as f64 / total_cols as f64
+        );
     }
 }
 
@@ -1107,33 +1305,51 @@ fn diagnostic_gap_pattern() {
     for i in 0..5.min(msa.nseq()) {
         let r = &msa.sequences[i];
         let c = &c_ref.sequences[i].data;
-        
+
         let r_first = r.iter().position(|&c| c != b'-').unwrap_or(0);
         let r_last = r.iter().rposition(|&c| c != b'-').unwrap_or(0);
         let c_first = c.iter().position(|&c| c != b'-').unwrap_or(0);
         let c_last = c.iter().rposition(|&c| c != b'-').unwrap_or(0);
         let r_gaps: usize = r.iter().filter(|&&c| c == b'-').count();
         let c_gaps: usize = c.iter().filter(|&&c| c == b'-').count();
-        
-        eprintln!("Seq {:2}: Rust first={:3} last={:3} gaps={:3} width={}  |  C first={:3} last={:3} gaps={:3} width={}",
-            i, r_first, r_last, r_gaps, r.len(), c_first, c_last, c_gaps, c.len());
+
+        eprintln!(
+            "Seq {:2}: Rust first={:3} last={:3} gaps={:3} width={}  |  C first={:3} last={:3} gaps={:3} width={}",
+            i,
+            r_first,
+            r_last,
+            r_gaps,
+            r.len(),
+            c_first,
+            c_last,
+            c_gaps,
+            c.len()
+        );
     }
-    
+
     // Show the retree pass info
     eprintln!("\n--- Retree pass 1 vs pass 2 ---");
     let engine1 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(1);
     let engine2 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(2);
     let msa1 = engine1.align(&input);
     let msa2 = engine2.align(&input);
-    eprintln!("retree=1: width={} SP={:.4}", msa1.width(), sum_of_pairs_identity(&msa1.sequences));
-    eprintln!("retree=2: width={} SP={:.4}", msa2.width(), sum_of_pairs_identity(&msa2.sequences));
+    eprintln!(
+        "retree=1: width={} SP={:.4}",
+        msa1.width(),
+        sum_of_pairs_identity(&msa1.sequences)
+    );
+    eprintln!(
+        "retree=2: width={} SP={:.4}",
+        msa2.width(),
+        sum_of_pairs_identity(&msa2.sequences)
+    );
 }
 
 #[test]
 fn diagnostic_align11_vs_profile() {
+    use mafft_align::{AlignOp, GapModel, Profile, pairwise_align11, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, profile_align, pairwise_align11, GapModel, AlignOp};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Jtt(200), SeqType::Protein);
@@ -1144,24 +1360,76 @@ fn diagnostic_align11_vs_profile() {
     let s2 = &input.sequences[20].data;
 
     // Use the same boundary convention the engine uses (outgap=0 → false, false).
-    let aln11 = pairwise_align11(s1, s2, &scoring.consweight_matrix, &scoring.amino_map,
-        scoring.gap.open as f64, false, false);
+    let aln11 = pairwise_align11(
+        s1,
+        s2,
+        &scoring.consweight_matrix,
+        &scoring.amino_map,
+        scoring.gap.open as f64,
+        false,
+        false,
+    );
 
     let seqs1: Vec<&[u8]> = vec![s1.as_slice()];
     let seqs2: Vec<&[u8]> = vec![s2.as_slice()];
     let prof1 = Profile::from_aligned(&seqs1, &[1.0], &scoring.amino_map, scoring.nalphabets);
     let prof2 = Profile::from_aligned(&seqs2, &[1.0], &scoring.amino_map, scoring.nalphabets);
-    let aln_prof = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, false, false);
+    let aln_prof = profile_align(
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        false,
+        false,
+    );
 
-    let m11 = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-    let d11 = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Delete)).count();
-    let i11 = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Insert)).count();
-    let mp_n = aln_prof.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-    let dp_n = aln_prof.operations.iter().filter(|op| matches!(op, AlignOp::Delete)).count();
-    let ip_n = aln_prof.operations.iter().filter(|op| matches!(op, AlignOp::Insert)).count();
+    let m11 = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
+    let d11 = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Delete))
+        .count();
+    let i11 = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Insert))
+        .count();
+    let mp_n = aln_prof
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
+    let dp_n = aln_prof
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Delete))
+        .count();
+    let ip_n = aln_prof
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Insert))
+        .count();
 
-    eprintln!("G__align11: score={:.1} width={} M/D/I={}/{}/{}", aln11.score, aln11.operations.len(), m11, d11, i11);
-    eprintln!("MSalignmm:  score={:.1} width={} M/D/I={}/{}/{}", aln_prof.score, aln_prof.operations.len(), mp_n, dp_n, ip_n);
+    eprintln!(
+        "G__align11: score={:.1} width={} M/D/I={}/{}/{}",
+        aln11.score,
+        aln11.operations.len(),
+        m11,
+        d11,
+        i11
+    );
+    eprintln!(
+        "MSalignmm:  score={:.1} width={} M/D/I={}/{}/{}",
+        aln_prof.score,
+        aln_prof.operations.len(),
+        mp_n,
+        dp_n,
+        ip_n
+    );
 
     // Regression guard: the two pairwise code paths (G__align11 and MSalignmm
     // specialized to 1×1) must produce identical alignment operations and
@@ -1174,16 +1442,19 @@ fn diagnostic_align11_vs_profile() {
     assert!(
         (aln11.score - aln_prof.score).abs() < 0.01,
         "pairwise_align11 score {} ≠ profile_align score {}",
-        aln11.score, aln_prof.score
+        aln11.score,
+        aln_prof.score
     );
 }
 
 #[test]
 fn diagnostic_fft_anchors() {
+    use mafft_align::{
+        AlignOp, FftAlignParams, GapModel, Profile, fft_profile_align, profile_align,
+    };
+    use mafft_fft::SegmentParams;
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, profile_align, fft_profile_align, GapModel, AlignOp, FftAlignParams};
-    use mafft_fft::SegmentParams;
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1214,12 +1485,30 @@ fn diagnostic_fft_anchors() {
     let aln_fft = fft_profile_align(&prof1, &prof2, &scoring.consweight_matrix, &fft_params);
     let aln_dp = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
 
-    let m_fft = aln_fft.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-    let m_dp = aln_dp.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
+    let m_fft = aln_fft
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
+    let m_dp = aln_dp
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
 
     eprintln!("Prof1 len={}, Prof2 len={}", prof1.length, prof2.length);
-    eprintln!("FFT: score={:.1} width={} matches={}", aln_fft.score, aln_fft.operations.len(), m_fft);
-    eprintln!("DP:  score={:.1} width={} matches={}", aln_dp.score, aln_dp.operations.len(), m_dp);
+    eprintln!(
+        "FFT: score={:.1} width={} matches={}",
+        aln_fft.score,
+        aln_fft.operations.len(),
+        m_fft
+    );
+    eprintln!(
+        "DP:  score={:.1} width={} matches={}",
+        aln_dp.score,
+        aln_dp.operations.len(),
+        m_dp
+    );
     eprintln!("Same: {}", aln_fft.operations == aln_dp.operations);
 }
 
@@ -1228,12 +1517,22 @@ fn diagnostic_matrix_diagonal() {
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
-    eprintln!("Matrix size: {}x{}", scoring.substitution_matrix.len(), scoring.substitution_matrix[0].len());
+    eprintln!(
+        "Matrix size: {}x{}",
+        scoring.substitution_matrix.len(),
+        scoring.substitution_matrix[0].len()
+    );
     eprintln!("nalphabets: {}", scoring.nalphabets);
-    eprintln!("gap.open: {}, gap.extend: {}, gap.offset: {}", scoring.gap.open, scoring.gap.extend, scoring.gap.offset);
+    eprintln!(
+        "gap.open: {}, gap.extend: {}, gap.offset: {}",
+        scoring.gap.open, scoring.gap.extend, scoring.gap.offset
+    );
     // Print first 5 diagonal values
     for i in 0..5.min(scoring.substitution_matrix.len()) {
-        eprintln!("matrix[{}][{}] = {}", i, i, scoring.substitution_matrix[i][i]);
+        eprintln!(
+            "matrix[{}][{}] = {}",
+            i, i, scoring.substitution_matrix[i][i]
+        );
     }
     // Sum of diagonal for first 20 (amino acids)
     let diag_sum: i32 = (0..20).map(|i| scoring.substitution_matrix[i][i]).sum();
@@ -1243,9 +1542,9 @@ fn diagnostic_matrix_diagonal() {
 
 #[test]
 fn diagnostic_score_breakdown() {
+    use mafft_align::{GapModel, Profile, pairwise_align11, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, profile_align, pairwise_align11, GapModel};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1258,10 +1557,17 @@ fn diagnostic_score_breakdown() {
     let seqs: Vec<&[u8]> = vec![s33.as_slice()];
     let prof = Profile::from_aligned(&seqs, &[1.0], &scoring.amino_map, scoring.nalphabets);
     let aln_prof = profile_align(&prof, &prof, &scoring.consweight_matrix, &gap, true, true);
-    
+
     // G__align11 score
-    let aln11 = pairwise_align11(s33, s34, &scoring.consweight_matrix, &scoring.amino_map,
-        scoring.gap.open as f64, true, true);
+    let aln11 = pairwise_align11(
+        s33,
+        s34,
+        &scoring.consweight_matrix,
+        &scoring.amino_map,
+        scoring.gap.open as f64,
+        true,
+        true,
+    );
 
     // Manual diagonal sum
     let mut diag_sum = 0i64;
@@ -1277,20 +1583,23 @@ fn diagnostic_score_breakdown() {
     eprintln!("Manual diagonal sum: {}", diag_sum);
     eprintln!("C's score: 302431");
     eprintln!("gap.open = {}", scoring.gap.open);
-    
+
     // Check first few sub scores
     for i in 0..3 {
         let s = prof.match_score(i, &prof, i, &scoring.consweight_matrix);
-        eprintln!("match_score({},{}) = {:.1} (char={})", i, i, s, s33[i] as char);
+        eprintln!(
+            "match_score({},{}) = {:.1} (char={})",
+            i, i, s, s33[i] as char
+        );
     }
 }
 
 #[test]
 fn diagnostic_fft_pipeline() {
+    use mafft_align::{FftAlignParams, GapModel, Profile, fft_profile_align};
+    use mafft_fft::SegmentParams;
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, FftAlignParams, fft_profile_align};
-    use mafft_fft::SegmentParams;
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1299,7 +1608,7 @@ fn diagnostic_fft_pipeline() {
     let s1 = &input.sequences[0].data;
     let s2 = &input.sequences[1].data;
     eprintln!("s1 len={} s2 len={}", s1.len(), s2.len());
-    
+
     let seqs1: Vec<&[u8]> = vec![s1.as_slice()];
     let seqs2: Vec<&[u8]> = vec![s2.as_slice()];
     let prof1 = Profile::from_aligned(&seqs1, &[1.0], &scoring.amino_map, scoring.nalphabets);
@@ -1315,14 +1624,18 @@ fn diagnostic_fft_pipeline() {
         property_channels: None,
     };
     let aln = fft_profile_align(&prof1, &prof2, &scoring.consweight_matrix, &params);
-    eprintln!("FFT result: score={} ops={}", aln.score, aln.operations.len());
+    eprintln!(
+        "FFT result: score={} ops={}",
+        aln.score,
+        aln.operations.len()
+    );
 }
 
 #[test]
 fn diagnostic_segment_align() {
+    use mafft_align::{GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, profile_align};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1330,7 +1643,7 @@ fn diagnostic_segment_align() {
 
     let s1 = &input.sequences[0].data;
     let s2 = &input.sequences[1].data;
-    
+
     let seqs1: Vec<&[u8]> = vec![s1.as_slice()];
     let seqs2: Vec<&[u8]> = vec![s2.as_slice()];
     let prof1 = Profile::from_aligned(&seqs1, &[1.0], &scoring.amino_map, scoring.nalphabets);
@@ -1338,25 +1651,37 @@ fn diagnostic_segment_align() {
 
     // Full alignment
     let full = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
-    eprintln!("Full alignment: score={} ops={}", full.score, full.operations.len());
+    eprintln!(
+        "Full alignment: score={} ops={}",
+        full.score,
+        full.operations.len()
+    );
 
     // Sub-profile alignment: positions 0..28 of each
     let sub1 = prof1.sub_profile(0, 28);
     let sub2 = prof2.sub_profile(0, 28);
     let seg = profile_align(&sub1, &sub2, &scoring.consweight_matrix, &gap, true, false);
-    eprintln!("Segment 0..28: score={} ops={}", seg.score, seg.operations.len());
+    eprintln!(
+        "Segment 0..28: score={} ops={}",
+        seg.score,
+        seg.operations.len()
+    );
 
     // Same with head_gap=false (intermediate segment)
     let seg2 = profile_align(&sub1, &sub2, &scoring.consweight_matrix, &gap, false, false);
-    eprintln!("Segment 0..28 (no head_gap): score={} ops={}", seg2.score, seg2.operations.len());
+    eprintln!(
+        "Segment 0..28 (no head_gap): score={} ops={}",
+        seg2.score,
+        seg2.operations.len()
+    );
 }
 
 #[test]
 fn diagnostic_step3_anchors() {
+    use mafft_align::{FftAlignParams, GapModel, Profile, fft_profile_align};
+    use mafft_fft::SegmentParams;
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, FftAlignParams, fft_profile_align};
-    use mafft_fft::SegmentParams;
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1381,7 +1706,11 @@ fn diagnostic_step3_anchors() {
         property_channels: None,
     };
     let aln = fft_profile_align(&prof1, &prof2, &scoring.consweight_matrix, &params);
-    eprintln!("FFT result: score={} ops={}", aln.score, aln.operations.len());
+    eprintln!(
+        "FFT result: score={} ops={}",
+        aln.score,
+        aln.operations.len()
+    );
 
     use mafft_align::profile_align;
     let dp = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
@@ -1391,9 +1720,9 @@ fn diagnostic_step3_anchors() {
 
 #[test]
 fn diagnostic_step3_dp() {
+    use mafft_align::{AlignOp, GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, profile_align, AlignOp};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1408,28 +1737,73 @@ fn diagnostic_step3_dp() {
     let prof2 = Profile::from_aligned(&seqs2, &[1.0], &scoring.amino_map, scoring.nalphabets);
 
     let aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
-    let m_count = aln.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-    let d_count = aln.operations.iter().filter(|op| matches!(op, AlignOp::Delete)).count();
-    let i_count = aln.operations.iter().filter(|op| matches!(op, AlignOp::Insert)).count();
-    eprintln!("DP result: score={} ops={} M/D/I={}/{}/{}", aln.score, aln.operations.len(), m_count, d_count, i_count);
+    let m_count = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
+    let d_count = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Delete))
+        .count();
+    let i_count = aln
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Insert))
+        .count();
+    eprintln!(
+        "DP result: score={} ops={} M/D/I={}/{}/{}",
+        aln.score,
+        aln.operations.len(),
+        m_count,
+        d_count,
+        i_count
+    );
 
     // Compute manual score: for each match position, look up what residues match
     use mafft_align::pairwise_align11;
-    let aln11 = pairwise_align11(s7, s8, &scoring.consweight_matrix, &scoring.amino_map,
-        scoring.gap.open as f64, true, true);
-    let m_count = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count();
-    let d_count = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Delete)).count();
-    let i_count = aln11.operations.iter().filter(|op| matches!(op, AlignOp::Insert)).count();
-    eprintln!("G__align11 result: score={} ops={} M/D/I={}/{}/{}", aln11.score, aln11.operations.len(), m_count, d_count, i_count);
+    let aln11 = pairwise_align11(
+        s7,
+        s8,
+        &scoring.consweight_matrix,
+        &scoring.amino_map,
+        scoring.gap.open as f64,
+        true,
+        true,
+    );
+    let m_count = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Match))
+        .count();
+    let d_count = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Delete))
+        .count();
+    let i_count = aln11
+        .operations
+        .iter()
+        .filter(|op| matches!(op, AlignOp::Insert))
+        .count();
+    eprintln!(
+        "G__align11 result: score={} ops={} M/D/I={}/{}/{}",
+        aln11.score,
+        aln11.operations.len(),
+        m_count,
+        d_count,
+        i_count
+    );
 
     eprintln!("C step3: score=108355, width=364");
 }
 
 #[test]
 fn diagnostic_step3_align_dump() {
+    use mafft_align::{AlignOp, GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, profile_align, AlignOp};
 
     let input = read_fasta(test_data_path("sample")).unwrap();
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
@@ -1451,7 +1825,9 @@ fn diagnostic_step3_align_dump() {
     let mut a1 = String::new();
     let mut a2 = String::new();
     for (i, op) in aln.operations.iter().enumerate() {
-        if i >= 200 { break; }
+        if i >= 200 {
+            break;
+        }
         match op {
             AlignOp::Match => {
                 a1.push(s7[p1] as char);
@@ -1474,18 +1850,30 @@ fn diagnostic_step3_align_dump() {
     eprintln!("Alignment (first 200 positions):");
     eprintln!("a1: {}", a1);
     eprintln!("a2: {}", a2);
-    
+
     // Count where the inserts and matches are
-    let leading_inserts = aln.operations.iter().take_while(|op| matches!(op, AlignOp::Insert)).count();
-    let trailing_inserts = aln.operations.iter().rev().take_while(|op| matches!(op, AlignOp::Insert)).count();
-    eprintln!("leading_inserts={}, trailing_inserts={}", leading_inserts, trailing_inserts);
+    let leading_inserts = aln
+        .operations
+        .iter()
+        .take_while(|op| matches!(op, AlignOp::Insert))
+        .count();
+    let trailing_inserts = aln
+        .operations
+        .iter()
+        .rev()
+        .take_while(|op| matches!(op, AlignOp::Insert))
+        .count();
+    eprintln!(
+        "leading_inserts={}, trailing_inserts={}",
+        leading_inserts, trailing_inserts
+    );
 }
 
 #[test]
 fn diagnostic_simple_offset() {
+    use mafft_align::{AlignOp, GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, profile_align, AlignOp};
 
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
@@ -1493,19 +1881,33 @@ fn diagnostic_simple_offset() {
     // Test: short ACDE in middle of long sequence padded with random residues
     let s1: &[u8] = b"ACDE";
     let s2: &[u8] = b"WWWWACDEWWWW";
-    
+
     let prof1 = Profile::from_aligned(&[s1], &[1.0], &scoring.amino_map, scoring.nalphabets);
     let prof2 = Profile::from_aligned(&[s2], &[1.0], &scoring.amino_map, scoring.nalphabets);
     let aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
-    
-    let mut p1 = 0; let mut p2 = 0;
+
+    let mut p1 = 0;
+    let mut p2 = 0;
     let mut a1 = String::new();
     let mut a2 = String::new();
     for op in &aln.operations {
         match op {
-            AlignOp::Match => { a1.push(s1[p1] as char); a2.push(s2[p2] as char); p1+=1; p2+=1; }
-            AlignOp::Delete => { a1.push(s1[p1] as char); a2.push('-'); p1+=1; }
-            AlignOp::Insert => { a1.push('-'); a2.push(s2[p2] as char); p2+=1; }
+            AlignOp::Match => {
+                a1.push(s1[p1] as char);
+                a2.push(s2[p2] as char);
+                p1 += 1;
+                p2 += 1;
+            }
+            AlignOp::Delete => {
+                a1.push(s1[p1] as char);
+                a2.push('-');
+                p1 += 1;
+            }
+            AlignOp::Insert => {
+                a1.push('-');
+                a2.push(s2[p2] as char);
+                p2 += 1;
+            }
         }
     }
     eprintln!("ACDE vs WWWWACDEWWWW:");
@@ -1523,7 +1925,10 @@ fn diagnostic_simple_offset() {
     );
     assert_eq!(a2, "WWWWACDEWWWW");
     assert_eq!(
-        aln.operations.iter().filter(|op| matches!(op, AlignOp::Match)).count(),
+        aln.operations
+            .iter()
+            .filter(|op| matches!(op, AlignOp::Match))
+            .count(),
         4,
         "expected 4 matches (A-A, C-C, D-D, E-E)"
     );
@@ -1531,18 +1936,21 @@ fn diagnostic_simple_offset() {
 
 #[test]
 fn diagnostic_dp_score_bug() {
+    use mafft_align::{GapModel, Profile, profile_align};
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
-    use mafft_align::{Profile, GapModel, profile_align};
 
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
-    
+
     eprintln!("matrix[0][0] (A-A) = {}", scoring.substitution_matrix[0][0]);
     eprintln!("matrix[4][4] (C-C) = {}", scoring.substitution_matrix[4][4]);
     eprintln!("matrix[3][3] (D-D) = {}", scoring.substitution_matrix[3][3]);
     eprintln!("matrix[6][6] (E-E) = {}", scoring.substitution_matrix[6][6]);
-    eprintln!("matrix[17][17] (W-W) = {}", scoring.substitution_matrix[17][17]);
+    eprintln!(
+        "matrix[17][17] (W-W) = {}",
+        scoring.substitution_matrix[17][17]
+    );
     eprintln!("amino_map[A]={}", scoring.amino_map[b'A' as usize]);
     eprintln!("amino_map[C]={}", scoring.amino_map[b'C' as usize]);
     eprintln!("amino_map[D]={}", scoring.amino_map[b'D' as usize]);
@@ -1563,7 +1971,7 @@ fn diagnostic_dp_trace() {
     use mafft_scoring::build_context;
     use mafft_types::{ScoringModel, SeqType};
     let scoring = build_context(ScoringModel::Blosum(62), SeqType::Protein);
-    
+
     // Print key matrix values
     let amap = &scoring.amino_map;
     let m = &scoring.substitution_matrix;
@@ -1572,16 +1980,25 @@ fn diagnostic_dp_trace() {
     let dw_idx = amap[b'D' as usize] as usize;
     let ew_idx = amap[b'E' as usize] as usize;
     let ww_idx = amap[b'W' as usize] as usize;
-    eprintln!("sub(A,A)={}  sub(A,W)={}", m[aw_idx][aw_idx], m[aw_idx][ww_idx]);
-    eprintln!("sub(C,A)={}  sub(C,W)={}", m[cw_idx][aw_idx], m[cw_idx][ww_idx]);
-    eprintln!("sub(C,C)={}  sub(D,D)={}  sub(E,E)={}", m[cw_idx][cw_idx], m[dw_idx][dw_idx], m[ew_idx][ew_idx]);
+    eprintln!(
+        "sub(A,A)={}  sub(A,W)={}",
+        m[aw_idx][aw_idx], m[aw_idx][ww_idx]
+    );
+    eprintln!(
+        "sub(C,A)={}  sub(C,W)={}",
+        m[cw_idx][aw_idx], m[cw_idx][ww_idx]
+    );
+    eprintln!(
+        "sub(C,C)={}  sub(D,D)={}  sub(E,E)={}",
+        m[cw_idx][cw_idx], m[dw_idx][dw_idx], m[ew_idx][ew_idx]
+    );
     eprintln!("gap.open={}", scoring.gap.open);
-    
+
     // What should the optimal score be?
-    let opt = m[aw_idx][aw_idx] + m[cw_idx][cw_idx] + m[dw_idx][dw_idx] + m[ew_idx][ew_idx] - 2 * (scoring.gap.open / 2);
+    let opt = m[aw_idx][aw_idx] + m[cw_idx][cw_idx] + m[dw_idx][dw_idx] + m[ew_idx][ew_idx]
+        - 2 * (scoring.gap.open / 2);
     eprintln!("Expected optimal score (4 matches + 2 gaps of 4): ~{}", opt);
 }
-
 
 /// L-INS-1 (`mafft --localpair --maxiterate 0`) must produce byte-identical
 /// output to C. Closed 2026-05-05 by three combined fixes:
@@ -1602,9 +2019,11 @@ fn linsi_maxit0_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "L-INS-1 width differs: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1623,7 +2042,10 @@ fn linsi_maxit0_byte_identical_to_c() {
             }
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches} L-INS-1 sequences differ from C");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} L-INS-1 sequences differ from C"
+    );
 }
 
 /// G-INS-1 (`mafft --globalpair --maxiterate 0`) must produce byte-identical
@@ -1647,9 +2069,11 @@ fn ginsi_maxit0_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "G-INS-1 width differs: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1668,7 +2092,10 @@ fn ginsi_maxit0_byte_identical_to_c() {
             }
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches} G-INS-1 sequences differ from C");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} G-INS-1 sequences differ from C"
+    );
 }
 
 /// E-INS-1 (`mafft --genafpair --maxiterate 0`) must produce byte-identical
@@ -1696,9 +2123,11 @@ fn einsi_maxit0_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "E-INS-1 width differs: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1717,7 +2146,10 @@ fn einsi_maxit0_byte_identical_to_c() {
             }
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches} E-INS-1 sequences differ from C");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} E-INS-1 sequences differ from C"
+    );
 }
 
 /// Small-input L-INS-i refinement: 9 sequences with `--maxiterate 2` must
@@ -1744,9 +2176,11 @@ fn linsi_first9_iter2_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "L-INS-i (n=9, iter=2) width: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1775,9 +2209,11 @@ fn linsi_first12_iter5_byte_identical_to_c() {
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "L-INS-i (n=12, iter=5) width: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1859,24 +2295,30 @@ fn linsi_first36_maxit0_byte_identical_to_c() {
 #[test]
 fn ginsi_first14_iter2_byte_identical_to_c() {
     assert_insi_byte_identical(
-        "sample.first14.fa", "sample.first14.ginsi.iter2",
-        AlignmentMode::GInsi { iterations: 2 }, "G-INS-i n=14 iter=2",
+        "sample.first14.fa",
+        "sample.first14.ginsi.iter2",
+        AlignmentMode::GInsi { iterations: 2 },
+        "G-INS-i n=14 iter=2",
     );
 }
 
 #[test]
 fn ginsi_first36_iter2_byte_identical_to_c() {
     assert_insi_byte_identical(
-        "sample.first36.fa", "sample.first36.ginsi.iter2",
-        AlignmentMode::GInsi { iterations: 2 }, "G-INS-i n=36 iter=2",
+        "sample.first36.fa",
+        "sample.first36.ginsi.iter2",
+        AlignmentMode::GInsi { iterations: 2 },
+        "G-INS-i n=36 iter=2",
     );
 }
 
 #[test]
 fn einsi_first14_iter2_byte_identical_to_c() {
     assert_insi_byte_identical(
-        "sample.first14.fa", "sample.first14.einsi.iter2",
-        AlignmentMode::EInsi { iterations: 2 }, "E-INS-i n=14 iter=2",
+        "sample.first14.fa",
+        "sample.first14.einsi.iter2",
+        AlignmentMode::EInsi { iterations: 2 },
+        "E-INS-i n=14 iter=2",
     );
 }
 
@@ -1888,21 +2330,30 @@ fn einsi_first14_iter2_byte_identical_to_c() {
 #[test]
 fn einsi_first36_iter2_byte_identical_to_c() {
     assert_insi_byte_identical(
-        "sample.first36.fa", "sample.first36.einsi.iter2",
-        AlignmentMode::EInsi { iterations: 2 }, "E-INS-i n=36 iter=2",
+        "sample.first36.fa",
+        "sample.first36.einsi.iter2",
+        AlignmentMode::EInsi { iterations: 2 },
+        "E-INS-i n=36 iter=2",
     );
 }
 
-fn assert_insi_byte_identical(input_fixture: &str, c_ref_fixture: &str, mode: AlignmentMode, label: &str) {
+fn assert_insi_byte_identical(
+    input_fixture: &str,
+    c_ref_fixture: &str,
+    mode: AlignmentMode,
+    label: &str,
+) {
     let c_ref = read_fasta(fixture_path(c_ref_fixture))
         .unwrap_or_else(|_| panic!("missing tests/fixtures/{c_ref_fixture}"));
     let input = read_fasta(fixture_path(input_fixture)).unwrap();
     let msa = MafftEngine::new(mode).align(&input);
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "{label} width: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1910,7 +2361,10 @@ fn assert_insi_byte_identical(input_fixture: &str, c_ref_fixture: &str, mode: Al
             mismatches += 1;
         }
     }
-    assert_eq!(mismatches, 0, "{label}: {mismatches} sequences differ from C");
+    assert_eq!(
+        mismatches, 0,
+        "{label}: {mismatches} sequences differ from C"
+    );
 }
 
 /// `--add` byte-identity: align 6 new sequences onto a 30-sequence
@@ -1928,11 +2382,19 @@ fn add_six_to_thirty_byte_identical_to_c() {
     let c_ref = read_fasta(fixture_path("sample.add6.aln")).unwrap();
     let engine = MafftEngine::new(AlignmentMode::FftNs2);
     let msa = engine.add_to_alignment(&existing, &new_seqs, false);
-    assert_eq!(msa.nseq(), c_ref.nseq(), "--add nseq: Rust={} C={}", msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.nseq(),
+        c_ref.nseq(),
+        "--add nseq: Rust={} C={}",
+        msa.nseq(),
+        c_ref.nseq()
+    );
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "--add width: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1940,7 +2402,10 @@ fn add_six_to_thirty_byte_identical_to_c() {
             mismatches += 1;
         }
     }
-    assert_eq!(mismatches, 0, "--add 30+6: {mismatches} sequences differ from C");
+    assert_eq!(
+        mismatches, 0,
+        "--add 30+6: {mismatches} sequences differ from C"
+    );
 }
 
 fn assert_linsi_byte_identical(input_fixture: &str, c_ref_fixture: &str, iterations: usize) {
@@ -1952,9 +2417,11 @@ fn assert_linsi_byte_identical(input_fixture: &str, c_ref_fixture: &str, iterati
 
     assert_eq!(msa.nseq(), c_ref.nseq());
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "L-INS-i ({input_fixture}, iter={iterations}) width: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     let mut mismatches = 0usize;
     for i in 0..msa.nseq() {
@@ -1962,7 +2429,10 @@ fn assert_linsi_byte_identical(input_fixture: &str, c_ref_fixture: &str, iterati
             mismatches += 1;
         }
     }
-    assert_eq!(mismatches, 0, "{mismatches} sequences differ from C ({input_fixture})");
+    assert_eq!(
+        mismatches, 0,
+        "{mismatches} sequences differ from C ({input_fixture})"
+    );
 }
 
 /// `--reorder` must produce the same aligned content as `--inputorder` but
@@ -2020,10 +2490,8 @@ fn reorder_parttree_matches_c() {
     // verified end-to-end by `diff <(mafft-rs --parttree --reorder sample)
     // <(mafft --parttree --reorder sample) == 0`.
     let expected_order: [usize; 36] = [
-        34, 33, 31, 32, 35, 30, 29, 28,  7,  8,
-         9, 11, 10, 12,  1,  0,  3,  4,  2,  5,
-         6, 17, 18, 25, 24, 22, 23, 20, 19, 21,
-        26, 27, 16, 15, 14, 13,
+        34, 33, 31, 32, 35, 30, 29, 28, 7, 8, 9, 11, 10, 12, 1, 0, 3, 4, 2, 5, 6, 17, 18, 25, 24,
+        22, 23, 20, 19, 21, 26, 27, 16, 15, 14, 13,
     ];
     for (out_pos, &input_pos) in expected_order.iter().enumerate() {
         assert_eq!(
@@ -2048,7 +2516,7 @@ fn reorder_parttree_matches_c() {
 #[test]
 fn dpparttree_pipeline_smoke() {
     use mafft_tree::parttree_split::{
-        run_parttree_pipeline_with_scorer, parttree_result_to_newick,
+        parttree_result_to_newick, run_parttree_pipeline_with_scorer,
     };
     // 3 distinct seqs; trivial selfscores; pair distance fully tied.
     // All seqs distinct → each becomes its own yuko (npick=3, nyuko=3).
@@ -2062,7 +2530,8 @@ fn dpparttree_pipeline_smoke() {
         |i, j| if i == j { 100.0 } else { 50.0 },
         |i, j| i == j,
         50,
-    ).expect("pipeline should produce a result for n=3");
+    )
+    .expect("pipeline should produce a result for n=3");
     assert_eq!(r.outs.iter().flatten().count(), 3, "all 3 seqs assigned");
     let nw = parttree_result_to_newick(&r);
     // Numeric leaves 1, 2, 3 should appear.
@@ -2089,11 +2558,16 @@ fn treein_fftns2_byte_identical_to_c() {
     let msa = engine.align(&input);
 
     assert_eq!(msa.nseq(), c_ref.nseq());
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
-        "width differs for --treein FFT-NS-2");
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
+        "width differs for --treein FFT-NS-2"
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --treein FFT-NS-2 output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --treein FFT-NS-2 output"
+        );
     }
 }
 
@@ -2106,11 +2580,16 @@ fn treein_nwns2_byte_identical_to_c() {
     engine.treein_path = Some(fixture_path("sample.treein.tree"));
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
-        "width differs for --treein --nofft");
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
+        "width differs for --treein --nofft"
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --treein --nofft output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --treein --nofft output"
+        );
     }
 }
 
@@ -2123,11 +2602,16 @@ fn treein_linsi_byte_identical_to_c() {
     engine.treein_path = Some(fixture_path("sample.treein.tree"));
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
-        "width differs for --treein L-INS-i");
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
+        "width differs for --treein L-INS-i"
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --treein L-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --treein L-INS-i output"
+        );
     }
 }
 
@@ -2140,11 +2624,16 @@ fn treein_ginsi_byte_identical_to_c() {
     engine.treein_path = Some(fixture_path("sample.treein.tree"));
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
-        "width differs for --treein G-INS-i");
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
+        "width differs for --treein G-INS-i"
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --treein G-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --treein G-INS-i output"
+        );
     }
 }
 
@@ -2161,12 +2650,18 @@ fn leavegappyregion_byte_identical_to_c() {
     engine.legacy_gap_cost = true;
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --leavegappyregion: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len());
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --leavegappyregion output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --leavegappyregion output"
+        );
     }
 }
 
@@ -2185,12 +2680,18 @@ fn allowshift_ginsi_byte_identical_to_c() {
     engine.unalign_level = 0.8;
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --allowshift G-INS-i: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len());
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --allowshift G-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --allowshift G-INS-i output"
+        );
     }
 }
 
@@ -2206,12 +2707,18 @@ fn memsavetree_byte_identical_to_c() {
     engine.memsavetree = true;
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --memsavetree: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len());
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --memsavetree output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --memsavetree output"
+        );
     }
 }
 
@@ -2224,22 +2731,26 @@ fn memsavetree_byte_identical_to_c() {
 /// alignment would change.
 #[test]
 fn auto_picks_linsi_for_small_sample() {
-    let c_ref = read_fasta(fixture_path("sample.auto"))
-        .expect("missing fixtures/sample.auto");
+    let c_ref = read_fasta(fixture_path("sample.auto")).expect("missing fixtures/sample.auto");
     let input = read_fasta(test_data_path("sample")).unwrap();
 
     // The CLI does the size-based dispatch; this test exercises the
     // resulting engine config. nseq=36, nlen<3000 → L-INS-i, iter=1000.
-    let engine = MafftEngine::new(AlignmentMode::LInsi { iterations: 1000 })
-        .with_retree(1);
+    let engine = MafftEngine::new(AlignmentMode::LInsi { iterations: 1000 }).with_retree(1);
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --auto (L-INS-i 1000): Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len());
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --auto output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --auto output"
+        );
     }
 }
 
@@ -2258,11 +2769,16 @@ fn treein_einsi_byte_identical_to_c() {
     engine.treein_path = Some(fixture_path("sample.treein.tree"));
     let msa = engine.align(&input);
 
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
-        "width differs for --treein E-INS-i");
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
+        "width differs for --treein E-INS-i"
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --treein E-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --treein E-INS-i output"
+        );
     }
 }
 
@@ -2279,19 +2795,29 @@ fn treein_einsi_byte_identical_to_c() {
 fn treeout_engine_populates_guide_tree() {
     let input = read_fasta(test_data_path("sample")).unwrap();
     let msa = MafftEngine::new(AlignmentMode::FftNs2).align(&input);
-    let topo = msa.guide_tree.as_ref()
+    let topo = msa
+        .guide_tree
+        .as_ref()
         .expect("engine should populate guide_tree after align()");
     assert_eq!(topo.nseq, input.nseq());
-    assert!(topo.is_complete(), "guide tree should be complete after align()");
+    assert!(
+        topo.is_complete(),
+        "guide tree should be complete after align()"
+    );
 
     let nw = mafft_tree::topology_to_newick(topo, &msa.names);
     assert!(nw.ends_with(";\n"), "Newick should terminate with `;\\n`");
     // Each leaf appears as `<i+1>_<sanitized_name>` — count leaf-position
     // separators (each leaf is wrapped in `\n` per C's leaf format).
     let leaf_count = (1..=input.nseq())
-        .filter(|i| nw.contains(&format!("\n{}_", i))).count();
-    assert_eq!(leaf_count, input.nseq(),
-        "all {} leaves should appear in Newick output", input.nseq());
+        .filter(|i| nw.contains(&format!("\n{}_", i)))
+        .count();
+    assert_eq!(
+        leaf_count,
+        input.nseq(),
+        "all {} leaves should appear in Newick output",
+        input.nseq()
+    );
 }
 
 /// Helper used by all `--seed` byte-identity tests: mirror the CLI's
@@ -2312,18 +2838,23 @@ fn prepare_seed_input(
     let mut combined = user_input.clone();
     let mut idx = 0usize;
     for s in &seed_set.sequences {
-        let ungapped: Vec<u8> = s.data.iter().copied()
-            .filter(|&c| c != b'-' && c != b'.').collect();
-        combined.sequences.insert(idx, Sequence {
-            name: format!("_seed_{}", s.name),
-            data: ungapped,
-        });
+        let ungapped: Vec<u8> = s
+            .data
+            .iter()
+            .copied()
+            .filter(|&c| c != b'-' && c != b'.')
+            .collect();
+        combined.sequences.insert(
+            idx,
+            Sequence {
+                name: format!("_seed_{}", s.name),
+                data: ungapped,
+            },
+        );
         idx += 1;
     }
-    let scoring = mafft_scoring::build_context(
-        mafft_types::ScoringModel::Blosum(62),
-        combined.seq_type,
-    );
+    let scoring =
+        mafft_scoring::build_context(mafft_types::ScoringModel::Blosum(62), combined.seq_type);
     let seed_group = mafft_align::SeedGroup {
         aligned: aligned.iter().map(|s| s.as_slice()).collect(),
         global_indices: (0..aligned.len()).collect(),
@@ -2358,12 +2889,18 @@ fn seed_linsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     assert_eq!(msa.nseq(), c_ref.nseq(), "nseq mismatch");
-    assert_eq!(msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "width differs for --seed L-INS-i: Rust={} C={}",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len());
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len()
+    );
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed L-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed L-INS-i output"
+        );
     }
 }
 
@@ -2382,8 +2919,10 @@ fn seed_ginsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed G-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed G-INS-i output"
+        );
     }
 }
 
@@ -2402,8 +2941,10 @@ fn seed_einsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed E-INS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed E-INS-i output"
+        );
     }
 }
 
@@ -2422,8 +2963,10 @@ fn memsave_fftns2_byte_identical_to_c() {
     let input = read_fasta(test_data_path("sample")).unwrap();
     let msa = MafftEngine::new(AlignmentMode::FftNs2).align(&input);
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's FFT-NS-2 + --memsave output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's FFT-NS-2 + --memsave output"
+        );
     }
 }
 
@@ -2435,8 +2978,10 @@ fn memsave_fftnsi_byte_identical_to_c() {
     let input = read_fasta(test_data_path("sample")).unwrap();
     let msa = MafftEngine::new(AlignmentMode::FftNsi { iterations: 2 }).align(&input);
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's FFT-NS-i + --memsave output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's FFT-NS-i + --memsave output"
+        );
     }
 }
 
@@ -2446,10 +2991,14 @@ fn memsave_fftns2_retree1_byte_identical_to_c() {
     let c_ref = read_fasta(fixture_path("sample.memsave.fftns2.retree1"))
         .expect("missing fixtures/sample.memsave.fftns2.retree1");
     let input = read_fasta(test_data_path("sample")).unwrap();
-    let msa = MafftEngine::new(AlignmentMode::FftNs2).with_retree(1).align(&input);
+    let msa = MafftEngine::new(AlignmentMode::FftNs2)
+        .with_retree(1)
+        .align(&input);
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's FFT-NS-2 retree-1 + --memsave output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's FFT-NS-2 retree-1 + --memsave output"
+        );
     }
 }
 
@@ -2470,8 +3019,10 @@ fn seed_fftnsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed FFT-NS-i output");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed FFT-NS-i output"
+        );
     }
 }
 
@@ -2494,16 +3045,17 @@ fn seedtable_linsi_byte_identical_to_c() {
         .expect("missing fixtures/sample.seed.combined.fa");
     let hat3 = std::fs::read_to_string(fixture_path("sample.seed.hat3"))
         .expect("missing fixtures/sample.seed.hat3");
-    let seed_table = mafft_align::parse_hat3_seed(&hat3, combined.nseq())
-        .expect("parse hat3");
+    let seed_table = mafft_align::parse_hat3_seed(&hat3, combined.nseq()).expect("parse hat3");
     let mut engine = MafftEngine::new(AlignmentMode::LInsi { iterations: 2 });
     engine.seed_homology = Some(seed_table);
     let msa = engine.align(&combined);
 
     assert_eq!(msa.nseq(), c_ref.nseq(), "nseq mismatch");
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed L-INS-i reference");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed L-INS-i reference"
+        );
     }
 }
 
@@ -2520,8 +3072,10 @@ fn seedtable_ginsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed G-INS-i reference");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed G-INS-i reference"
+        );
     }
 }
 
@@ -2538,8 +3092,10 @@ fn seedtable_einsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed E-INS-i reference");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed E-INS-i reference"
+        );
     }
 }
 
@@ -2556,8 +3112,10 @@ fn seedtable_fftnsi_byte_identical_to_c() {
     let msa = engine.align(&combined);
 
     for i in 0..msa.nseq() {
-        assert_eq!(msa.sequences[i], c_ref.sequences[i].data,
-            "seq {i} differs from C's --seed FFT-NS-i reference");
+        assert_eq!(
+            msa.sequences[i], c_ref.sequences[i].data,
+            "seq {i} differs from C's --seed FFT-NS-i reference"
+        );
     }
 }
 
@@ -2574,13 +3132,18 @@ fn seedtable_fftnsi_byte_identical_to_c() {
 // values that exercise both rewrites.
 // ---------------------------------------------------------------------------
 
-fn run_retree_engine(mode: AlignmentMode, retree: usize, sample: &str) -> mafft_core::MultipleAlignment {
+fn run_retree_engine(
+    mode: AlignmentMode,
+    retree: usize,
+    sample: &str,
+) -> mafft_core::MultipleAlignment {
     let input = read_fasta(test_data_path(sample)).expect("sample fixture");
     MafftEngine::new(mode).with_retree(retree).align(&input)
 }
 
 fn assert_byte_equal_to_ref(msa: &mafft_core::MultipleAlignment, c_ref_path: &str, label: &str) {
-    let c_ref = read_fasta(fixture_path(c_ref_path)).unwrap_or_else(|_| panic!("missing fixture {c_ref_path}"));
+    let c_ref = read_fasta(fixture_path(c_ref_path))
+        .unwrap_or_else(|_| panic!("missing fixture {c_ref_path}"));
     assert_eq!(msa.nseq(), c_ref.nseq(), "{label}: nseq mismatch");
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -2611,7 +3174,11 @@ fn retree_5_fftns2_byte_identical_to_c() {
 #[test]
 fn retree_3_fftnsi_iter2_byte_identical_to_c() {
     let msa = run_retree_engine(AlignmentMode::FftNsi { iterations: 2 }, 3, "sample");
-    assert_byte_equal_to_ref(&msa, "sample.retree3.fftnsi.iter2", "--retree 3 --maxiterate 2");
+    assert_byte_equal_to_ref(
+        &msa,
+        "sample.retree3.fftnsi.iter2",
+        "--retree 3 --maxiterate 2",
+    );
 }
 
 /// `--retree 3 --localpair` (L-INS-i) — verifies the INS-i override at
@@ -2730,10 +3297,8 @@ fn upstream_sample_hat2_parses() {
     use mafft_io::read_hat2;
     use std::fs::File;
     use std::io::BufReader;
-    let f = File::open(fixture_path("sample.hat2"))
-        .expect("missing fixture sample.hat2");
-    let m = read_hat2(BufReader::new(f))
-        .expect("upstream sample.hat2 parser failure");
+    let f = File::open(fixture_path("sample.hat2")).expect("missing fixture sample.hat2");
+    let m = read_hat2(BufReader::new(f)).expect("upstream sample.hat2 parser failure");
     let n = m.nseq();
     // sample has 36 sequences → 36×36 (symmetric) distance matrix.
     assert_eq!(n, 36, "expected 36 seqs in sample.hat2");
@@ -2799,11 +3364,17 @@ fn fftnsi_exp_0_1_byte_identical_to_c() {
     let mut engine = MafftEngine::new(AlignmentMode::FftNsi { iterations: 100 });
     engine.gap_extend = Some(0.1);
     let msa = engine.align(&input);
-    assert_eq!(msa.nseq(), c_ref.nseq(), "FFT-NS-i --exp 0.1: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.nseq(),
+        c_ref.nseq(),
+        "FFT-NS-i --exp 0.1: nseq mismatch"
+    );
+    assert_eq!(
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
         "FFT-NS-i --exp 0.1: width differs (rust={} C={})",
-        msa.sequences[0].len(), c_ref.sequences[0].data.len(),
+        msa.sequences[0].len(),
+        c_ref.sequences[0].data.len(),
     );
     for i in 0..msa.nseq() {
         assert_eq!(
@@ -2830,7 +3401,8 @@ fn skipiterate_large_skips_refinement_byte_identical_to_c() {
     // width=717 (same as --maxiterate 0).
     assert_eq!(msa.nseq(), 36, "skipiterate: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 717,
+        msa.sequences[0].len(),
+        717,
         "skipiterate=1.0 should skip refinement and produce \
          --maxiterate 0 width 717 (rust got {})",
         msa.sequences[0].len(),
@@ -2851,7 +3423,8 @@ fn linsi_exp_0_1_byte_identical_to_c() {
     // L-INS-i with --exp 0.1 from C MAFFT 7.526: width 735, nseq 36.
     assert_eq!(msa.nseq(), 36, "L-INS-i --exp 0.1: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 735,
+        msa.sequences[0].len(),
+        735,
         "L-INS-i --exp 0.1: rust width != C width 735; \
          the constraint-aware progressive zero-out may have regressed",
     );
@@ -2871,7 +3444,8 @@ fn fftns2_exp_0_1_byte_identical_to_c() {
     // C reference: mafft --exp 0.1 sample produces width=686.
     assert_eq!(msa.nseq(), 36, "FFT-NS-2 --exp 0.1: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 686,
+        msa.sequences[0].len(),
+        686,
         "FFT-NS-2 --exp 0.1: rust width changed (was 686 from C); \
          the boundary-init FP-order fix may have regressed",
     );
@@ -2893,7 +3467,8 @@ fn fftns2_exp_4_25_byte_identical_to_c() {
     // C reference: mafft --exp 4.25 sample = width 517 (byte-identical).
     assert_eq!(msa.nseq(), 36, "FFT-NS-2 --exp 4.25: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 517,
+        msa.sequences[0].len(),
+        517,
         "FFT-NS-2 --exp 4.25: rust width changed (was 517 from C); \
          the byte-identical regime upper edge regressed",
     );
@@ -2917,7 +3492,8 @@ fn bestfirst_fftnsi_byte_identical_to_c() {
     let msa = engine.align(&input);
     assert_eq!(msa.nseq(), 36, "FFT-NS-i --bestfirst: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 713,
+        msa.sequences[0].len(),
+        713,
         "FFT-NS-i --bestfirst: rust width != C width 713 \
          (BESTFIRST cap or best-move selection regressed)",
     );
@@ -2931,7 +3507,8 @@ fn bestfirst_linsi_byte_identical_to_c() {
     let msa = engine.align(&input);
     assert_eq!(msa.nseq(), 36, "L-INS-i --bestfirst: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 729,
+        msa.sequences[0].len(),
+        729,
         "L-INS-i --bestfirst: rust width != C width 729",
     );
 }
@@ -2944,7 +3521,8 @@ fn bestfirst_ginsi_byte_identical_to_c() {
     let msa = engine.align(&input);
     assert_eq!(msa.nseq(), 36, "G-INS-i --bestfirst: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 734,
+        msa.sequences[0].len(),
+        734,
         "G-INS-i --bestfirst: rust width != C width 734",
     );
 }
@@ -2970,7 +3548,8 @@ fn oneiteration_fftns2_byte_identical_to_c() {
     let msa = engine.align(&input);
     assert_eq!(msa.nseq(), 36, "FFT-NS-2 --oneiteration: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 713,
+        msa.sequences[0].len(),
+        713,
         "FFT-NS-2 --oneiteration: rust width != C width 713 \
          (one-vs-others scoring or DP path regressed)",
     );
@@ -2984,7 +3563,8 @@ fn oneiteration_fftnsi_byte_identical_to_c() {
     let msa = engine.align(&input);
     assert_eq!(msa.nseq(), 36, "FFT-NS-i --oneiteration: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 717,
+        msa.sequences[0].len(),
+        717,
         "FFT-NS-i --oneiteration: rust width != C width 717",
     );
 }
@@ -3001,7 +3581,8 @@ fn oneiteration_linsi_noop_byte_identical_to_c() {
     // L-INS-i alone (no --oneiteration) = width 735.
     assert_eq!(msa.nseq(), 36, "L-INS-i --oneiteration: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 735,
+        msa.sequences[0].len(),
+        735,
         "L-INS-i --oneiteration: should be a no-op (= L-INS-i width 735)",
     );
 }
@@ -3023,16 +3604,16 @@ fn oneiteration_linsi_noop_byte_identical_to_c() {
 #[test]
 fn nwildcard_dna_no_n_chars_byte_identical_to_c() {
     use mafft_io::read_fasta_casepreserve;
-    let input = read_fasta_casepreserve(
-        fixture_path("dna_adjustdirection_input.fa")
-    ).expect("missing dna_adjustdirection_input.fa fixture");
+    let input = read_fasta_casepreserve(fixture_path("dna_adjustdirection_input.fa"))
+        .expect("missing dna_adjustdirection_input.fa fixture");
     let mut engine = MafftEngine::new(AlignmentMode::FftNs2);
     engine.nwildcard = true;
     let msa = engine.align(&input);
     // C: mafft --preservecase --nwildcard fixture → width 398 / 8 seqs.
     assert_eq!(msa.nseq(), 8, "nwildcard: nseq mismatch");
     assert_eq!(
-        msa.sequences[0].len(), 398,
+        msa.sequences[0].len(),
+        398,
         "nwildcard on n-free DNA: rust width != C width 398",
     );
 }
@@ -3050,14 +3631,15 @@ fn nwildcard_dna_no_n_chars_byte_identical_to_c() {
 /// separate divergence on adversarial inputs (tracked in TODO).
 #[test]
 fn r6_gapped_input_byte_identical_to_c() {
-    let input = read_fasta(fixture_path("combined_17_r6.fa"))
-        .expect("missing combined_17_r6.fa fixture");
+    let input =
+        read_fasta(fixture_path("combined_17_r6.fa")).expect("missing combined_17_r6.fa fixture");
     let engine = MafftEngine::new(AlignmentMode::FftNs2);
     let msa = engine.align(&input);
     // C MAFFT 7.526: `mafft combined_17_r6.fa` → width 444 / 17 seqs.
     assert_eq!(msa.nseq(), 17);
     assert_eq!(
-        msa.sequences[0].len(), 444,
+        msa.sequences[0].len(),
+        444,
         "R-6: gapped-input direct alignment rust width != C width 444",
     );
 }
@@ -3084,7 +3666,8 @@ fn nofft_exp_sweep_byte_identical_to_c() {
         engine.gap_extend = Some(exp);
         let msa = engine.align(&input);
         assert_eq!(
-            msa.sequences[0].len(), expected,
+            msa.sequences[0].len(),
+            expected,
             "--nofft --exp {exp}: rust width != C width {expected}",
         );
     }
@@ -3092,10 +3675,15 @@ fn nofft_exp_sweep_byte_identical_to_c() {
     // calling with penalty_ex=0 must equal the no-_ex variant.
     let mtx = vec![vec![100.0f64; 5]; 5];
     let mut map = [0xFFu8; 256];
-    for (i, c) in b"ACGT".iter().enumerate() { map[*c as usize] = i as u8; }
+    for (i, c) in b"ACGT".iter().enumerate() {
+        map[*c as usize] = i as u8;
+    }
     let r1 = pairwise_align11_ex(b"ACGT", b"ACGT", &mtx, &map, -1530.0, 0.0, true, true);
     let r2 = mafft_align::pairwise_align11(b"ACGT", b"ACGT", &mtx, &map, -1530.0, true, true);
-    assert_eq!(r1.score, r2.score, "_ex with penalty_ex=0 must match the original");
+    assert_eq!(
+        r1.score, r2.score,
+        "_ex with penalty_ex=0 must match the original"
+    );
 }
 
 /// `--skipiterate F` small-F (R-3 closure): refines only branches
@@ -3122,7 +3710,8 @@ fn skipiterate_small_f_byte_identical_to_c() {
         engine.skipiterate = Some(f);
         let msa = engine.align(&input);
         assert_eq!(
-            msa.sequences[0].len(), expected,
+            msa.sequences[0].len(),
+            expected,
             "--skipiterate {f}: rust width != C width {expected}",
         );
     }
@@ -3150,7 +3739,8 @@ fn youngestlinkage_small_byte_identical_to_c() {
         let input = read_fasta(fixture_path(fixture)).expect(fixture);
         let msa = engine.align(&input);
         assert_eq!(
-            msa.sequences[0].len(), expected_width,
+            msa.sequences[0].len(),
+            expected_width,
             "--youngestlinkage on {fixture}: rust width != C width {expected_width}",
         );
     }
@@ -3182,10 +3772,18 @@ fn pileup_topology_byte_identical_to_c_branch_lengths() {
     // Subsequent steps: left=l (chain branch), right=ll (singleton depth).
     let mut ll = 2.0 * l;
     for i in 1..topo.steps.len() {
-        assert!(approx(topo.steps[i].left_length, l),
-            "step {i} left_length: got {} expected {}", topo.steps[i].left_length, l);
-        assert!(approx(topo.steps[i].right_length, ll),
-            "step {i} right_length: got {} expected {}", topo.steps[i].right_length, ll);
+        assert!(
+            approx(topo.steps[i].left_length, l),
+            "step {i} left_length: got {} expected {}",
+            topo.steps[i].left_length,
+            l
+        );
+        assert!(
+            approx(topo.steps[i].right_length, ll),
+            "step {i} right_length: got {} expected {}",
+            topo.steps[i].right_length,
+            ll
+        );
         // Left cluster accumulates: [0..=i].
         let expected_left: Vec<usize> = (0..=i).collect();
         assert_eq!(topo.steps[i].left, expected_left, "step {i} left list");
@@ -3219,16 +3817,22 @@ fn mapout_full_byte_identical_to_c() {
         let mut dropped = vec![false; len];
         for &(p, run) in dl {
             for k in 0..run {
-                if p + k < len { dropped[p + k] = true; }
+                if p + k < len {
+                    dropped[p + k] = true;
+                }
             }
         }
         let _ = writeln!(out, ">{}", new_seqs.sequences[i].name);
-        let _ = writeln!(out,
-            "# letter, position in the original sequence, position in the reference alignment");
+        let _ = writeln!(
+            out,
+            "# letter, position in the original sequence, position in the reference alignment"
+        );
         let realn: &[u8] = &msa.sequences[n_existing + i];
         let mut p = 0usize;
         for j in 0..len {
-            while p < realn.len() && realn[p] == b'-' { p += 1; }
+            while p < realn.len() && realn[p] == b'-' {
+                p += 1;
+            }
             let ch = addbk[j];
             if dropped[j] {
                 let _ = writeln!(out, "{}, {}, -", ch as char, j + 1);
@@ -3254,13 +3858,17 @@ fn mapout_compact_byte_identical_to_c() {
     let mut out = String::new();
     out.push_str("# Insertion in added sequence > Position in reference\n");
     for (i, dl) in deletelist.iter().enumerate() {
-        if dl.is_empty() { continue; }
+        if dl.is_empty() {
+            continue;
+        }
         let addbk = &new_seqs.sequences[i].data;
         let len = addbk.len();
         let mut dropped = vec![false; len];
         for &(p, run) in dl {
             for k in 0..run {
-                if p + k < len { dropped[p + k] = true; }
+                if p + k < len {
+                    dropped[p + k] = true;
+                }
             }
         }
         let _ = writeln!(out, ">{}", new_seqs.sequences[i].name);
@@ -3322,25 +3930,37 @@ fn nodeout_density_section_byte_identical_to_c() {
     assert_eq!(nseq, 36, "sample has 36 sequences");
 
     // Density formula (mirror setdensity, mltaln9.c:1366-1395).
-    let density: Vec<f64> = (0..nseq).map(|i| {
-        (0..nseq).filter(|&j| j != i)
-            .map(|j| dm.get(i, j))
-            .filter(|&d| d < 1.0)
-            .map(|d| 2.0 - d)
-            .sum()
-    }).collect();
+    let density: Vec<f64> = (0..nseq)
+        .map(|i| {
+            (0..nseq)
+                .filter(|&j| j != i)
+                .map(|j| dm.get(i, j))
+                .filter(|&d| d < 1.0)
+                .map(|d| 2.0 - d)
+                .sum()
+        })
+        .collect();
 
     // C reference values from `/tmp/sample.tree` (manually inspected):
     //   Sequence 1, 10.9783
     //   Sequence 2,  9.5898
     //   Sequence 36,  0.0000
     let approx = |a: f64, b: f64| (a - b).abs() < 5e-5;
-    assert!(approx(density[0], 10.9783),
-        "density[0] = {} != C 10.9783", density[0]);
-    assert!(approx(density[1], 9.5898),
-        "density[1] = {} != C 9.5898", density[1]);
-    assert!(approx(density[35], 0.0),
-        "density[35] = {} != C 0.0", density[35]);
+    assert!(
+        approx(density[0], 10.9783),
+        "density[0] = {} != C 10.9783",
+        density[0]
+    );
+    assert!(
+        approx(density[1], 9.5898),
+        "density[1] = {} != C 9.5898",
+        density[1]
+    );
+    assert!(
+        approx(density[35], 0.0),
+        "density[35] = {} != C 0.0",
+        density[35]
+    );
 }
 
 /// `--adjustdirectionaccurately` (R-5 follow-up): DP-based variant
@@ -3365,17 +3985,22 @@ fn nodeout_density_section_byte_identical_to_c() {
 /// with `_R_`.
 #[test]
 fn adjustdirection_with_add_only_flips_added() {
-    use mafft_core::adjust_direction::{adjust_direction_mode_add, AdjustMode};
-    use mafft_types::{Sequence, SequenceSet, SeqType};
+    use mafft_core::adjust_direction::{AdjustMode, adjust_direction_mode_add};
+    use mafft_types::{SeqType, Sequence, SequenceSet};
     let raw = read_fasta_casepreserve(fixture_path("dna_adjustdirection_input.fa"))
         .expect("missing fixture");
     assert_eq!(raw.nseq(), 8);
     // Treat first 4 as existing, last 4 as added.
     let mut combined = SequenceSet {
-        sequences: raw.sequences[..4].iter().cloned().collect::<Vec<Sequence>>(),
+        sequences: raw.sequences[..4]
+            .iter()
+            .cloned()
+            .collect::<Vec<Sequence>>(),
         seq_type: SeqType::Dna,
     };
-    combined.sequences.extend(raw.sequences[4..].iter().cloned());
+    combined
+        .sequences
+        .extend(raw.sequences[4..].iter().cloned());
 
     for mode in [AdjustMode::Kmer, AdjustMode::Dp] {
         let adjusted = adjust_direction_mode_add(&combined, mode, 4);
@@ -3384,7 +4009,8 @@ fn adjustdirection_with_add_only_flips_added() {
             assert!(
                 !adjusted.sequences[i].name.starts_with("_R_"),
                 "{:?}: existing seq {i} got _R_ prefix: {}",
-                mode, adjusted.sequences[i].name,
+                mode,
+                adjusted.sequences[i].name,
             );
             assert_eq!(
                 adjusted.sequences[i].data, combined.sequences[i].data,
@@ -3397,7 +4023,8 @@ fn adjustdirection_with_add_only_flips_added() {
             assert!(
                 adjusted.sequences[i].name.starts_with("_R_"),
                 "{:?}: added seq {i} missing _R_ prefix: {}",
-                mode, adjusted.sequences[i].name,
+                mode,
+                adjusted.sequences[i].name,
             );
         }
     }
@@ -3405,7 +4032,7 @@ fn adjustdirection_with_add_only_flips_added() {
 
 #[test]
 fn adjustdirectionaccurately_mixed_dna_byte_identical_to_c() {
-    use mafft_core::adjust_direction::{adjust_direction_mode, AdjustMode};
+    use mafft_core::adjust_direction::{AdjustMode, adjust_direction_mode};
     let input = read_fasta_casepreserve(fixture_path("dna_adjustdirection_input.fa"))
         .expect("missing dna_adjustdirection_input.fa fixture");
     let adjusted = adjust_direction_mode(&input, AdjustMode::Dp);
@@ -3416,7 +4043,8 @@ fn adjustdirectionaccurately_mixed_dna_byte_identical_to_c() {
         assert!(
             adjusted.sequences[i].name.starts_with(expected),
             "DP mode seq {i}: expected name to start with {:?}, got {:?}",
-            expected, adjusted.sequences[i].name,
+            expected,
+            adjusted.sequences[i].name,
         );
     }
     for i in 0..4 {
@@ -3424,7 +4052,8 @@ fn adjustdirectionaccurately_mixed_dna_byte_identical_to_c() {
             adjusted.sequences[i].data,
             adjusted.sequences[i + 4].data,
             "DP mode: seq {} should equal seq {} after RC",
-            i, i + 4,
+            i,
+            i + 4,
         );
     }
 }
@@ -3437,7 +4066,7 @@ fn adjustdirectionaccurately_mixed_dna_byte_identical_to_c() {
 /// `--adjustdirection` on this fixture.
 #[test]
 fn adjust_direction_mixed_dna_byte_identical_to_c() {
-    use mafft_core::adjust_direction::{adjust_direction, Direction, reverse_complement};
+    use mafft_core::adjust_direction::{Direction, adjust_direction, reverse_complement};
     let input = read_fasta_casepreserve(fixture_path("dna_adjustdirection_input.fa"))
         .expect("missing dna_adjustdirection_input.fa fixture");
     assert!(input.seq_type.is_nucleotide(), "fixture must be DNA");
@@ -3451,7 +4080,8 @@ fn adjust_direction_mixed_dna_byte_identical_to_c() {
         assert!(
             adjusted.sequences[i].name.starts_with(expected),
             "seq {i}: expected name to start with {:?}, got {:?}",
-            expected, adjusted.sequences[i].name,
+            expected,
+            adjusted.sequences[i].name,
         );
     }
 
@@ -3461,7 +4091,8 @@ fn adjust_direction_mixed_dna_byte_identical_to_c() {
             adjusted.sequences[i].data,
             adjusted.sequences[i + 4].data,
             "after adjust, seq {} should equal seq {} (its un-RC'd pair)",
-            i, i + 4,
+            i,
+            i + 4,
         );
     }
 

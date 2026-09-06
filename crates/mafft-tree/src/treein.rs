@@ -57,31 +57,31 @@ pub fn parse_mafft_tree_str(content: &str, nseq: usize) -> Result<Topology, Stri
         }
 
         let mut parts = trimmed.split_ascii_whitespace();
-        let im_s = parts.next().ok_or_else(|| {
-            format!("line {}: missing im", line_no + 1)
-        })?;
-        let jm_s = parts.next().ok_or_else(|| {
-            format!("line {}: missing jm", line_no + 1)
-        })?;
-        let l0_s = parts.next().ok_or_else(|| {
-            format!("line {}: missing len0", line_no + 1)
-        })?;
-        let l1_s = parts.next().ok_or_else(|| {
-            format!("line {}: missing len1", line_no + 1)
-        })?;
+        let im_s = parts
+            .next()
+            .ok_or_else(|| format!("line {}: missing im", line_no + 1))?;
+        let jm_s = parts
+            .next()
+            .ok_or_else(|| format!("line {}: missing jm", line_no + 1))?;
+        let l0_s = parts
+            .next()
+            .ok_or_else(|| format!("line {}: missing len0", line_no + 1))?;
+        let l1_s = parts
+            .next()
+            .ok_or_else(|| format!("line {}: missing len1", line_no + 1))?;
 
-        let im_1: usize = im_s.parse().map_err(|_| {
-            format!("line {}: invalid im '{im_s}'", line_no + 1)
-        })?;
-        let jm_1: usize = jm_s.parse().map_err(|_| {
-            format!("line {}: invalid jm '{jm_s}'", line_no + 1)
-        })?;
-        let len0: f64 = l0_s.parse().map_err(|_| {
-            format!("line {}: invalid len0 '{l0_s}'", line_no + 1)
-        })?;
-        let len1: f64 = l1_s.parse().map_err(|_| {
-            format!("line {}: invalid len1 '{l1_s}'", line_no + 1)
-        })?;
+        let im_1: usize = im_s
+            .parse()
+            .map_err(|_| format!("line {}: invalid im '{im_s}'", line_no + 1))?;
+        let jm_1: usize = jm_s
+            .parse()
+            .map_err(|_| format!("line {}: invalid jm '{jm_s}'", line_no + 1))?;
+        let len0: f64 = l0_s
+            .parse()
+            .map_err(|_| format!("line {}: invalid len0 '{l0_s}'", line_no + 1))?;
+        let len1: f64 = l1_s
+            .parse()
+            .map_err(|_| format!("line {}: invalid len1 '{l1_s}'", line_no + 1))?;
 
         if im_1 == 0 || jm_1 == 0 || im_1 > nseq || jm_1 > nseq {
             return Err(format!(

@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use mafft_types::{SequenceSet, SeqType};
+use mafft_types::{SeqType, SequenceSet};
 
 use crate::error::IoError;
 
@@ -66,7 +66,7 @@ pub fn write_clustal_full<W: Write>(
     //     fprintf(fp, "CLUSTAL format alignment by MAFFT %s (v%s)\n\n", comment, VERSION);
     match comment {
         Some(c) => writeln!(writer, "CLUSTAL format alignment by MAFFT {} (v7.526)", c)?,
-        None    => writeln!(writer, "CLUSTAL format alignment by MAFFT (v7.526)")?,
+        None => writeln!(writer, "CLUSTAL format alignment by MAFFT (v7.526)")?,
     }
     writeln!(writer)?;
 
@@ -114,12 +114,11 @@ pub fn write_clustal_full<W: Write>(
 /// means every column residue is in at least one "strong" group.
 /// A `.` means every residue is in at least one "weaker" group.
 const PROTEIN_STRONG: &[&[u8]] = &[
-    b"STA", b"NEQK", b"NHQK", b"NDEQ", b"QHRK",
-    b"MILV", b"MILF", b"HY", b"FYW",
+    b"STA", b"NEQK", b"NHQK", b"NDEQ", b"QHRK", b"MILV", b"MILF", b"HY", b"FYW",
 ];
 const PROTEIN_WEAKER: &[&[u8]] = &[
-    b"CSA", b"ATV", b"SAG", b"STNK", b"STPA", b"SGND",
-    b"SNDEQK", b"NDEQHK", b"NEQHRK", b"FVLIM", b"HFY",
+    b"CSA", b"ATV", b"SAG", b"STNK", b"STPA", b"SGND", b"SNDEQK", b"NDEQHK", b"NEQHRK", b"FVLIM",
+    b"HFY",
 ];
 
 /// Conservation groups for DNA/RNA CLUSTAL marks (f2cl.c:33-39).
@@ -169,11 +168,15 @@ pub fn compute_clustal_marks(seqs: &SequenceSet) -> String {
                 break;
             }
         }
-        if any_gap { continue; }
+        if any_gap {
+            continue;
+        }
 
         // First-letter check (uppercase). Out-of-alpha → leave as space.
         let first = ascii_upper(seqs.sequences[0].data[i]);
-        if !alpha.contains(&first) { continue; }
+        if !alpha.contains(&first) {
+            continue;
+        }
 
         // All same → '*'
         let all_same = (0..nseq).all(|j| ascii_upper(seqs.sequences[j].data[i]) == first);
@@ -183,18 +186,18 @@ pub fn compute_clustal_marks(seqs: &SequenceSet) -> String {
         }
 
         // Strong group → ':'
-        let in_strong = strong.iter().any(|grp|
-            (0..nseq).all(|j| grp.contains(&ascii_upper(seqs.sequences[j].data[i])))
-        );
+        let in_strong = strong
+            .iter()
+            .any(|grp| (0..nseq).all(|j| grp.contains(&ascii_upper(seqs.sequences[j].data[i]))));
         if in_strong {
             marks[i] = b':';
             continue;
         }
 
         // Weaker group → '.'
-        let in_weaker = weaker.iter().any(|grp|
-            (0..nseq).all(|j| grp.contains(&ascii_upper(seqs.sequences[j].data[i])))
-        );
+        let in_weaker = weaker
+            .iter()
+            .any(|grp| (0..nseq).all(|j| grp.contains(&ascii_upper(seqs.sequences[j].data[i]))));
         if in_weaker {
             marks[i] = b'.';
         }
@@ -211,11 +214,7 @@ fn ascii_upper(b: u8) -> u8 {
 /// `width` chars with spaces, AND truncate if longer than `width`.
 /// Rust's `{:<width$}` only pads — long strings flow past the field,
 /// breaking column alignment vs C MAFFT.
-fn write_name_field<W: Write>(
-    writer: &mut W,
-    name: &str,
-    width: usize,
-) -> Result<(), IoError> {
+fn write_name_field<W: Write>(writer: &mut W, name: &str, width: usize) -> Result<(), IoError> {
     let bytes = name.as_bytes();
     let len = bytes.len().min(width);
     writer.write_all(&bytes[..len])?;
@@ -272,7 +271,10 @@ mod tests {
                     name: "this_name_is_way_longer_than_15_chars".into(),
                     data: b"ACGT-ACGT".to_vec(),
                 },
-                Sequence { name: "s2".into(), data: b"ACGTAAC-T".to_vec() },
+                Sequence {
+                    name: "s2".into(),
+                    data: b"ACGTAAC-T".to_vec(),
+                },
             ],
             seq_type: SeqType::Dna,
         };
@@ -290,8 +292,14 @@ mod tests {
     fn header_includes_strategy_comment() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "s1".into(), data: b"AC".to_vec() },
-                Sequence { name: "s2".into(), data: b"AC".to_vec() },
+                Sequence {
+                    name: "s1".into(),
+                    data: b"AC".to_vec(),
+                },
+                Sequence {
+                    name: "s2".into(),
+                    data: b"AC".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -308,9 +316,18 @@ mod tests {
     fn marks_star_for_full_identity_column() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "a".into(), data: b"MKT".to_vec() },
-                Sequence { name: "b".into(), data: b"MKT".to_vec() },
-                Sequence { name: "c".into(), data: b"MKT".to_vec() },
+                Sequence {
+                    name: "a".into(),
+                    data: b"MKT".to_vec(),
+                },
+                Sequence {
+                    name: "b".into(),
+                    data: b"MKT".to_vec(),
+                },
+                Sequence {
+                    name: "c".into(),
+                    data: b"MKT".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -322,8 +339,14 @@ mod tests {
     fn marks_space_for_gap_column() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "a".into(), data: b"M-T".to_vec() },
-                Sequence { name: "b".into(), data: b"MKT".to_vec() },
+                Sequence {
+                    name: "a".into(),
+                    data: b"M-T".to_vec(),
+                },
+                Sequence {
+                    name: "b".into(),
+                    data: b"MKT".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -337,10 +360,22 @@ mod tests {
     fn marks_strong_group_protein() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "a".into(), data: b"M".to_vec() },
-                Sequence { name: "b".into(), data: b"I".to_vec() },
-                Sequence { name: "c".into(), data: b"L".to_vec() },
-                Sequence { name: "d".into(), data: b"V".to_vec() },
+                Sequence {
+                    name: "a".into(),
+                    data: b"M".to_vec(),
+                },
+                Sequence {
+                    name: "b".into(),
+                    data: b"I".to_vec(),
+                },
+                Sequence {
+                    name: "c".into(),
+                    data: b"L".to_vec(),
+                },
+                Sequence {
+                    name: "d".into(),
+                    data: b"V".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -354,9 +389,18 @@ mod tests {
     fn marks_weak_group_protein() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "a".into(), data: b"C".to_vec() },
-                Sequence { name: "b".into(), data: b"S".to_vec() },
-                Sequence { name: "c".into(), data: b"A".to_vec() },
+                Sequence {
+                    name: "a".into(),
+                    data: b"C".to_vec(),
+                },
+                Sequence {
+                    name: "b".into(),
+                    data: b"S".to_vec(),
+                },
+                Sequence {
+                    name: "c".into(),
+                    data: b"A".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };

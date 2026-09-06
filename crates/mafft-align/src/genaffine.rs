@@ -16,7 +16,6 @@
 /// Traceback uses two arrays `ijpi[i][j]` / `ijpj[i][j]` storing absolute
 /// source coordinates (not relative offsets), so a single jump can change
 /// both i and j arbitrarily.
-
 use crate::dp::{AlignOp, Alignment, GapModel};
 use crate::local::LocalAlignment;
 
@@ -117,8 +116,14 @@ pub fn genaffine_local_align(
     const LOCALSTOP: i32 = i32::MIN;
     let mut ijpi = vec![vec![0i32; m + 1]; n + 1];
     let mut ijpj = vec![vec![0i32; m + 1]; n + 1];
-    for i in 0..=n { ijpi[i][0] = LOCALSTOP; ijpj[i][0] = LOCALSTOP; }
-    for j in 0..=m { ijpi[0][j] = LOCALSTOP; ijpj[0][j] = LOCALSTOP; }
+    for i in 0..=n {
+        ijpi[i][0] = LOCALSTOP;
+        ijpj[i][0] = LOCALSTOP;
+    }
+    for j in 0..=m {
+        ijpi[0][j] = LOCALSTOP;
+        ijpj[0][j] = LOCALSTOP;
+    }
 
     let mut maxwm = f64::NEG_INFINITY;
     let mut endali = 0i32;
@@ -134,7 +139,9 @@ pub fn genaffine_local_align(
                 currentw[k] = score_at(seq1[i], seq2[k]);
             }
         } else {
-            for k in 0..m { currentw[k] = 0.0; }
+            for k in 0..m {
+                currentw[k] = 0.0;
+            }
         }
 
         currentw[0] = if i < n { initverticalw[i] } else { 0.0 };
@@ -252,8 +259,12 @@ pub fn genaffine_local_align(
     let mut last_jfi = jin;
 
     loop {
-        if iin <= 0 || jin <= 0 { break; }
-        if (iin as usize) > n || (jin as usize) > m { break; }
+        if iin <= 0 || jin <= 0 {
+            break;
+        }
+        if (iin as usize) > n || (jin as usize) > m {
+            break;
+        }
         let ifi = ijpi[iin as usize][jin as usize];
         let jfi = ijpj[iin as usize][jin as usize];
 
@@ -307,10 +318,14 @@ pub fn genaffine_local_align(
         last_jfi = jfi;
 
         // Check next cell for localstop.
-        if ifi <= 0 || jfi <= 0 { break; }
+        if ifi <= 0 || jfi <= 0 {
+            break;
+        }
         let next_ifi = ijpi[ifi as usize][jfi as usize];
         let next_jfi = ijpj[ifi as usize][jfi as usize];
-        if next_ifi == LOCALSTOP || next_jfi == LOCALSTOP { break; }
+        if next_ifi == LOCALSTOP || next_jfi == LOCALSTOP {
+            break;
+        }
         iin = ifi;
         jin = jfi;
     }

@@ -7,7 +7,6 @@
 /// These modes follow the same pattern as C MAFFT: call external tools
 /// as subprocesses, parse their output, and convert to constraint tables
 /// for use in the alignment DP.
-
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -61,10 +60,11 @@ pub fn run_mccaskill(sequence: &[u8], tool_path: &Path) -> Result<Vec<BasePairPr
     let outfile = tmpdir.join("_mafftrs_mccaskillout");
 
     // Write input FASTA
-    let mut f = std::fs::File::create(&infile)
-        .map_err(|e| format!("Cannot create temp file: {e}"))?;
+    let mut f =
+        std::fs::File::create(&infile).map_err(|e| format!("Cannot create temp file: {e}"))?;
     writeln!(f, ">seq").map_err(|e| format!("Write error: {e}"))?;
-    f.write_all(sequence).map_err(|e| format!("Write error: {e}"))?;
+    f.write_all(sequence)
+        .map_err(|e| format!("Write error: {e}"))?;
     writeln!(f).map_err(|e| format!("Write error: {e}"))?;
     drop(f);
 
@@ -76,12 +76,14 @@ pub fn run_mccaskill(sequence: &[u8], tool_path: &Path) -> Result<Vec<BasePairPr
         .map_err(|e| format!("Failed to run mxscarnamod: {e}"))?;
 
     if !output.status.success() {
-        return Err(format!("mxscarnamod failed: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "mxscarnamod failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
 
     // Write output to file for parsing
-    std::fs::write(&outfile, &output.stdout)
-        .map_err(|e| format!("Cannot write output: {e}"))?;
+    std::fs::write(&outfile, &output.stdout).map_err(|e| format!("Cannot write output: {e}"))?;
 
     // Parse output: "left right probability" per line
     let content = String::from_utf8_lossy(&output.stdout);
@@ -125,16 +127,23 @@ pub fn run_contrafold(sequence: &[u8], tool_path: &Path) -> Result<Vec<BasePairP
     let outfile = tmpdir.join("_mafftrs_contrafoldout");
 
     // Write input FASTA
-    let mut f = std::fs::File::create(&infile)
-        .map_err(|e| format!("Cannot create temp file: {e}"))?;
+    let mut f =
+        std::fs::File::create(&infile).map_err(|e| format!("Cannot create temp file: {e}"))?;
     writeln!(f, ">seq").map_err(|e| format!("Write error: {e}"))?;
-    f.write_all(sequence).map_err(|e| format!("Write error: {e}"))?;
+    f.write_all(sequence)
+        .map_err(|e| format!("Write error: {e}"))?;
     writeln!(f).map_err(|e| format!("Write error: {e}"))?;
     drop(f);
 
     // Run contrafold
     let status = Command::new(tool_path)
-        .args(["predict", infile.to_str().unwrap(), "--posteriors", "0.01", outfile.to_str().unwrap()])
+        .args([
+            "predict",
+            infile.to_str().unwrap(),
+            "--posteriors",
+            "0.01",
+            outfile.to_str().unwrap(),
+        ])
         .status()
         .map_err(|e| format!("Failed to run contrafold: {e}"))?;
 
@@ -159,7 +168,9 @@ fn parse_contrafold_output(content: &str) -> Vec<BasePairProb> {
     let mut pairs = Vec::new();
     for line in content.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() { continue; }
+        if parts.is_empty() {
+            continue;
+        }
         if let Ok(left) = parts[0].parse::<usize>() {
             let left = left.saturating_sub(1); // Convert 1-indexed to 0-indexed
             for &part in &parts[1..] {
@@ -198,12 +209,13 @@ pub fn run_dash(
     let outfile = tmpdir.join("_mafftrs_hat3seed");
 
     // Write input FASTA (ungapped)
-    let mut f = std::fs::File::create(&infile)
-        .map_err(|e| format!("Cannot create temp file: {e}"))?;
+    let mut f =
+        std::fs::File::create(&infile).map_err(|e| format!("Cannot create temp file: {e}"))?;
     for (name, seq) in names.iter().zip(sequences.iter()) {
         writeln!(f, ">{name}").map_err(|e| format!("Write error: {e}"))?;
         let ungapped: Vec<u8> = seq.iter().filter(|&&c| c != b'-').copied().collect();
-        f.write_all(&ungapped).map_err(|e| format!("Write error: {e}"))?;
+        f.write_all(&ungapped)
+            .map_err(|e| format!("Write error: {e}"))?;
         writeln!(f).map_err(|e| format!("Write error: {e}"))?;
     }
     drop(f);
@@ -211,9 +223,12 @@ pub fn run_dash(
     // Run dash_client
     let status = Command::new(&tool_path)
         .args([
-            "-url", server_url,
-            "-i", infile.to_str().unwrap(),
-            "-hat3", outfile.to_str().unwrap(),
+            "-url",
+            server_url,
+            "-i",
+            infile.to_str().unwrap(),
+            "-hat3",
+            outfile.to_str().unwrap(),
         ])
         .status()
         .map_err(|e| format!("Failed to run dash_client: {e}"))?;
@@ -223,8 +238,8 @@ pub fn run_dash(
     }
 
     // Parse hat3 output
-    let content = std::fs::read_to_string(&outfile)
-        .map_err(|e| format!("Cannot read DASH output: {e}"))?;
+    let content =
+        std::fs::read_to_string(&outfile).map_err(|e| format!("Cannot read DASH output: {e}"))?;
     let constraints = parse_hat3(&content);
 
     // Cleanup
@@ -258,37 +273,43 @@ fn parse_hat3(content: &str) -> Vec<(usize, usize, f64, usize, usize, usize, usi
 
 /// Compute base-pair probabilities for all sequences using McCaskill (Q-INS-i).
 pub fn compute_bpp_mccaskill(sequences: &[Vec<u8>]) -> Result<Vec<SequenceBpp>, String> {
-    let tool = find_tool("mxscarnamod")
-        .ok_or_else(|| {
-            "mxscarnamod not found. Q-INS-i requires the McCaskill base-pair probability program.\n\
+    let tool = find_tool("mxscarnamod").ok_or_else(|| {
+        "mxscarnamod not found. Q-INS-i requires the McCaskill base-pair probability program.\n\
              Install it and ensure it is in your PATH or set MAFFT_BINARIES.\n\
-             See: https://mafft.cbrc.jp/alignment/software/source.html".to_string()
-        })?;
+             See: https://mafft.cbrc.jp/alignment/software/source.html"
+            .to_string()
+    })?;
 
     let mut results = Vec::with_capacity(sequences.len());
     for (idx, seq) in sequences.iter().enumerate() {
         // Strip gaps for BPP prediction
         let ungapped: Vec<u8> = seq.iter().filter(|&&c| c != b'-').copied().collect();
         let pairs = run_mccaskill(&ungapped, &tool)?;
-        results.push(SequenceBpp { seq_index: idx, pairs });
+        results.push(SequenceBpp {
+            seq_index: idx,
+            pairs,
+        });
     }
     Ok(results)
 }
 
 /// Compute base-pair probabilities for all sequences using CONTRAfold (X-INS-i).
 pub fn compute_bpp_contrafold(sequences: &[Vec<u8>]) -> Result<Vec<SequenceBpp>, String> {
-    let tool = find_tool("contrafold")
-        .ok_or_else(|| {
-            "contrafold not found. X-INS-i requires CONTRAfold.\n\
+    let tool = find_tool("contrafold").ok_or_else(|| {
+        "contrafold not found. X-INS-i requires CONTRAfold.\n\
              Install CONTRAfold v2.02+ and ensure it is in your PATH or set MAFFT_BINARIES.\n\
-             See: https://mafft.cbrc.jp/alignment/software/source.html".to_string()
-        })?;
+             See: https://mafft.cbrc.jp/alignment/software/source.html"
+            .to_string()
+    })?;
 
     let mut results = Vec::with_capacity(sequences.len());
     for (idx, seq) in sequences.iter().enumerate() {
         let ungapped: Vec<u8> = seq.iter().filter(|&&c| c != b'-').copied().collect();
         let pairs = run_contrafold(&ungapped, &tool)?;
-        results.push(SequenceBpp { seq_index: idx, pairs });
+        results.push(SequenceBpp {
+            seq_index: idx,
+            pairs,
+        });
     }
     Ok(results)
 }

@@ -1,113 +1,123 @@
 /// Cross-validate Rust BranchWeights against C's weightFromABranch.
-
 use std::os::raw::{c_double, c_int};
 use std::ptr;
 
-use mafft_tree::{Topology, BranchWeights, musclesupg, ClusterMethod, DistanceMatrix, JoinStep};
+use mafft_tree::{BranchWeights, ClusterMethod, DistanceMatrix, JoinStep, Topology, musclesupg};
 
 /// Build C's topology arrays (int*** with -1 sentinels) and branch length
 /// arrays (double**) from a Rust Topology, call treeCnv + calcBranchWeight
 /// + weightFromABranch, and return the per-branch weight vectors.
 ///
 /// This is the ground truth from C.
-unsafe fn c_branch_weights(topo: &Topology) -> Vec<Vec<Vec<f64>>> { unsafe {
-    let nseq = topo.nseq as c_int;
-    let nsteps = topo.steps.len();
+unsafe fn c_branch_weights(topo: &Topology) -> Vec<Vec<Vec<f64>>> {
+    unsafe {
+        let nseq = topo.nseq as c_int;
+        let nsteps = topo.steps.len();
 
-    // Set C globals.
-    mafft_sys::sueff_global = 0.1;
-    mafft_sys::treemethod = b'X' as c_int;
+        // Set C globals.
+        mafft_sys::sueff_global = 0.1;
+        mafft_sys::treemethod = b'X' as c_int;
 
-    // Allocate topol: int*** — topol[step][0/1] = int* (member list, -1 terminated)
-    let topol: *mut *mut *mut c_int = libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut *mut c_int>()) as _;
-    for k in 0..nsteps {
-        let row: *mut *mut c_int = libc_alloc_zeroed(2 * std::mem::size_of::<*mut c_int>()) as _;
-        // Left members
-        let left = &topo.steps[k].left;
-        let left_arr: *mut c_int = libc_alloc_zeroed((left.len() + 1) * std::mem::size_of::<c_int>()) as _;
-        for (i, &s) in left.iter().enumerate() {
-            *left_arr.add(i) = s as c_int;
+        // Allocate topol: int*** — topol[step][0/1] = int* (member list, -1 terminated)
+        let topol: *mut *mut *mut c_int =
+            libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut *mut c_int>()) as _;
+        for k in 0..nsteps {
+            let row: *mut *mut c_int =
+                libc_alloc_zeroed(2 * std::mem::size_of::<*mut c_int>()) as _;
+            // Left members
+            let left = &topo.steps[k].left;
+            let left_arr: *mut c_int =
+                libc_alloc_zeroed((left.len() + 1) * std::mem::size_of::<c_int>()) as _;
+            for (i, &s) in left.iter().enumerate() {
+                *left_arr.add(i) = s as c_int;
+            }
+            *left_arr.add(left.len()) = -1;
+            *row.add(0) = left_arr;
+
+            // Right members
+            let right = &topo.steps[k].right;
+            let right_arr: *mut c_int =
+                libc_alloc_zeroed((right.len() + 1) * std::mem::size_of::<c_int>()) as _;
+            for (i, &s) in right.iter().enumerate() {
+                *right_arr.add(i) = s as c_int;
+            }
+            *right_arr.add(right.len()) = -1;
+            *row.add(1) = right_arr;
+
+            *topol.add(k) = row;
         }
-        *left_arr.add(left.len()) = -1;
-        *row.add(0) = left_arr;
 
-        // Right members
-        let right = &topo.steps[k].right;
-        let right_arr: *mut c_int = libc_alloc_zeroed((right.len() + 1) * std::mem::size_of::<c_int>()) as _;
-        for (i, &s) in right.iter().enumerate() {
-            *right_arr.add(i) = s as c_int;
+        // Allocate len: double** — len[step][0/1]
+        let len: *mut *mut c_double =
+            libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut c_double>()) as _;
+        for k in 0..nsteps {
+            let row: *mut c_double = libc_alloc_zeroed(2 * std::mem::size_of::<c_double>()) as _;
+            *row.add(0) = topo.steps[k].left_length;
+            *row.add(1) = topo.steps[k].right_length;
+            *len.add(k) = row;
         }
-        *right_arr.add(right.len()) = -1;
-        *row.add(1) = right_arr;
 
-        *topol.add(k) = row;
-    }
-
-    // Allocate len: double** — len[step][0/1]
-    let len: *mut *mut c_double = libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut c_double>()) as _;
-    for k in 0..nsteps {
-        let row: *mut c_double = libc_alloc_zeroed(2 * std::mem::size_of::<c_double>()) as _;
-        *row.add(0) = topo.steps[k].left_length;
-        *row.add(1) = topo.steps[k].right_length;
-        *len.add(k) = row;
-    }
-
-    // Allocate bw: double** — bw[step][0/1]
-    let bw: *mut *mut c_double = libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut c_double>()) as _;
-    for k in 0..nsteps {
-        let row: *mut c_double = libc_alloc_zeroed(2 * std::mem::size_of::<c_double>()) as _;
-        *row.add(0) = 1.0;
-        *row.add(1) = 1.0;
-        *bw.add(k) = row;
-    }
-
-    // Allocate stopol: Node* — 2*nseq nodes
-    let total_nodes = 2 * nseq as usize;
-    let stopol: *mut mafft_sys::Node = libc_alloc_zeroed(total_nodes * std::mem::size_of::<mafft_sys::Node>()) as _;
-    // Initialize children to NULL, tmpChildren to -1
-    for i in 0..total_nodes {
-        let node = &mut *stopol.add(i);
-        node.children = [ptr::null_mut(); 3];
-        node.tmpChildren = [-1; 3];
-        node.length = [0.0; 3];
-        node.weightptr = [ptr::null_mut(); 3];
-        node.top = [-1; 3];
-        node.members = [ptr::null_mut(); 3];
-    }
-
-    // Call C's treeCnv
-    mafft_sys::treeCnv(stopol, nseq, topol, len, bw);
-
-    // Call C's calcBranchWeight
-    mafft_sys::calcBranchWeight(bw, nseq, stopol, topol, len);
-
-    // Call C's weightFromABranch for each step/side
-    let mut all_weights = Vec::new();
-    for k in 0..nsteps {
-        let mut step_weights = Vec::new();
-        for side in 0..2u32 {
-            let mut result = vec![0.0f64; nseq as usize];
-            mafft_sys::weightFromABranch(
-                nseq,
-                result.as_mut_ptr(),
-                stopol,
-                topol,
-                k as c_int,
-                side as c_int,
-            );
-            step_weights.push(result);
+        // Allocate bw: double** — bw[step][0/1]
+        let bw: *mut *mut c_double =
+            libc_alloc_zeroed(nsteps * std::mem::size_of::<*mut c_double>()) as _;
+        for k in 0..nsteps {
+            let row: *mut c_double = libc_alloc_zeroed(2 * std::mem::size_of::<c_double>()) as _;
+            *row.add(0) = 1.0;
+            *row.add(1) = 1.0;
+            *bw.add(k) = row;
         }
-        all_weights.push(step_weights);
+
+        // Allocate stopol: Node* — 2*nseq nodes
+        let total_nodes = 2 * nseq as usize;
+        let stopol: *mut mafft_sys::Node =
+            libc_alloc_zeroed(total_nodes * std::mem::size_of::<mafft_sys::Node>()) as _;
+        // Initialize children to NULL, tmpChildren to -1
+        for i in 0..total_nodes {
+            let node = &mut *stopol.add(i);
+            node.children = [ptr::null_mut(); 3];
+            node.tmpChildren = [-1; 3];
+            node.length = [0.0; 3];
+            node.weightptr = [ptr::null_mut(); 3];
+            node.top = [-1; 3];
+            node.members = [ptr::null_mut(); 3];
+        }
+
+        // Call C's treeCnv
+        mafft_sys::treeCnv(stopol, nseq, topol, len, bw);
+
+        // Call C's calcBranchWeight
+        mafft_sys::calcBranchWeight(bw, nseq, stopol, topol, len);
+
+        // Call C's weightFromABranch for each step/side
+        let mut all_weights = Vec::new();
+        for k in 0..nsteps {
+            let mut step_weights = Vec::new();
+            for side in 0..2u32 {
+                let mut result = vec![0.0f64; nseq as usize];
+                mafft_sys::weightFromABranch(
+                    nseq,
+                    result.as_mut_ptr(),
+                    stopol,
+                    topol,
+                    k as c_int,
+                    side as c_int,
+                );
+                step_weights.push(result);
+            }
+            all_weights.push(step_weights);
+        }
+
+        // Cleanup (leak for now — test only)
+        all_weights
     }
+}
 
-    // Cleanup (leak for now — test only)
-    all_weights
-}}
-
-unsafe fn libc_alloc_zeroed(size: usize) -> *mut u8 { unsafe {
-    let layout = std::alloc::Layout::from_size_align(size.max(8), 8).unwrap();
-    std::alloc::alloc_zeroed(layout)
-}}
+unsafe fn libc_alloc_zeroed(size: usize) -> *mut u8 {
+    unsafe {
+        let layout = std::alloc::Layout::from_size_align(size.max(8), 8).unwrap();
+        std::alloc::alloc_zeroed(layout)
+    }
+}
 
 #[test]
 fn branch_weights_match_c_6seq() {
@@ -128,8 +138,10 @@ fn branch_weights_match_c_6seq() {
 
     eprintln!("Topology:");
     for (k, step) in topo.steps.iter().enumerate() {
-        eprintln!("  step {k}: left={:?} right={:?} ll={:.6} rl={:.6}",
-            step.left, step.right, step.left_length, step.right_length);
+        eprintln!(
+            "  step {k}: left={:?} right={:?} ll={:.6} rl={:.6}",
+            step.left, step.right, step.left_length, step.right_length
+        );
     }
 
     let mut max_diff = 0.0f64;
@@ -152,7 +164,15 @@ fn branch_weights_match_c_6seq() {
 
             let rust_str: Vec<String> = rust_w.iter().map(|v| format!("{:.6}", v)).collect();
             let c_str: Vec<String> = c_w.iter().map(|v| format!("{:.6}", v)).collect();
-            let match_str = if rust_w.iter().zip(c_w.iter()).all(|(r, c)| (r - c).abs() < 1e-6) { "OK" } else { "DIFF" };
+            let match_str = if rust_w
+                .iter()
+                .zip(c_w.iter())
+                .all(|(r, c)| (r - c).abs() < 1e-6)
+            {
+                "OK"
+            } else {
+                "DIFF"
+            };
             eprintln!("  step={k} side={side} {match_str}");
             eprintln!("    Rust: [{}]", rust_str.join(", "));
             eprintln!("    C:    [{}]", c_str.join(", "));
@@ -170,9 +190,12 @@ fn branch_weights_match_c_6seq() {
             let rust_w = bw.weights_for_branch(&topo, k, side);
             let c_w = &c_weights[k][side];
             for seq in 0..nseq {
-                assert!((rust_w[seq] - c_w[seq]).abs() < 1e-4,
+                assert!(
+                    (rust_w[seq] - c_w[seq]).abs() < 1e-4,
                     "step={k} side={side} seq={seq}: rust={:.8} c={:.8}",
-                    rust_w[seq], c_w[seq]);
+                    rust_w[seq],
+                    c_w[seq]
+                );
             }
         }
     }
@@ -246,7 +269,10 @@ fn per_group_normalization_matches_c() {
 
         // Now compute Rust's per-group normalization
         const MINIMUM_WEIGHT: f64 = 0.00001;
-        let r_raw1: Vec<f64> = vec![0].iter().map(|&i: &usize| effarr[i].max(MINIMUM_WEIGHT)).collect();
+        let r_raw1: Vec<f64> = vec![0]
+            .iter()
+            .map(|&i: &usize| effarr[i].max(MINIMUM_WEIGHT))
+            .collect();
         let r_raw2: Vec<f64> = (1..nseq).map(|i| effarr[i].max(MINIMUM_WEIGHT)).collect();
         let s1: f64 = r_raw1.iter().sum();
         let s2: f64 = r_raw2.iter().sum();
@@ -271,16 +297,22 @@ fn per_group_normalization_matches_c() {
 fn symmetric_4seq_weights_match_expected() {
     let mut topo = Topology::new(4);
     topo.steps.push(JoinStep {
-        left: vec![0], right: vec![1],
-        left_length: 0.1, right_length: 0.1,
+        left: vec![0],
+        right: vec![1],
+        left_length: 0.1,
+        right_length: 0.1,
     });
     topo.steps.push(JoinStep {
-        left: vec![2], right: vec![3],
-        left_length: 0.1, right_length: 0.1,
+        left: vec![2],
+        right: vec![3],
+        left_length: 0.1,
+        right_length: 0.1,
     });
     topo.steps.push(JoinStep {
-        left: vec![0, 1], right: vec![2, 3],
-        left_length: 0.2, right_length: 0.2,
+        left: vec![0, 1],
+        right: vec![2, 3],
+        left_length: 0.2,
+        right_length: 0.2,
     });
 
     let bw = BranchWeights::new(&topo);
@@ -289,8 +321,10 @@ fn symmetric_4seq_weights_match_expected() {
     let w = bw.weights_for_branch(&topo, 2, 0);
     let first = w[0];
     for (i, &v) in w.iter().enumerate() {
-        assert!((v - first).abs() < 1e-10,
-            "seq {i}: weight {v} != {first} in symmetric tree");
+        assert!(
+            (v - first).abs() < 1e-10,
+            "seq {i}: weight {v} != {first} in symmetric tree"
+        );
     }
 
     // Leaf split: proper ordering

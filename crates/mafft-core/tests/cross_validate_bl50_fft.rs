@@ -6,15 +6,14 @@
 /// Also includes a step-33 profile-DP comparison test that drives the
 /// progressive merge to step 32, then compares Rust's `profile_align`
 /// fallback to C's `A__align` on the divergent input.
-
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_int};
 use std::sync::Mutex;
 
-use mafft_align::{Profile, profile_align, GapModel};
+use mafft_align::{GapModel, Profile, profile_align};
 use mafft_io::read_fasta;
 use mafft_scoring::build_context;
-use mafft_tree::{DistanceMatrix, ClusterMethod, ktuple_distance, musclesupg};
+use mafft_tree::{ClusterMethod, DistanceMatrix, ktuple_distance, musclesupg};
 use mafft_types::{ScoringModel, SeqType};
 
 static C_MUTEX: Mutex<()> = Mutex::new(());
@@ -88,10 +87,8 @@ fn bl50_alignable_reagion_matches_c() {
     }
 
     // Run Rust segment detection (matches the BL50 default protein params).
-    let rust_segs = mafft_fft::alignable_segments(
-        &rust_scores,
-        &mafft_fft::SegmentParams::protein(),
-    );
+    let rust_segs =
+        mafft_fft::alignable_segments(&rust_scores, &mafft_fft::SegmentParams::protein());
 
     // C: call alignableReagion with the same input.
     let mut c_seg_data: Vec<(i32, i32, i32, f64)> = Vec::new();
@@ -107,17 +104,19 @@ fn bl50_alignable_reagion_matches_c() {
         let mut eff2 = vec![1.0f64];
 
         const MAX_SEG: usize = 1000;
-        let seg_buf: *mut mafft_sys::Segment = alloc_zeroed(
-            MAX_SEG * std::mem::size_of::<mafft_sys::Segment>()
-        ) as _;
+        let seg_buf: *mut mafft_sys::Segment =
+            alloc_zeroed(MAX_SEG * std::mem::size_of::<mafft_sys::Segment>()) as _;
 
         let s1_arr: *mut *mut c_char = &mut cs1_ptr;
         let s2_arr: *mut *mut c_char = &mut cs2_ptr;
 
         let count = mafft_sys::alignableReagion(
-            1, 1,
-            s1_arr, s2_arr,
-            eff1.as_mut_ptr(), eff2.as_mut_ptr(),
+            1,
+            1,
+            s1_arr,
+            s2_arr,
+            eff1.as_mut_ptr(),
+            eff2.as_mut_ptr(),
             seg_buf,
         ) as usize;
 
@@ -127,22 +126,53 @@ fn bl50_alignable_reagion_matches_c() {
         }
 
         // Cleanup
-        mafft_sys::alignableReagion(0, 0, std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+        mafft_sys::alignableReagion(
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
         mafft_sys::freeconstants();
     }
 
-    eprintln!("Rust: {} segments, C: {} segments", rust_segs.len(), c_seg_data.len());
-    assert_eq!(rust_segs.len(), c_seg_data.len(),
+    eprintln!(
+        "Rust: {} segments, C: {} segments",
+        rust_segs.len(),
+        c_seg_data.len()
+    );
+    assert_eq!(
+        rust_segs.len(),
+        c_seg_data.len(),
         "BL50 segment count differs: Rust={} C={}",
-        rust_segs.len(), c_seg_data.len());
+        rust_segs.len(),
+        c_seg_data.len()
+    );
 
     for (i, (rs, (cs, ce, cc, cscore))) in rust_segs.iter().zip(c_seg_data.iter()).enumerate() {
-        assert_eq!(rs.start, *cs as usize, "seg[{i}] start: rust={} c={}", rs.start, cs);
-        assert_eq!(rs.end, *ce as usize, "seg[{i}] end: rust={} c={}", rs.end, ce);
-        assert_eq!(rs.center, *cc as usize, "seg[{i}] center: rust={} c={}", rs.center, cc);
-        assert!((rs.score - cscore).abs() < 1e-6,
-            "seg[{i}] score: rust={} c={}", rs.score, cscore);
+        assert_eq!(
+            rs.start, *cs as usize,
+            "seg[{i}] start: rust={} c={}",
+            rs.start, cs
+        );
+        assert_eq!(
+            rs.end, *ce as usize,
+            "seg[{i}] end: rust={} c={}",
+            rs.end, ce
+        );
+        assert_eq!(
+            rs.center, *cc as usize,
+            "seg[{i}] center: rust={} c={}",
+            rs.center, cc
+        );
+        assert!(
+            (rs.score - cscore).abs() < 1e-6,
+            "seg[{i}] score: rust={} c={}",
+            rs.score,
+            cscore
+        );
     }
 }
 
@@ -180,8 +210,12 @@ fn bl50_step24_profile_dp_matches_c_a_align() {
     // the intermediate aligned[] state. Each sequence's length matches
     // its current cluster width.
     let aligned = mafft_core::progressive_align_partial(
-        &raw_seqs, &topo, &scoring, /* use_fft = */ true,
-        /* shift_penalty = */ None, TARGET_STEP,
+        &raw_seqs,
+        &topo,
+        &scoring,
+        /* use_fft = */ true,
+        /* shift_penalty = */ None,
+        TARGET_STEP,
     );
 
     let step = &topo.steps[TARGET_STEP];
@@ -208,7 +242,12 @@ fn bl50_step24_profile_dp_matches_c_a_align() {
     // Rust DP: mirror the FFT fallback path (head_gap=false, tail_gap=false
     // — engine's FftAlignParams sets both to false).
     let rust_aln = profile_align(
-        &prof1, &prof2, &scoring.consweight_matrix, &gap, false, false,
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        false,
+        false,
     );
 
     // Materialize Rust's first-of-cluster1 aligned sequence for byte
@@ -236,22 +275,38 @@ fn bl50_step24_profile_dp_matches_c_a_align() {
 
         // C strings (CString to ensure trailing null), then resize each
         // buffer to alloclen+1 for in-place A__align edits.
-        let c_seqs1: Vec<CString> = group1.iter()
-            .map(|&i| CString::new(aligned[i].clone()).unwrap()).collect();
-        let c_seqs2: Vec<CString> = group2.iter()
-            .map(|&i| CString::new(aligned[i].clone()).unwrap()).collect();
-        let mut buf1: Vec<Vec<u8>> = c_seqs1.iter().map(|s| {
-            let mut v = s.as_bytes().to_vec();
-            v.resize(alloclen as usize + 1, 0);
-            v
-        }).collect();
-        let mut buf2: Vec<Vec<u8>> = c_seqs2.iter().map(|s| {
-            let mut v = s.as_bytes().to_vec();
-            v.resize(alloclen as usize + 1, 0);
-            v
-        }).collect();
-        let mut p1: Vec<*mut c_char> = buf1.iter_mut().map(|v| v.as_mut_ptr() as *mut c_char).collect();
-        let mut p2: Vec<*mut c_char> = buf2.iter_mut().map(|v| v.as_mut_ptr() as *mut c_char).collect();
+        let c_seqs1: Vec<CString> = group1
+            .iter()
+            .map(|&i| CString::new(aligned[i].clone()).unwrap())
+            .collect();
+        let c_seqs2: Vec<CString> = group2
+            .iter()
+            .map(|&i| CString::new(aligned[i].clone()).unwrap())
+            .collect();
+        let mut buf1: Vec<Vec<u8>> = c_seqs1
+            .iter()
+            .map(|s| {
+                let mut v = s.as_bytes().to_vec();
+                v.resize(alloclen as usize + 1, 0);
+                v
+            })
+            .collect();
+        let mut buf2: Vec<Vec<u8>> = c_seqs2
+            .iter()
+            .map(|s| {
+                let mut v = s.as_bytes().to_vec();
+                v.resize(alloclen as usize + 1, 0);
+                v
+            })
+            .collect();
+        let mut p1: Vec<*mut c_char> = buf1
+            .iter_mut()
+            .map(|v| v.as_mut_ptr() as *mut c_char)
+            .collect();
+        let mut p2: Vec<*mut c_char> = buf2
+            .iter_mut()
+            .map(|v| v.as_mut_ptr() as *mut c_char)
+            .collect();
         let mut e1: Vec<c_double> = w1n.clone();
         let mut e2: Vec<c_double> = w2n.clone();
 
@@ -265,43 +320,102 @@ fn bl50_step24_profile_dp_matches_c_a_align() {
 
         let mut impmatch = 0.0f64;
         let c_score = mafft_sys::A__align(
-            n_dyn, c_penalty, c_penalty_ex,
-            p1.as_mut_ptr(), p2.as_mut_ptr(),
-            e1.as_mut_ptr(), e2.as_mut_ptr(),
-            group1.len() as c_int, group2.len() as c_int, alloclen,
-            0, &mut impmatch,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(),
-            0, 0,
-            -1, -1,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            0.0, 0.0,
+            n_dyn,
+            c_penalty,
+            c_penalty_ex,
+            p1.as_mut_ptr(),
+            p2.as_mut_ptr(),
+            e1.as_mut_ptr(),
+            e2.as_mut_ptr(),
+            group1.len() as c_int,
+            group2.len() as c_int,
+            alloclen,
+            0,
+            &mut impmatch,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            0,
+            -1,
+            -1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0.0,
+            0.0,
         );
 
         let c_width = {
             let s = p1[0];
-            let mut k = 0; while *s.add(k) != 0 { k += 1; } k
+            let mut k = 0;
+            while *s.add(k) != 0 {
+                k += 1;
+            }
+            k
         };
         let c_s1: Vec<u8> = (0..c_width).map(|k| *p1[0].add(k) as u8).collect();
 
         // Cleanup before we panic on assert mismatch.
-        mafft_sys::A__align(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(), 0, 0, 0, 0, std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, 0, -1, -1,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), 0.0, 0.0);
+        mafft_sys::A__align(
+            std::ptr::null_mut(),
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            0,
+            -1,
+            -1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0.0,
+            0.0,
+        );
         mafft_sys::freeconstants();
 
         // Both DPs should produce byte-identical output (post-FMA fix).
         // Pre-fix this differed at the F-residue placement around column
         // 28-32 (Rust `DNFYVPF----SNK` vs C `DNFYVP----FSNK`).
-        assert_eq!(rust_s1.len(), c_width,
+        assert_eq!(
+            rust_s1.len(),
+            c_width,
             "BL50 step-24 width: Rust={} C={} Rust_score={:.2} C_score={:.2}",
-            rust_s1.len(), c_width, rust_aln.score, c_score);
-        assert!((rust_aln.score - c_score).abs() < 0.01,
-            "BL50 step-24 score: Rust={:.6} C={:.6}", rust_aln.score, c_score);
-        assert_eq!(rust_s1, c_s1,
+            rust_s1.len(),
+            c_width,
+            rust_aln.score,
+            c_score
+        );
+        assert!(
+            (rust_aln.score - c_score).abs() < 0.01,
+            "BL50 step-24 score: Rust={:.6} C={:.6}",
+            rust_aln.score,
+            c_score
+        );
+        assert_eq!(
+            rust_s1,
+            c_s1,
             "BL50 step-24 cluster1[0] alignment differs at first byte position {:?}",
-            rust_s1.iter().zip(c_s1.iter()).position(|(a, b)| a != b));
+            rust_s1.iter().zip(c_s1.iter()).position(|(a, b)| a != b)
+        );
     }
 }

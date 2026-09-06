@@ -27,11 +27,12 @@
 //!      `qsort(mem1, ..., intcompare)` at `splittbfast.c:2477-2478`).
 
 use crate::distance::DistanceMatrix;
-use crate::musclesupg::{musclesupg, ClusterMethod};
+use crate::musclesupg::{ClusterMethod, musclesupg};
+use crate::parttree_dist::{
+    DLENFACA, DLENFACB, DLENFACC, DLENFACD, MAX6DIST, PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+    common_sextets_p, composition_table, lenfac,
+};
 use crate::parttree_pivot::{PartTreePivots, PtSeqKind};
-use crate::parttree_dist::{lenfac, common_sextets_p, composition_table, MAX6DIST,
-    PLENFACA, PLENFACB, PLENFACC, PLENFACD,
-    DLENFACA, DLENFACB, DLENFACC, DLENFACD};
 use crate::topology::{JoinStep, Topology};
 
 /// Build `dfromc[i][j]` = parttree distance from the `i`-th surviving
@@ -40,7 +41,10 @@ use crate::topology::{JoinStep, Topology};
 pub fn build_dfromc(pivots: &PartTreePivots, kind: PtSeqKind) -> Vec<Vec<f64>> {
     let nyuko = pivots.yukos.len();
     let nin = pivots.scores.len();
-    let tsize = match kind { PtSeqKind::Protein => 46656, PtSeqKind::Dna => 4096 };
+    let tsize = match kind {
+        PtSeqKind::Protein => 46656,
+        PtSeqKind::Dna => 4096,
+    };
     let (a, b, c, d) = match kind {
         PtSeqKind::Protein => (PLENFACA, PLENFACB, PLENFACC, PLENFACD),
         PtSeqKind::Dna => (DLENFACA, DLENFACB, DLENFACC, DLENFACD),
@@ -61,10 +65,16 @@ pub fn build_dfromc(pivots: &PartTreePivots, kind: PtSeqKind) -> Vec<Vec<f64>> {
             }
             let common = common_sextets_p(&y_table, &pivots.scores[j].points, tsize);
             let bunbo = (y_score.selfscore.min(pivots.scores[j].selfscore)) as f64;
-            let raw = if bunbo > 0.0 { 1.0 - common as f64 / bunbo } else { 1.0 };
+            let raw = if bunbo > 0.0 {
+                1.0 - common as f64 / bunbo
+            } else {
+                1.0
+            };
             let lf = lenfac(y_score.orilen, pivots.scores[j].orilen, a, b, c, d);
             let mut dist = raw * lf;
-            if dist > MAX6DIST { dist = MAX6DIST; }
+            if dist > MAX6DIST {
+                dist = MAX6DIST;
+            }
             dfromc[yi][j] = dist;
         }
     }
@@ -79,10 +89,7 @@ pub fn build_dfromc(pivots: &PartTreePivots, kind: PtSeqKind) -> Vec<Vec<f64>> {
 /// FIRST-encountered yuko (smallest `yi`) wins on ties. Each pivot is
 /// closest to itself with distance 0, so it always lands in its own
 /// `outs[]` slot.
-pub fn assign_to_yukos(
-    pivots: &PartTreePivots,
-    dfromc: &[Vec<f64>],
-) -> Vec<Vec<usize>> {
+pub fn assign_to_yukos(pivots: &PartTreePivots, dfromc: &[Vec<f64>]) -> Vec<Vec<usize>> {
     let nyuko = pivots.yukos.len();
     let nin = pivots.scores.len();
     let mut outs: Vec<Vec<usize>> = vec![Vec::new(); nyuko];
@@ -140,10 +147,7 @@ fn yukomtx_to_distance_matrix(pivots: &PartTreePivots) -> DistanceMatrix {
 /// current implementation has held up: `--parttree` and `--dpparttree`
 /// produce byte-identical output to C MAFFT 7.526 on the 36-seq
 /// sample (width 752) and across the BBaliBase 3 sweep.
-pub fn assemble_topology(
-    pivots: &PartTreePivots,
-    outs: &[Vec<usize>],
-) -> Topology {
+pub fn assemble_topology(pivots: &PartTreePivots, outs: &[Vec<usize>]) -> Topology {
     let nseq_total: usize = outs.iter().map(|v| v.len()).sum();
     let mut topo = Topology::new(nseq_total);
 
@@ -154,10 +158,14 @@ pub fn assemble_topology(
     let yuko_topo = musclesupg(&yuko_dm, ClusterMethod::Mix { sueff: 0.1 });
 
     for yuko_step in &yuko_topo.steps {
-        let mut left_seqs: Vec<usize> = yuko_step.left.iter()
+        let mut left_seqs: Vec<usize> = yuko_step
+            .left
+            .iter()
             .flat_map(|&yi| outs[yi].iter().copied())
             .collect();
-        let mut right_seqs: Vec<usize> = yuko_step.right.iter()
+        let mut right_seqs: Vec<usize> = yuko_step
+            .right
+            .iter()
             .flat_map(|&yi| outs[yi].iter().copied())
             .collect();
         left_seqs.sort();
@@ -207,14 +215,12 @@ fn c_normalized_subtree(steps: &[crate::topology::JoinStep], leaves: &[usize]) -
             // C: when extending `topol[k][i]`, the two child sub-arrays
             // are concatenated smaller-first-element first
             // (`mltaln9.c:8184-8197`).
-            let (first, second) = if !l_order.is_empty()
-                && !r_order.is_empty()
-                && l_order[0] > r_order[0]
-            {
-                (r_order, l_order)
-            } else {
-                (l_order, r_order)
-            };
+            let (first, second) =
+                if !l_order.is_empty() && !r_order.is_empty() && l_order[0] > r_order[0] {
+                    (r_order, l_order)
+                } else {
+                    (l_order, r_order)
+                };
             let mut result = first;
             result.extend(second);
             return result;
@@ -236,14 +242,14 @@ fn c_normalized_subtree(steps: &[crate::topology::JoinStep], leaves: &[usize]) -
 /// - Multi-member yukos render as `(s1,s2,...)` on one line; single-
 ///   member yukos render as `<n>` sandwiched by `\n`.
 /// - No trailing `;` (parttree's tree file omits it).
-pub fn compute_parttree_newick(
-    sequences: &[Vec<u8>],
-    kind: PtSeqKind,
-    picksize: usize,
-) -> String {
+pub fn compute_parttree_newick(sequences: &[Vec<u8>], kind: PtSeqKind, picksize: usize) -> String {
     let nseq = sequences.len();
-    if nseq == 0 { return "\n".to_string(); }
-    if nseq == 1 { return "\n1\n".to_string(); }
+    if nseq == 0 {
+        return "\n".to_string();
+    }
+    if nseq == 1 {
+        return "\n1\n".to_string();
+    }
 
     let pivots = crate::parttree_pivot::run_pivot_pipeline(sequences, kind, picksize);
     let dfromc = build_dfromc(&pivots, kind);
@@ -257,17 +263,19 @@ pub fn compute_parttree_newick(
     //   nin == 1 →  "\n<seq+1>\n"
     //   nin >  1 →  "\n(<a+1>,<b+1>,...)\n"
     // Member emission order is `outs[yi]` (the parent's j-iteration order).
-    let mut parttree: Vec<Option<String>> = (0..nyuko).map(|yi| {
-        let members = &outs[yi];
-        if members.is_empty() {
-            None
-        } else if members.len() == 1 {
-            Some(format!("\n{}\n", members[0] + 1))
-        } else {
-            let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
-            Some(format!("\n({})\n", inner.join(",")))
-        }
-    }).collect();
+    let mut parttree: Vec<Option<String>> = (0..nyuko)
+        .map(|yi| {
+            let members = &outs[yi];
+            if members.is_empty() {
+                None
+            } else if members.len() == 1 {
+                Some(format!("\n{}\n", members[0] + 1))
+            } else {
+                let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
+                Some(format!("\n({})\n", inner.join(",")))
+            }
+        })
+        .collect();
 
     // Walk the yuko UPGMA tree in merge order. C uses `topol[l][0][0]` /
     // `topol[l][1][0]` for the active yuko IDs (`splittbfast.c:2535-2536`).
@@ -279,7 +287,9 @@ pub fn compute_parttree_newick(
         let l_norm = c_normalized_subtree(&yuko_topo.steps, &step.left);
         let r_norm = c_normalized_subtree(&yuko_topo.steps, &step.right);
         let (mut v1, mut v2) = (l_norm[0], r_norm[0]);
-        if v1 > v2 { std::mem::swap(&mut v1, &mut v2); }
+        if v1 > v2 {
+            std::mem::swap(&mut v1, &mut v2);
+        }
         let s1 = parttree[v1].take().expect("missing parttree[v1]");
         let s2 = parttree[v2].take().expect("missing parttree[v2]");
         parttree[v1] = Some(format!("({},{})", s1, s2));
@@ -408,15 +418,13 @@ fn naivepairscore11_aligned(
 /// `splittbfast.c:3011-3017`: `pscore = sum amino_dis[c][c]` over every
 /// non-gap character `c`. Gaps contribute 0 (C reads through gap chars
 /// but `amino_dis['-']['-'] == 0` in `constants.c`'s table).
-fn selfscore_aligned(
-    aligned: &[u8],
-    matrix: &[Vec<f64>],
-    amino_map: &[u8; 256],
-) -> i64 {
+fn selfscore_aligned(aligned: &[u8], matrix: &[Vec<f64>], amino_map: &[u8; 256]) -> i64 {
     let nalpha = matrix.len();
     let mut s = 0.0f64;
     for &c in aligned {
-        if c == b'-' { continue; }
+        if c == b'-' {
+            continue;
+        }
         let i = amino_map[c as usize] as usize;
         if i < nalpha {
             s += matrix[i][i];
@@ -437,16 +445,18 @@ fn compute_initial_scores_fromaln(
 ) -> Vec<crate::parttree_pivot::ScoreEntry> {
     use crate::parttree_pivot::ScoreEntry;
     let nin = aligned_seqs.len();
-    let mut entries: Vec<ScoreEntry> = (0..nin).map(|i| {
-        ScoreEntry {
-            numinseq: i,
-            selfscore: selfscore_aligned(&aligned_seqs[i], matrix, amino_map),
-            // orilen = strlen post-gappick (i.e., non-gap residue count).
-            orilen: aligned_seqs[i].iter().filter(|&&c| c != b'-').count(),
-            score: 0.0,
-            points: Vec::new(), // unused in fromaln path
-        }
-    }).collect();
+    let mut entries: Vec<ScoreEntry> = (0..nin)
+        .map(|i| {
+            ScoreEntry {
+                numinseq: i,
+                selfscore: selfscore_aligned(&aligned_seqs[i], matrix, amino_map),
+                // orilen = strlen post-gappick (i.e., non-gap residue count).
+                orilen: aligned_seqs[i].iter().filter(|&&c| c != b'-').count(),
+                score: 0.0,
+                points: Vec::new(), // unused in fromaln path
+            }
+        })
+        .collect();
 
     // pick_reference: scan for max selfscore (strict `>` → first wins).
     let mut best = 0usize;
@@ -466,8 +476,11 @@ fn compute_initial_scores_fromaln(
     let ref_selfscore = entries[0].selfscore as f64;
     for i in 0..nin {
         let pair = naivepairscore11_aligned(
-            &ref_aligned, &aligned_seqs[entries[i].numinseq],
-            matrix, amino_map, penalty,
+            &ref_aligned,
+            &aligned_seqs[entries[i].numinseq],
+            matrix,
+            amino_map,
+            penalty,
         );
         let bunbo = ref_selfscore.min(entries[i].selfscore as f64);
         entries[i].score = if bunbo > 0.0 { 1.0 - pair / bunbo } else { 1.0 };
@@ -518,18 +531,20 @@ where
     E: Fn(usize, usize) -> bool,
 {
     use crate::parttree_pivot::ScoreEntry;
-    if nseq <= 1 { return None; }
+    if nseq <= 1 {
+        return None;
+    }
 
     // 1) Build initial `entries` with numinseq=0..nseq.
-    let mut entries: Vec<ScoreEntry> = (0..nseq).map(|i| {
-        ScoreEntry {
+    let mut entries: Vec<ScoreEntry> = (0..nseq)
+        .map(|i| ScoreEntry {
             numinseq: i,
             selfscore: selfscore(i),
             orilen: orilen(i),
             score: 0.0,
             points: Vec::new(),
-        }
-    }).collect();
+        })
+        .collect();
 
     // 2) pick_reference: scan for max selfscore (strict `>`, first wins),
     //    swap winner to position 0.
@@ -541,7 +556,9 @@ where
             best = i;
         }
     }
-    if best != 0 { entries.swap(0, best); }
+    if best != 0 {
+        entries.swap(0, best);
+    }
 
     // 3) Compute scores against entries[0].
     let ref_num = entries[0].numinseq;
@@ -566,11 +583,18 @@ where
     if nkouho > 0 {
         let picktmp = pickkouho[nkouho - 1];
         nkouho -= 1;
-        if !same_seq_at(0, picktmp) { picks.push(picktmp); }
+        if !same_seq_at(0, picktmp) {
+            picks.push(picktmp);
+        }
     }
     let mut i_alt = 1;
     while picks.len() < picksize && nkouho > 0 {
-        let rn = if i_alt == 1 { i_alt = 0; (nkouho as f64 * 0.5) as usize } else { nkouho - 1 };
+        let rn = if i_alt == 1 {
+            i_alt = 0;
+            (nkouho as f64 * 0.5) as usize
+        } else {
+            nkouho - 1
+        };
         let picktmp = pickkouho[rn];
         nkouho -= 1;
         pickkouho[rn] = pickkouho[nkouho];
@@ -601,12 +625,17 @@ where
     let nyuko = npick;
     let yukos: Vec<usize> = picks.clone();
     let mut dfromc: Vec<Vec<f64>> = vec![vec![0.0f64; nin]; nyuko];
-    for j in 0..nin { dfromc[0][j] = entries[j].score; }
+    for j in 0..nin {
+        dfromc[0][j] = entries[j].score;
+    }
     for i in 1..nyuko {
         let yi_num = entries[yukos[i]].numinseq;
         let yi_self = entries[yukos[i]].selfscore as f64;
         for j in 0..nin {
-            if j == yukos[i] { dfromc[i][j] = 0.0; continue; }
+            if j == yukos[i] {
+                dfromc[i][j] = 0.0;
+                continue;
+            }
             let pair = pair_score(yi_num, entries[j].numinseq);
             let bunbo = yi_self.min(entries[j].selfscore as f64);
             let dist = if bunbo > 0.0 { 1.0 - pair / bunbo } else { 1.0 };
@@ -637,7 +666,11 @@ where
     }
     let yuko_topo = musclesupg(&yuko_dm, ClusterMethod::Mix { sueff: 0.1 });
 
-    Some(PartTreeFromalnResult { scores: entries, outs, yuko_topo })
+    Some(PartTreeFromalnResult {
+        scores: entries,
+        outs,
+        yuko_topo,
+    })
 }
 
 /// Given a precomputed parttree pipeline result, build the `--treeout`
@@ -646,24 +679,28 @@ where
 /// (leaf) and `:2532-2553` (per-merge concat).
 pub fn parttree_result_to_newick(result: &PartTreeFromalnResult) -> String {
     let nyuko = result.outs.len();
-    let mut parttree: Vec<Option<String>> = (0..nyuko).map(|yi| {
-        let members = &result.outs[yi];
-        if members.is_empty() {
-            None
-        } else if members.len() == 1 {
-            Some(format!("\n{}\n", members[0] + 1))
-        } else {
-            let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
-            Some(format!("\n({})\n", inner.join(",")))
-        }
-    }).collect();
+    let mut parttree: Vec<Option<String>> = (0..nyuko)
+        .map(|yi| {
+            let members = &result.outs[yi];
+            if members.is_empty() {
+                None
+            } else if members.len() == 1 {
+                Some(format!("\n{}\n", members[0] + 1))
+            } else {
+                let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
+                Some(format!("\n({})\n", inner.join(",")))
+            }
+        })
+        .collect();
 
     let mut last_v1 = 0usize;
     for step in &result.yuko_topo.steps {
         let l_norm = c_normalized_subtree(&result.yuko_topo.steps, &step.left);
         let r_norm = c_normalized_subtree(&result.yuko_topo.steps, &step.right);
         let (mut v1, mut v2) = (l_norm[0], r_norm[0]);
-        if v1 > v2 { std::mem::swap(&mut v1, &mut v2); }
+        if v1 > v2 {
+            std::mem::swap(&mut v1, &mut v2);
+        }
         let s1 = parttree[v1].take().expect("missing parttree[v1]");
         let s2 = parttree[v2].take().expect("missing parttree[v2]");
         parttree[v1] = Some(format!("({},{})", s1, s2));
@@ -742,8 +779,11 @@ fn run_parttree_fromaln_pipeline(
         let aligned_j = &aligned_seqs[scores[picks[j]].numinseq];
         for i in (j + 1)..npick {
             let pair = naivepairscore11_aligned(
-                aligned_j, &aligned_seqs[scores[picks[i]].numinseq],
-                matrix, amino_map, penalty,
+                aligned_j,
+                &aligned_seqs[scores[picks[i]].numinseq],
+                matrix,
+                amino_map,
+                penalty,
             );
             let bunbo = pj_self.min(scores[picks[i]].selfscore as f64);
             let dist = if bunbo > 0.0 { 1.0 - pair / bunbo } else { 1.0 };
@@ -776,8 +816,11 @@ fn run_parttree_fromaln_pipeline(
                 continue;
             }
             let pair = naivepairscore11_aligned(
-                yuko_aligned, &aligned_seqs[scores[j].numinseq],
-                matrix, amino_map, penalty,
+                yuko_aligned,
+                &aligned_seqs[scores[j].numinseq],
+                matrix,
+                amino_map,
+                penalty,
             );
             let bunbo = yuko_self.min(scores[j].selfscore as f64);
             let dist = if bunbo > 0.0 { 1.0 - pair / bunbo } else { 1.0 };
@@ -811,7 +854,11 @@ fn run_parttree_fromaln_pipeline(
     // 8. UPGMA yields the yuko-level tree.
     let yuko_topo = musclesupg(&yuko_dm, ClusterMethod::Mix { sueff: 0.1 });
 
-    Some(PartTreeFromalnResult { scores, outs, yuko_topo })
+    Some(PartTreeFromalnResult {
+        scores,
+        outs,
+        yuko_topo,
+    })
 }
 
 /// Compute the C-equivalent `--reorder` ordering for the SECOND
@@ -843,7 +890,11 @@ pub fn compute_parttree_order_fromaln(
     } else {
         order.extend_from_slice(&result.outs[0]);
     }
-    debug_assert_eq!(order.len(), nseq, "fromaln parttree order missing sequences");
+    debug_assert_eq!(
+        order.len(),
+        nseq,
+        "fromaln parttree order missing sequences"
+    );
     order
 }
 
@@ -859,31 +910,39 @@ pub fn compute_parttree_newick_fromaln(
     penalty: f64,
 ) -> String {
     let nseq = aligned_seqs.len();
-    if nseq == 0 { return "\n".to_string(); }
-    if nseq == 1 { return "\n1\n".to_string(); }
+    if nseq == 0 {
+        return "\n".to_string();
+    }
+    if nseq == 1 {
+        return "\n1\n".to_string();
+    }
     let result = match run_parttree_fromaln_pipeline(aligned_seqs, matrix, amino_map, penalty) {
         Some(r) => r,
         None => return "\n".to_string(),
     };
     let nyuko = result.outs.len();
-    let mut parttree: Vec<Option<String>> = (0..nyuko).map(|yi| {
-        let members = &result.outs[yi];
-        if members.is_empty() {
-            None
-        } else if members.len() == 1 {
-            Some(format!("\n{}\n", members[0] + 1))
-        } else {
-            let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
-            Some(format!("\n({})\n", inner.join(",")))
-        }
-    }).collect();
+    let mut parttree: Vec<Option<String>> = (0..nyuko)
+        .map(|yi| {
+            let members = &result.outs[yi];
+            if members.is_empty() {
+                None
+            } else if members.len() == 1 {
+                Some(format!("\n{}\n", members[0] + 1))
+            } else {
+                let inner: Vec<String> = members.iter().map(|&m| (m + 1).to_string()).collect();
+                Some(format!("\n({})\n", inner.join(",")))
+            }
+        })
+        .collect();
 
     let mut last_v1 = 0usize;
     for step in &result.yuko_topo.steps {
         let l_norm = c_normalized_subtree(&result.yuko_topo.steps, &step.left);
         let r_norm = c_normalized_subtree(&result.yuko_topo.steps, &step.right);
         let (mut v1, mut v2) = (l_norm[0], r_norm[0]);
-        if v1 > v2 { std::mem::swap(&mut v1, &mut v2); }
+        if v1 > v2 {
+            std::mem::swap(&mut v1, &mut v2);
+        }
         let s1 = parttree[v1].take().expect("missing parttree[v1]");
         let s2 = parttree[v2].take().expect("missing parttree[v2]");
         parttree[v1] = Some(format!("({},{})", s1, s2));

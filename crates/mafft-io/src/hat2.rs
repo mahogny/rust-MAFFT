@@ -52,7 +52,9 @@ pub fn read_hat2<R: Read>(reader: R) -> Result<Hat2Matrix, IoError> {
     let mut lines = reader.lines();
 
     // Line 1: format identifier (skip)
-    lines.next().ok_or(IoError::Hat2Format("empty file".into()))??;
+    lines
+        .next()
+        .ok_or(IoError::Hat2Format("empty file".into()))??;
 
     // Line 2: nseq
     let nseq_line = lines
@@ -64,7 +66,9 @@ pub fn read_hat2<R: Read>(reader: R) -> Result<Hat2Matrix, IoError> {
         .map_err(|_| IoError::Hat2Format(format!("invalid nseq: '{nseq_line}'")))?;
 
     // Line 3: scaled max (informational, we don't need it)
-    lines.next().ok_or(IoError::Hat2Format("missing max line".into()))??;
+    lines
+        .next()
+        .ok_or(IoError::Hat2Format("missing max line".into()))??;
 
     // Lines 4..4+nseq: "   N. =name" or "   N. name".
     let mut names = Vec::with_capacity(nseq);

@@ -5,24 +5,24 @@
 //! C global variables.
 
 mod alphabet;
-mod blosum;
-pub mod jtt;
-mod dna;
-mod properties;
-mod penalties;
-mod normalize;
 mod ambiguity;
+mod blosum;
+mod dna;
+pub mod jtt;
+mod normalize;
+mod penalties;
+mod properties;
 
-pub use alphabet::{ProteinAlphabet, DnaAlphabet, Alphabet, PROTEIN_ALPHABET, DNA_ALPHABET};
-pub use blosum::blosum_matrix;
-pub use jtt::{jtt_matrix, jtt_frequencies, tm_frequencies};
-pub use dna::{default_dna_matrix, build_ribosumdis, DNA_RIBOSUM4, DNA_RIBOSUM16};
-pub use properties::{POLARITY, VOLUME, normalized_polarity, normalized_volume};
-pub use penalties::{GapParams, default_dna_gap_params, default_protein_gap_params};
-pub use normalize::{normalize_matrix, build_scoring_matrix};
+pub use alphabet::{Alphabet, DNA_ALPHABET, DnaAlphabet, PROTEIN_ALPHABET, ProteinAlphabet};
 pub use ambiguity::{fill_dna_ambiguity_scores, fill_dna_n_scores};
+pub use blosum::blosum_matrix;
+pub use dna::{DNA_RIBOSUM4, DNA_RIBOSUM16, build_ribosumdis, default_dna_matrix};
+pub use jtt::{jtt_frequencies, jtt_matrix, tm_frequencies};
+pub use normalize::{build_scoring_matrix, normalize_matrix};
+pub use penalties::{GapParams, default_dna_gap_params, default_protein_gap_params};
+pub use properties::{POLARITY, VOLUME, normalized_polarity, normalized_volume};
 
-use mafft_types::{SeqType, ScoringModel, ScoringContext, GapPenalties};
+use mafft_types::{GapPenalties, ScoringContext, ScoringModel, SeqType};
 
 /// Build a complete `ScoringContext` for the given model and sequence type.
 ///
@@ -101,7 +101,11 @@ pub fn apply_nwildcard(scoring: &mut ScoringContext) {
 ///
 /// `kimura_r` controls the transition/transversion ratio in the Kimura
 /// 2-parameter model used for DNA PAM matrix generation. Default is 2.
-pub fn build_context_with_kimura(model: ScoringModel, seq_type: SeqType, kimura_r: i32) -> ScoringContext {
+pub fn build_context_with_kimura(
+    model: ScoringModel,
+    seq_type: SeqType,
+    kimura_r: i32,
+) -> ScoringContext {
     match seq_type {
         SeqType::Dna | SeqType::Rna => build_dna_context_with_kimura(kimura_r),
         SeqType::Protein => build_protein_context(model),
@@ -114,7 +118,12 @@ pub fn build_context_with_kimura(model: ScoringModel, seq_type: SeqType, kimura_
 /// Only applies to the scored region (20x20 for protein, 10x10 for DNA),
 /// matching C which loops `for i<20; for j<20` leaving extended entries as zero.
 /// Build the LN (log-normal) matrix: n_disLN[i][j] = n_dis[i][j] + offset - offsetLN.
-fn build_ln_matrix(matrix: &[Vec<i32>], offset: i32, offset_ln: i32, nscored: usize) -> Vec<Vec<f64>> {
+fn build_ln_matrix(
+    matrix: &[Vec<i32>],
+    offset: i32,
+    offset_ln: i32,
+    nscored: usize,
+) -> Vec<Vec<f64>> {
     let n = matrix.len();
     let adj = (offset - offset_ln) as f64;
     let mut ln = vec![vec![0.0f64; n]; n];
@@ -136,7 +145,6 @@ fn build_fft_matrix(matrix: &[Vec<i32>], offset: i32, nscored: usize) -> Vec<Vec
     }
     fft
 }
-
 
 fn build_dna_context_with_kimura(kimura_r: i32) -> ScoringContext {
     let gap = default_dna_gap_params();

@@ -22,10 +22,7 @@
 /// changing the comparison to the "correct" `> maxi` shifts anchor
 /// selection on inputs whose top-N candidates have similar correlation
 /// scores (e.g. BL62 default step 15).
-pub fn block_align(
-    cross_scores: &[Vec<f64>],
-    gap_penalty: f64,
-) -> (Vec<usize>, Vec<usize>) {
+pub fn block_align(cross_scores: &[Vec<f64>], gap_penalty: f64) -> (Vec<usize>, Vec<usize>) {
     let ncut = cross_scores.len();
     if ncut == 0 {
         return (Vec::new(), Vec::new());
@@ -63,7 +60,9 @@ pub fn block_align(
             for k in 0..klim_j {
                 // permit() == 0 in production C → skip iff (k != 0 AND
                 // k < ncut-1 AND j < ncut-1).
-                if k != 0 && k < ncut - 1 && j < ncut - 1 { continue; }
+                if k != 0 && k < ncut - 1 && j < ncut - 1 {
+                    continue;
+                }
                 if dp[i - 1][k] > maxj_state {
                     pointi = k;
                     maxi = dp[i - 1][k];
@@ -78,7 +77,9 @@ pub fn block_align(
             let mut maxj: f64 = 0.0;
             let klim_i = (i as i32 - 2).max(0) as usize;
             for k in 0..klim_i {
-                if k != 0 && k < ncut - 1 && i < ncut - 1 { continue; }
+                if k != 0 && k < ncut - 1 && i < ncut - 1 {
+                    continue;
+                }
                 if dp[k][j - 1] > maxj {
                     pointj = k;
                     maxj = dp[k][j - 1];
@@ -119,7 +120,9 @@ pub fn block_align(
     path_j.push(j);
 
     loop {
-        if i == 0 || j == 0 { break; }
+        if i == 0 || j == 0 {
+            break;
+        }
         let shift = track[i][j];
         if shift == 0 {
             i -= 1;
@@ -128,12 +131,18 @@ pub fn block_align(
             // gap in group2: came from (i-1, j-shift)
             let new_j = j.checked_sub(shift as usize);
             i -= 1;
-            j = match new_j { Some(v) => v, None => break };
+            j = match new_j {
+                Some(v) => v,
+                None => break,
+            };
         } else {
             // gap in group1: came from (i+shift, j-1)
             let new_i = i.checked_sub((-shift) as usize);
             j -= 1;
-            i = match new_i { Some(v) => v, None => break };
+            i = match new_i {
+                Some(v) => v,
+                None => break,
+            };
         }
         path_i.push(i);
         path_j.push(j);
@@ -149,10 +158,11 @@ pub fn block_align(
     let mut result_i: Vec<usize> = Vec::new();
     let mut result_j: Vec<usize> = Vec::new();
     for (&ci, &cj) in path_i.iter().zip(path_j.iter()) {
-        if cross_scores[ci][cj] == 0.0 { continue; }
+        if cross_scores[ci][cj] == 0.0 {
+            continue;
+        }
         if let (Some(&prev_i), Some(&prev_j)) = (result_i.last(), result_j.last()) {
-            if (ci == prev_i || cj == prev_j)
-                && cross_scores[ci][cj] > cross_scores[prev_i][prev_j]
+            if (ci == prev_i || cj == prev_j) && cross_scores[ci][cj] > cross_scores[prev_i][prev_j]
             {
                 result_i.pop();
                 result_j.pop();
@@ -173,13 +183,14 @@ pub fn block_align(
 /// Ports C's `blockAlign3()`. Uses `jumpscore`/`jumppos` arrays to track
 /// the best previous score in each row/column, avoiding the inner loop
 /// scan of `blockAlign2`.
-pub fn block_align3(
-    cross_scores: &[Vec<f64>],
-    gap_penalty: f64,
-) -> (Vec<usize>, Vec<usize>) {
+pub fn block_align3(cross_scores: &[Vec<f64>], gap_penalty: f64) -> (Vec<usize>, Vec<usize>) {
     let ncut = cross_scores.len();
-    if ncut == 0 { return (Vec::new(), Vec::new()); }
-    if ncut == 1 { return (vec![0], vec![0]); }
+    if ncut == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    if ncut == 1 {
+        return (vec![0], vec![0]);
+    }
 
     let mut dp = vec![vec![0.0f64; ncut]; ncut];
     let mut track = vec![vec![0i32; ncut]; ncut];
@@ -245,19 +256,29 @@ pub fn block_align3(
         }
         let shift = track[i][j];
         if shift == 0 {
-            if i == 0 || j == 0 { break; }
+            if i == 0 || j == 0 {
+                break;
+            }
             i -= 1;
             j -= 1;
         } else if shift > 0 {
-            if i == 0 { break; }
+            if i == 0 {
+                break;
+            }
             j -= shift as usize;
             i -= 1;
-            if j == 0 { break; }
+            if j == 0 {
+                break;
+            }
         } else {
-            if j == 0 { break; }
+            if j == 0 {
+                break;
+            }
             i -= (-shift) as usize;
             j -= 1;
-            if i == 0 { break; }
+            if i == 0 {
+                break;
+            }
         }
     }
 
@@ -297,14 +318,15 @@ mod tests {
 
     #[test]
     fn skips_zero_score_pairs() {
-        let scores = vec![
-            vec![10.0, 0.0],
-            vec![0.0, 0.0],
-        ];
+        let scores = vec![vec![10.0, 0.0], vec![0.0, 0.0]];
         let (ci, cj) = block_align(&scores, -5.0);
         // Should only include the non-zero pair
         assert!(ci.contains(&0));
-        assert!(!ci.iter().zip(cj.iter()).any(|(&i, &j)| scores[i][j] == 0.0 && i > 0));
+        assert!(
+            !ci.iter()
+                .zip(cj.iter())
+                .any(|(&i, &j)| scores[i][j] == 0.0 && i > 0)
+        );
     }
 
     #[test]

@@ -80,11 +80,7 @@ pub fn write_phylip<W: Write>(
 
 /// Write a name field with C `%-*.*s` semantics: left-align, pad to
 /// `width` chars with spaces, AND truncate if longer than `width`.
-fn write_name_field<W: Write>(
-    writer: &mut W,
-    name: &str,
-    width: usize,
-) -> Result<(), IoError> {
+fn write_name_field<W: Write>(writer: &mut W, name: &str, width: usize) -> Result<(), IoError> {
     let bytes = name.as_bytes();
     let len = bytes.len().min(width);
     writer.write_all(&bytes[..len])?;
@@ -103,8 +99,14 @@ mod tests {
     fn phylip_header() {
         let seqs = SequenceSet {
             sequences: vec![
-                Sequence { name: "s1".into(), data: b"ACGT".to_vec() },
-                Sequence { name: "s2".into(), data: b"TGCA".to_vec() },
+                Sequence {
+                    name: "s1".into(),
+                    data: b"ACGT".to_vec(),
+                },
+                Sequence {
+                    name: "s2".into(),
+                    data: b"TGCA".to_vec(),
+                },
             ],
             seq_type: SeqType::Dna,
         };

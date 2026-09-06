@@ -110,7 +110,10 @@ mod tests {
         let sink = |m: &str| seen.lock().unwrap().push(m.to_string());
         sink.message("one");
         sink.message("two");
-        assert_eq!(*seen.lock().unwrap(), vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec!["one".to_string(), "two".to_string()]
+        );
     }
 
     /// The sink is shared across a worker pool, so `&dyn Progress + Sync`

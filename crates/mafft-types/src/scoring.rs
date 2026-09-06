@@ -21,7 +21,7 @@ impl Default for GapPenalties {
     /// `default_protein_gap_params()` for real work.
     fn default() -> Self {
         Self {
-            open: -1530,   // C DEFAULTGOP_N == DEFAULTGOP_B, pre-scale
+            open: -1530, // C DEFAULTGOP_N == DEFAULTGOP_B, pre-scale
             extend: -100,
             offset: 0,
         }

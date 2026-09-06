@@ -12,7 +12,7 @@ The MAFFT scoring stack ported to pure Rust: BLOSUM62 (default for
 protein), JTT, transmembrane (TM), and DNA matrices, plus the
 gap-opening / gap-extension constants that every alignment mode reads.
 Also hosts `calcW` — the inner-loop SP-component computation — whose
-exact `mul_add` shape matches clang `FP_CONTRACT=ON` output, a
+exact multiply-then-add shape matches the reference C output, a
 necessary condition for byte-identity with C MAFFT.
 
 ## Install

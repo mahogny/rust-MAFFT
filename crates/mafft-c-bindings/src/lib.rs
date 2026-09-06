@@ -207,10 +207,30 @@ unsafe extern "C" {
     pub fn fft(n: c_int, x: *mut Fukusosuu, dum: c_int) -> c_int;
 
     // -- Tree construction --
-    pub fn nj(nseq: c_int, omtx: *mut *mut c_double, topol: *mut *mut *mut c_int, dis: *mut *mut c_double);
-    pub fn upg2(nseq: c_int, eff: *mut *mut c_double, topol: *mut *mut *mut c_int, len: *mut *mut c_double);
-    pub fn veryfastsupg_int(nseq: c_int, oeff: *mut *mut c_int, topol: *mut *mut *mut c_int, len: *mut *mut c_double);
-    pub fn counteff_simple_double(nseq: c_int, topol: *mut *mut *mut c_int, len: *mut *mut c_double, node: *mut c_double);
+    pub fn nj(
+        nseq: c_int,
+        omtx: *mut *mut c_double,
+        topol: *mut *mut *mut c_int,
+        dis: *mut *mut c_double,
+    );
+    pub fn upg2(
+        nseq: c_int,
+        eff: *mut *mut c_double,
+        topol: *mut *mut *mut c_int,
+        len: *mut *mut c_double,
+    );
+    pub fn veryfastsupg_int(
+        nseq: c_int,
+        oeff: *mut *mut c_int,
+        topol: *mut *mut *mut c_int,
+        len: *mut *mut c_double,
+    );
+    pub fn counteff_simple_double(
+        nseq: c_int,
+        topol: *mut *mut *mut c_int,
+        len: *mut *mut c_double,
+        node: *mut c_double,
+    );
     /// `mltaln9.c::fixed_musclesupg_double_realloc_nobk_halfmtx` — the UPGMA
     /// variant used by `splittbfast` (`--parttree`). Takes an upper-triangular
     /// half matrix `eff[i][j-i]` (j >= i) of pairwise distances and emits
@@ -238,9 +258,12 @@ unsafe extern "C" {
     /// `mltaln9.c::distcompact` — 6-mer based distance with the
     /// disttbfast convention (`* 2.0` factor and `lenfac` adjustment).
     pub fn distcompact(
-        len1: c_int, len2: c_int,
-        table1: *mut c_int, point2: *mut c_int,
-        ss1: c_int, ss2: c_int,
+        len1: c_int,
+        len2: c_int,
+        table1: *mut c_int,
+        point2: *mut c_int,
+        ss1: c_int,
+        ss2: c_int,
     ) -> c_double;
 
     /// FFI wrappers for `Salignmm.c::createcpmxresult / creategapfreqresult
@@ -251,7 +274,8 @@ unsafe extern "C" {
     pub fn rs_createcpmxresult(
         cpmxresult: *mut *mut c_double,
         limk: c_int,
-        eff1: c_double, eff2: c_double,
+        eff1: c_double,
+        eff2: c_double,
         cpmx1: *mut *mut *mut c_double,
         cpmx2: *mut *mut *mut c_double,
         gaptable1: *mut c_char,
@@ -260,26 +284,34 @@ unsafe extern "C" {
     pub fn rs_creategapfreqresult(
         gapfresult: *mut *mut c_double,
         limk: c_int,
-        eff1: c_double, eff2: c_double,
-        gapf1: *mut c_double, gapf2: *mut c_double,
+        eff1: c_double,
+        eff2: c_double,
+        gapf1: *mut c_double,
+        gapf2: *mut c_double,
         gaptable1: *mut c_char,
         gaptable2: *mut c_char,
     );
     pub fn rs_createogresult(
         gapfresult: *mut *mut c_double,
         limk: c_int,
-        eff1: c_double, eff2: c_double,
-        ori1: *mut c_double, ori2: *mut c_double,
-        gf1: *mut c_double, gf2: *mut c_double,
+        eff1: c_double,
+        eff2: c_double,
+        ori1: *mut c_double,
+        ori2: *mut c_double,
+        gf1: *mut c_double,
+        gf2: *mut c_double,
         gaptable1: *mut c_char,
         gaptable2: *mut c_char,
     );
     pub fn rs_createfgresult(
         gapfresult: *mut *mut c_double,
         limk: c_int,
-        eff1: c_double, eff2: c_double,
-        ori1: *mut c_double, ori2: *mut c_double,
-        gf1: *mut c_double, gf2: *mut c_double,
+        eff1: c_double,
+        eff2: c_double,
+        ori1: *mut c_double,
+        ori2: *mut c_double,
+        gf1: *mut c_double,
+        gf2: *mut c_double,
         gaptable1: *mut c_char,
         gaptable2: *mut c_char,
     );
@@ -596,11 +628,7 @@ unsafe extern "C" {
         seg: *mut Segment,
     ) -> c_int;
 
-    pub fn searchAnchors(
-        nseq: c_int,
-        seq: *mut *mut c_char,
-        seg: *mut Segment,
-    ) -> c_int;
+    pub fn searchAnchors(nseq: c_int, seq: *mut *mut c_char, seg: *mut Segment) -> c_int;
 
     pub fn fixed_musclesupg_double_treeout(
         nseq: c_int,

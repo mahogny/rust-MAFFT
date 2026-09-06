@@ -78,7 +78,12 @@ pub struct GapModel {
 
 impl GapModel {
     pub fn new(open: f64, extend: f64) -> Self {
-        Self { open, extend, shift: None, legacy_gap_cost: false }
+        Self {
+            open,
+            extend,
+            shift: None,
+            legacy_gap_cost: false,
+        }
     }
 
     /// Create with shift/warp enabled.
@@ -120,7 +125,8 @@ impl Default for GapModel {
 /// which now operates on `Vec<Vec<f64>>` for the per-step / per-pair
 /// dynamic-matrix path that requires sub-integer precision).
 pub fn matrix_i32_to_f64(matrix: &[Vec<i32>]) -> Vec<Vec<f64>> {
-    matrix.iter()
+    matrix
+        .iter()
         .map(|row| row.iter().map(|&v| v as f64).collect())
         .collect()
 }

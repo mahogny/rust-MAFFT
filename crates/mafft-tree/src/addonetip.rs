@@ -6,7 +6,6 @@
 /// from a new sequence to each original sequence, produces a new topology
 /// for `norg + 1` sequences with the new sequence inserted at the
 /// phylogenetically appropriate position.
-
 use crate::topology::{JoinStep, Topology};
 
 /// Result of placing a new sequence in the tree.
@@ -27,11 +26,7 @@ pub struct AddResult {
 /// The new sequence gets index `norg` in the output topology.
 ///
 /// `sueff` is the clustering weight (default 0.1, matching C's SUEFF).
-pub fn addonetip(
-    topology: &Topology,
-    distances_to_new: &[f64],
-    sueff: f64,
-) -> AddResult {
+pub fn addonetip(topology: &Topology, distances_to_new: &[f64], sueff: f64) -> AddResult {
     let norg = topology.nseq;
     let nstep = if norg >= 2 { norg - 1 } else { 0 };
     let new_idx = norg;
@@ -304,7 +299,7 @@ pub fn compute_distfromtip(topology: &Topology) -> Vec<f64> {
 mod tests {
     use super::*;
     use crate::distance::DistanceMatrix;
-    use crate::musclesupg::{musclesupg, ClusterMethod};
+    use crate::musclesupg::{ClusterMethod, musclesupg};
 
     #[test]
     fn add_to_two_seq_tree() {

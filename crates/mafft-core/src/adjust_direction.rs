@@ -37,12 +37,10 @@
 //! The k-mer encoding and `common_sextets_p` primitive are reused from
 //! [`mafft_tree::parttree_dist`].
 
-use mafft_align::{local_align, GapModel};
+use mafft_align::{GapModel, local_align};
 use mafft_scoring::build_context;
-use mafft_tree::parttree_dist::{
-    common_sextets_p, composition_table, encode_points_dna,
-};
-use mafft_types::{ScoringModel, Sequence, SeqType, SequenceSet};
+use mafft_tree::parttree_dist::{common_sextets_p, composition_table, encode_points_dna};
+use mafft_types::{ScoringModel, SeqType, Sequence, SequenceSet};
 
 /// `--adjustdirection` reference cap (`scripts/mafft:2331` `-r 5000`)
 /// for the 6-mer mode.
@@ -73,13 +71,37 @@ pub enum AdjustMode {
 /// Identity for everything outside the table; gap chars left alone.
 fn creverse(c: u8) -> u8 {
     match c {
-        b'A' => b'T', b'C' => b'G', b'G' => b'C', b'T' => b'A', b'U' => b'A',
-        b'M' => b'K', b'R' => b'Y', b'W' => b'W', b'S' => b'S', b'Y' => b'R',
-        b'K' => b'M', b'V' => b'B', b'H' => b'D', b'D' => b'H', b'B' => b'V',
+        b'A' => b'T',
+        b'C' => b'G',
+        b'G' => b'C',
+        b'T' => b'A',
+        b'U' => b'A',
+        b'M' => b'K',
+        b'R' => b'Y',
+        b'W' => b'W',
+        b'S' => b'S',
+        b'Y' => b'R',
+        b'K' => b'M',
+        b'V' => b'B',
+        b'H' => b'D',
+        b'D' => b'H',
+        b'B' => b'V',
         b'N' => b'N',
-        b'a' => b't', b'c' => b'g', b'g' => b'c', b't' => b'a', b'u' => b'a',
-        b'm' => b'k', b'r' => b'y', b'w' => b'w', b's' => b's', b'y' => b'r',
-        b'k' => b'm', b'v' => b'b', b'h' => b'd', b'd' => b'h', b'b' => b'v',
+        b'a' => b't',
+        b'c' => b'g',
+        b'g' => b'c',
+        b't' => b'a',
+        b'u' => b'a',
+        b'm' => b'k',
+        b'r' => b'y',
+        b'w' => b'w',
+        b's' => b's',
+        b'y' => b'r',
+        b'k' => b'm',
+        b'v' => b'b',
+        b'h' => b'd',
+        b'd' => b'h',
+        b'b' => b'v',
         b'n' => b'n',
         other => other,
     }
@@ -101,8 +123,11 @@ pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
     if num_u > num_t {
         // `io.c::ttou`: RNA input — convert T→U on the complement.
         for c in &mut out {
-            if *c == b't' { *c = b'u'; }
-            else if *c == b'T' { *c = b'U'; }
+            if *c == b't' {
+                *c = b'u';
+            } else if *c == b'T' {
+                *c = b'U';
+            }
         }
     }
     out
@@ -132,7 +157,10 @@ fn gappick0(seq: &[u8]) -> Vec<u8> {
 /// Per-position decision result, plus the orientation actually fed to
 /// the alignment engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction { Forward, Reverse }
+pub enum Direction {
+    Forward,
+    Reverse,
+}
 
 /// Convenience wrapper for the default `--adjustdirection` (k-mer)
 /// mode. See [`adjust_direction_mode`] for the full API.
@@ -181,12 +209,8 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
     }
 
     // Gappicked forward sequences (analogous to C's `gappick0` pre-pass).
-    let forward: Vec<Vec<u8>> = input.sequences.iter()
-        .map(|s| gappick0(&s.data))
-        .collect();
-    let reverse: Vec<Vec<u8>> = forward.iter()
-        .map(|s| reverse_complement(s))
-        .collect();
+    let forward: Vec<Vec<u8>> = input.sequences.iter().map(|s| gappick0(&s.data)).collect();
+    let reverse: Vec<Vec<u8>> = forward.iter().map(|s| reverse_complement(s)).collect();
 
     // For the DP mode (`--adjustdirectionaccurately`) we need a DNA
     // scoring context. The k-mer mode never touches scoring.
@@ -199,9 +223,9 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
     // globals set by `constants()`. For the makedirectionlist DNA
     // path that's `DEFAULTGOP_N` / `DEFAULTGEP_N` post-scaling — the
     // same values `build_context` populates into `scoring.gap`.
-    let gap_dp = scoring.as_ref().map(|s| {
-        GapModel::new(s.gap.open as f64, s.gap.extend as f64)
-    });
+    let gap_dp = scoring
+        .as_ref()
+        .map(|s| GapModel::new(s.gap.open as f64, s.gap.extend as f64));
 
     // Step 1: build forward + reverse-complement 6-mer point vectors
     // (port of `makedirectionlist.c::makepointtable_nuc` calls at lines
@@ -220,7 +244,11 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
     // is `njob - nadd`; without `--add` it's 0 (so step 0 is the
     // pivot — matches C `makedirectionlist.c:881-984`'s
     // `if (nadd) ... else iend = 0/1` slicing).
-    let n_anchor = if nadd > 0 && nadd <= nseq { nseq - nadd } else { 0 };
+    let n_anchor = if nadd > 0 && nadd <= nseq {
+        nseq - nadd
+    } else {
+        0
+    };
 
     // Step 2: contrastsort over the testable subset only. C
     // `makedirectionlist.c:925-941` runs `makecontrastorder*` on
@@ -228,31 +256,49 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
     // (or 0 without --add). Anchors keep their natural index
     // order at the front of `contrast_order`.
     let mut contrast_order: Vec<(usize, f64)> = Vec::with_capacity(nseq);
-    for i in 0..n_anchor { contrast_order.push((i, 0.0)); }
+    for i in 0..n_anchor {
+        contrast_order.push((i, 0.0));
+    }
     let mut testable: Vec<(usize, f64)> = match mode {
-        AdjustMode::Kmer => (n_anchor..nseq).map(|i| {
-            let p_fwd = &points_fwd[i];
-            let p_rev = &points_rev[i];
-            let t_fwd = composition_table(p_fwd, TSIZE);
-            let t_rev = composition_table(p_rev, TSIZE);
-            let dif = (common_sextets_p(&t_fwd, p_fwd, TSIZE)
-                     - common_sextets_p(&t_rev, p_fwd, TSIZE)) as f64;
-            (i, dif)
-        }).collect(),
+        AdjustMode::Kmer => (n_anchor..nseq)
+            .map(|i| {
+                let p_fwd = &points_fwd[i];
+                let p_rev = &points_rev[i];
+                let t_fwd = composition_table(p_fwd, TSIZE);
+                let t_rev = composition_table(p_rev, TSIZE);
+                let dif = (common_sextets_p(&t_fwd, p_fwd, TSIZE)
+                    - common_sextets_p(&t_rev, p_fwd, TSIZE)) as f64;
+                (i, dif)
+            })
+            .collect(),
         AdjustMode::Dp => {
             let sc = scoring.as_ref().unwrap();
             let gap = gap_dp.as_ref().unwrap();
-            (n_anchor..nseq).map(|i| {
-                let fwd_self = local_align(
-                    &forward[i], &forward[i],
-                    &sc.consweight_matrix, &sc.amino_map, gap, 0.0,
-                ).alignment.score;
-                let rev_self = local_align(
-                    &forward[i], &reverse[i],
-                    &sc.consweight_matrix, &sc.amino_map, gap, 0.0,
-                ).alignment.score;
-                (i, fwd_self - rev_self)
-            }).collect()
+            (n_anchor..nseq)
+                .map(|i| {
+                    let fwd_self = local_align(
+                        &forward[i],
+                        &forward[i],
+                        &sc.consweight_matrix,
+                        &sc.amino_map,
+                        gap,
+                        0.0,
+                    )
+                    .alignment
+                    .score;
+                    let rev_self = local_align(
+                        &forward[i],
+                        &reverse[i],
+                        &sc.consweight_matrix,
+                        &sc.amino_map,
+                        gap,
+                        0.0,
+                    )
+                    .alignment
+                    .score;
+                    (i, fwd_self - rev_self)
+                })
+                .collect()
         }
     };
     // C uses `qsort` (glibc, unstable) with a `b - a` comparator →
@@ -291,8 +337,10 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
         // direction[*] is already Forward by default.
     }
 
-    let reflim = match mode { AdjustMode::Kmer => REFERENCE_LIMIT_KMER,
-                              AdjustMode::Dp   => REFERENCE_LIMIT_DP };
+    let reflim = match mode {
+        AdjustMode::Kmer => REFERENCE_LIMIT_KMER,
+        AdjustMode::Dp => REFERENCE_LIMIT_DP,
+    };
 
     for step in pivot_count..nseq {
         let ic = order[step];
@@ -324,13 +372,25 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
                 for j in 0..iend {
                     let r = chosen_seqs[j];
                     sum_f += local_align(
-                        &forward[ic], r,
-                        &sc.consweight_matrix, &sc.amino_map, gap, 0.0,
-                    ).alignment.score;
+                        &forward[ic],
+                        r,
+                        &sc.consweight_matrix,
+                        &sc.amino_map,
+                        gap,
+                        0.0,
+                    )
+                    .alignment
+                    .score;
                     sum_r += local_align(
-                        &reverse[ic], r,
-                        &sc.consweight_matrix, &sc.amino_map, gap, 0.0,
-                    ).alignment.score;
+                        &reverse[ic],
+                        r,
+                        &sc.consweight_matrix,
+                        &sc.amino_map,
+                        gap,
+                        0.0,
+                    )
+                    .alignment
+                    .score;
                 }
                 (sum_f / iend as f64, sum_r / iend as f64)
             }
@@ -353,7 +413,10 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
     // This ensures the first output sequence is always forward.
     if direction[0] == Direction::Reverse {
         for d in direction.iter_mut() {
-            *d = match *d { Direction::Forward => Direction::Reverse, Direction::Reverse => Direction::Forward };
+            *d = match *d {
+                Direction::Forward => Direction::Reverse,
+                Direction::Reverse => Direction::Forward,
+            };
         }
     }
 
@@ -382,14 +445,17 @@ fn adjust_direction_with(input: &SequenceSet, mode: AdjustMode, nadd: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mafft_types::{Sequence, SeqType};
+    use mafft_types::{SeqType, Sequence};
 
     fn dna_set(seqs: &[(&str, &str)]) -> SequenceSet {
         SequenceSet {
-            sequences: seqs.iter().map(|(n, s)| Sequence {
-                name: (*n).to_string(),
-                data: s.as_bytes().to_vec(),
-            }).collect(),
+            sequences: seqs
+                .iter()
+                .map(|(n, s)| Sequence {
+                    name: (*n).to_string(),
+                    data: s.as_bytes().to_vec(),
+                })
+                .collect(),
             seq_type: SeqType::Dna,
         }
     }
@@ -412,7 +478,10 @@ mod tests {
     #[test]
     fn protein_passthrough() {
         let set = SequenceSet {
-            sequences: vec![Sequence { name: "p1".into(), data: b"MKLVN".to_vec() }],
+            sequences: vec![Sequence {
+                name: "p1".into(),
+                data: b"MKLVN".to_vec(),
+            }],
             seq_type: SeqType::Protein,
         };
         let adjusted = adjust_direction(&set);
@@ -425,22 +494,31 @@ mod tests {
         // Build a clearly directional sequence and its reverse-complement.
         // Need ≥6 unambiguous bases for the 6-mer encoder to see it.
         let fwd = "atggcaattcgcatggcaattcgcatggcaattcgc";
-        let rc: String = fwd.chars().rev().map(|c| match c {
-            'a' => 't', 'c' => 'g', 'g' => 'c', 't' => 'a',
-            _ => c,
-        }).collect();
+        let rc: String = fwd
+            .chars()
+            .rev()
+            .map(|c| match c {
+                'a' => 't',
+                'c' => 'g',
+                'g' => 'c',
+                't' => 'a',
+                _ => c,
+            })
+            .collect();
         // Two more forward copies + one reverse → adjust should flip the reverse one.
-        let set = dna_set(&[
-            ("s1", fwd),
-            ("s2", fwd),
-            ("s3_rc", &rc),
-        ]);
+        let set = dna_set(&[("s1", fwd), ("s2", fwd), ("s3_rc", &rc)]);
         let adjusted = adjust_direction(&set);
         // s3 should be reverse-complemented back to forward, name prefixed with _R_.
-        assert!(adjusted.sequences[2].name.starts_with("_R_"),
-            "expected _R_ prefix, got {}", adjusted.sequences[2].name);
-        assert_eq!(adjusted.sequences[2].data, fwd.as_bytes(),
-            "reversed sequence should now equal forward");
+        assert!(
+            adjusted.sequences[2].name.starts_with("_R_"),
+            "expected _R_ prefix, got {}",
+            adjusted.sequences[2].name
+        );
+        assert_eq!(
+            adjusted.sequences[2].data,
+            fwd.as_bytes(),
+            "reversed sequence should now equal forward"
+        );
         // s1, s2 unchanged.
         assert_eq!(adjusted.sequences[0].name, "s1");
         assert_eq!(adjusted.sequences[1].name, "s2");

@@ -1,18 +1,17 @@
 /// High-level MAFFT alignment engine.
-
 use rayon::prelude::*;
 
+use mafft_align::{GapModel, build_local_homology_table};
 use mafft_io::read_fasta;
 use mafft_scoring::{build_context, build_context_with_kimura};
-use mafft_tree::{DistanceMatrix, musclesupg, ktuple_distance, scoring_matrix_distance};
-use mafft_tree::parttree_split::{build_parttree_topology};
 use mafft_tree::parttree_pivot::PtSeqKind;
-use mafft_align::{build_local_homology_table, GapModel};
-use mafft_types::{ScoringModel, SequenceSet, LocalHomologyTable};
+use mafft_tree::parttree_split::build_parttree_topology;
+use mafft_tree::{DistanceMatrix, ktuple_distance, musclesupg, scoring_matrix_distance};
+use mafft_types::{LocalHomologyTable, ScoringModel, SequenceSet};
 
-use crate::progressive::MultipleAlignment;
-use crate::refinement::{iterative_refine, RefinementParams};
 use crate::add::{add_sequences, add_sequences_keeplength};
+use crate::progressive::MultipleAlignment;
+use crate::refinement::{RefinementParams, iterative_refine};
 
 /// Alignment mode (strategy).
 #[derive(Debug, Clone)]
@@ -301,19 +300,44 @@ impl Default for MafftEngine {
 
 impl MafftEngine {
     pub fn new(mode: AlignmentMode) -> Self {
-        Self { mode, scoring_model: ScoringModel::Blosum(62), retree: 2,
-            gap_open: None, gap_offset: None, gap_extend: None,
-            pair_lop: None, pair_lep: None, pair_lexp: None,
-            pair_gop: None, pair_gep: None, pair_gexp: None,
-            shift_penalty_factor: None, minimum_weight: None,
-            skipiterate: None, bestfirst: false, nthread: 0, oneiteration: false, nwildcard: false,
+        Self {
+            mode,
+            scoring_model: ScoringModel::Blosum(62),
+            retree: 2,
+            gap_open: None,
+            gap_offset: None,
+            gap_extend: None,
+            pair_lop: None,
+            pair_lep: None,
+            pair_lexp: None,
+            pair_gop: None,
+            pair_gep: None,
+            pair_gexp: None,
+            shift_penalty_factor: None,
+            minimum_weight: None,
+            skipiterate: None,
+            bestfirst: false,
+            nthread: 0,
+            oneiteration: false,
+            nwildcard: false,
             pileup: false,
             cluster_method: mafft_tree::ClusterMethod::default(),
-            nofft: false, allowshift: false, unalign_level: 0.0,
-            kimura_r: None, parttree: false, dpparttree: false,
-            groupsize: None, reorder_output: false, treein_path: None,
-            memsavetree: false, youngestlinkage: false, legacy_gap_cost: false,
-            seed_homology: None, memsave_dp: false, c_compat: false }
+            nofft: false,
+            allowshift: false,
+            unalign_level: 0.0,
+            kimura_r: None,
+            parttree: false,
+            dpparttree: false,
+            groupsize: None,
+            reorder_output: false,
+            treein_path: None,
+            memsavetree: false,
+            youngestlinkage: false,
+            legacy_gap_cost: false,
+            seed_homology: None,
+            memsave_dp: false,
+            c_compat: false,
+        }
     }
 
     /// Enable `--c-compat`: replicate C MAFFT's static-TLS cpmx
@@ -429,12 +453,20 @@ impl MafftEngine {
         // After scaling: penalty = (int)(600/1000 * ppenalty + 0.5).
         if let Some(op) = self.gap_open {
             let ppenalty = -(op * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 3.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                3.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             scoring.gap.open = (scale * ppenalty as f64 + 0.5) as i32;
         }
         if let Some(ep) = self.gap_offset {
             let poffset = -(ep * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 1.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                1.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             let new_offset = (scale * poffset as f64 + 0.5) as i32;
             // C's constants() bakes the offset into the scoring matrix during
             // construction: `n_distmp[i][j] -= offset`. Our build_context()
@@ -462,7 +494,11 @@ impl MafftEngine {
         // `gap_open` override above.
         if let Some(exp) = self.gap_extend {
             let pgexp = -(exp * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 3.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                3.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             scoring.gap.extend = (scale * pgexp as f64 + 0.5) as i32;
         }
 
@@ -477,15 +513,24 @@ impl MafftEngine {
         // (closes R-6: 16+1 adversarial fixture diverged by 369 lines
         // on combined_17.fa, byte-identical on the residue-only
         // c17_ungapped.fa).
-        let sequences: Vec<Vec<u8>> = input.sequences.iter().map(|s| {
-            s.data.iter().copied().filter(|&c| c != b'-' && c != b'.').collect()
-        }).collect();
+        let sequences: Vec<Vec<u8>> = input
+            .sequences
+            .iter()
+            .map(|s| {
+                s.data
+                    .iter()
+                    .copied()
+                    .filter(|&c| c != b'-' && c != b'.')
+                    .collect()
+            })
+            .collect();
         let names: Vec<String> = input.sequences.iter().map(|s| s.name.clone()).collect();
 
-        let use_fft = !self.nofft && matches!(
-            self.mode,
-            AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
-        );
+        let use_fft = !self.nofft
+            && matches!(
+                self.mode,
+                AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
+            );
 
         // Step 1: Initial guide tree
         // For PartTree mode, route through the C-equivalent splittbfast
@@ -520,14 +565,11 @@ impl MafftEngine {
         let pair_kind = match self.mode {
             AlignmentMode::LInsi { .. } => Some(mafft_align::PairAligner::Local),
             AlignmentMode::GInsi { .. } => Some(mafft_align::PairAligner::Global),
-            AlignmentMode::EInsi { .. } => {
-                Some(mafft_align::PairAligner::GeneralizedAffine)
-            }
+            AlignmentMode::EInsi { .. } => Some(mafft_align::PairAligner::GeneralizedAffine),
             _ => None,
         };
         let mut pairwise_for_constraints = if let Some(aligner) = pair_kind {
-            let seq_refs: Vec<&[u8]> = input.sequences.iter()
-                .map(|s| s.data.as_slice()).collect();
+            let seq_refs: Vec<&[u8]> = input.sequences.iter().map(|s| s.data.as_slice()).collect();
             // C's `pairlocalalign` uses pairwise-specific gap penalties,
             // NOT the progressive ones (`scripts/mafft:91-92,201-203`).
             // For L-INS-i (`-L`): lgop=-2.00, lexp=-0.100, laof=0.100.
@@ -550,12 +592,8 @@ impl MafftEngine {
             // get -1200 / -60 / 60 — off by 1, which propagates through
             // `iscore` and yields a 1-per-residue gap in `opt` (~0.01
             // off vs C across all pairs).
-            let cc_int = |x: f64, mul: f64| -> i32 {
-                ((x * mul) - 0.5) as i32
-            };
-            let cc_scale = |ppen: i32, scale: f64| -> i32 {
-                ((scale * ppen as f64) + 0.5) as i32
-            };
+            let cc_int = |x: f64, mul: f64| -> i32 { ((x * mul) - 0.5) as i32 };
+            let cc_scale = |ppen: i32, scale: f64| -> i32 { ((scale * ppen as f64) + 0.5) as i32 };
             // L-INS-i / G-INS-i defaults (script:91-92,201-203).
             // E-INS-i overrides (`scripts/mafft:1940-1948`): when
             // distance="localgenaf" (and `oldgenafparam != 1`), the script
@@ -730,11 +768,11 @@ impl MafftEngine {
             // (244 lines). Verified both directions empirically.
             //
             // With `--treein`, C uses the loaded user tree for both phases.
-            let initial_topo = user_topo.clone()
+            let initial_topo = user_topo
+                .clone()
                 .unwrap_or_else(|| musclesupg(&dm, self.cluster_method));
             let weights = mafft_tree::sequence_weights(&initial_topo);
-            let seq_refs: Vec<&[u8]> = input.sequences.iter()
-                .map(|s| s.data.as_slice()).collect();
+            let seq_refs: Vec<&[u8]> = input.sequences.iter().map(|s| s.data.as_slice()).collect();
             if let Some((ref mut table, _)) = pairwise_for_constraints {
                 mafft_align::recompute_importance(table, &seq_refs, &weights);
             }
@@ -781,7 +819,10 @@ impl MafftEngine {
             sequences: sequences.clone(),
             names: names.clone(),
             score: 0.0,
-            step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
         let mut accumulated_trace = Vec::new();
         let penalty_dist = scoring.gap.open;
@@ -811,12 +852,15 @@ impl MafftEngine {
         //
         // Pass 0 uses k-mer; pass 1+ uses MSA. The MSA tree is rebuilt
         // INSIDE the retree loop from `msa.sequences` after each pass.
-        let memsavetree_kmer_topo: Option<mafft_tree::Topology> = if self.memsavetree || self.youngestlinkage {
-            let seq_refs: Vec<&[u8]> = input.sequences.iter()
-                .map(|s| s.data.as_slice()).collect();
+        let memsavetree_kmer_topo: Option<mafft_tree::Topology> = if self.memsavetree
+            || self.youngestlinkage
+        {
+            let seq_refs: Vec<&[u8]> = input.sequences.iter().map(|s| s.data.as_slice()).collect();
             let is_dna = scoring.seq_type.is_nucleotide();
             if self.youngestlinkage {
-                Some(mafft_tree::memsavetree::youngestlinkage_tree(&seq_refs, is_dna))
+                Some(mafft_tree::memsavetree::youngestlinkage_tree(
+                    &seq_refs, is_dna,
+                ))
             } else {
                 Some(mafft_tree::memsavetree::memsavetree(&seq_refs, is_dna))
             }
@@ -834,15 +878,17 @@ impl MafftEngine {
                 mafft_tree::Topology::pileup_chain(nseq)
             } else if self.memsavetree || self.youngestlinkage {
                 if pass == 0 {
-                    memsavetree_kmer_topo.clone().expect("memsavetree topology must be cached")
+                    memsavetree_kmer_topo
+                        .clone()
+                        .expect("memsavetree topology must be cached")
                 } else {
                     // MSA-based rebuild from the prior pass's alignment.
                     // For --youngestlinkage, use the compacttree=4 MSA
                     // variant (`youngestlinkage_tree_msa`); for
                     // --memsavetree, use the compacttree=3 MSA variant
                     // (`memsavetree_msa`).
-                    let aligned_refs: Vec<&[u8]> = msa.sequences.iter()
-                        .map(|s| s.as_slice()).collect();
+                    let aligned_refs: Vec<&[u8]> =
+                        msa.sequences.iter().map(|s| s.as_slice()).collect();
                     if self.youngestlinkage {
                         mafft_tree::memsavetree::youngestlinkage_tree_msa(
                             &aligned_refs,
@@ -889,8 +935,7 @@ impl MafftEngine {
             // `progressive_align_with_constraints` — that's the path
             // L-INS-i takes since the engine sets `use_fft = false` for
             // any non-FftNs2/FftNsi mode.
-            let progress_constraints = pairwise_for_constraints
-                .as_ref().map(|(t, _)| t);
+            let progress_constraints = pairwise_for_constraints.as_ref().map(|(t, _)| t);
             // C's `tbfast` is invoked with different `outgap` settings per
             // mode (`scripts/mafft:2584,2593,2601`): G-INS-i omits the
             // `$termgapopt = -O` flag so `outgap = 1` (head/tail gap
@@ -906,8 +951,8 @@ impl MafftEngine {
             //     vs L-INS-i/E-INS-i which include termgapopt.
             //   - `--parttree` / `--dpparttree` — `scripts/mafft:2655` does
             //     not include `$termgapopt` in the splittbfast call.
-            let penalize_term_gaps = matches!(self.mode, AlignmentMode::GInsi { .. })
-                || use_parttree;
+            let penalize_term_gaps =
+                matches!(self.mode, AlignmentMode::GInsi { .. }) || use_parttree;
             // C `splittbfast.c:6` `#define WEIGHT 0` makes `--parttree` use
             // `fastconjuction_noweight` (uniform per-cluster weights) for
             // its internal `pairalign`. We mirror that by passing a
@@ -933,10 +978,19 @@ impl MafftEngine {
             // byte-identical output across the BB20018 / BB40046 set without
             // perf impact at typical alignment sizes.
             msa = crate::progressive::progressive_align_full_c_compat_ex(
-                &input_seqs, &names, &topo, &scoring, use_fft, shift,
-                progress_constraints, penalize_term_gaps,
-                weights_override.as_deref(), self.unalign_level,
-                self.legacy_gap_cost, self.memsave_dp, self.c_compat,
+                &input_seqs,
+                &names,
+                &topo,
+                &scoring,
+                use_fft,
+                shift,
+                progress_constraints,
+                penalize_term_gaps,
+                weights_override.as_deref(),
+                self.unalign_level,
+                self.legacy_gap_cost,
+                self.memsave_dp,
+                self.c_compat,
                 false,
             );
             accumulated_trace.extend(msa.step_trace.iter().copied());
@@ -952,8 +1006,10 @@ impl MafftEngine {
             // mirroring dndpre's invocation.
             if pass + 1 < retree {
                 dm = compute_distance_matrix_scoring(
-                    &msa.sequences, &scoring.substitution_matrix,
-                    &scoring.amino_map, penalty_dist,
+                    &msa.sequences,
+                    &scoring.substitution_matrix,
+                    &scoring.amino_map,
+                    penalty_dist,
                 );
             }
         }
@@ -962,9 +1018,7 @@ impl MafftEngine {
         // Step 3: Build local homology table (for constrained modes)
         let uses_constraints = matches!(
             self.mode,
-            AlignmentMode::LInsi { .. }
-                | AlignmentMode::EInsi { .. }
-                | AlignmentMode::GInsi { .. }
+            AlignmentMode::LInsi { .. } | AlignmentMode::EInsi { .. } | AlignmentMode::GInsi { .. }
         );
         let uses_rna_constraints = matches!(
             self.mode,
@@ -974,27 +1028,23 @@ impl MafftEngine {
             // RNA modes: compute base-pair probabilities using external tools,
             // then use them as constraints for iterative refinement.
             let bpp_result = match &self.mode {
-                AlignmentMode::QInsi { .. } => {
-                    crate::external::compute_bpp_mccaskill(
-                        &sequences,
-                    )
-                }
-                AlignmentMode::XInsi { .. } => {
-                    crate::external::compute_bpp_contrafold(
-                        &sequences,
-                    )
-                }
+                AlignmentMode::QInsi { .. } => crate::external::compute_bpp_mccaskill(&sequences),
+                AlignmentMode::XInsi { .. } => crate::external::compute_bpp_contrafold(&sequences),
                 _ => unreachable!(),
             };
             match bpp_result {
                 Ok(bpp_tables) => {
                     if !quiet_mode {
-                        eprintln!("RNA structure: computed BPP for {} sequences", bpp_tables.len());
+                        eprintln!(
+                            "RNA structure: computed BPP for {} sequences",
+                            bpp_tables.len()
+                        );
                     }
                     // For now, use standard local homology as fallback.
                     // Full BPP→constraint integration would convert base-pair
                     // probabilities into pairwise constraints here.
-                    let seq_refs: Vec<&[u8]> = input.sequences.iter().map(|s| s.data.as_slice()).collect();
+                    let seq_refs: Vec<&[u8]> =
+                        input.sequences.iter().map(|s| s.data.as_slice()).collect();
                     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
                     let (table, _dist) = build_local_homology_table(
                         &seq_refs,
@@ -1026,9 +1076,9 @@ impl MafftEngine {
             // `tbfast.c:2967` calling `calcimportance` after the post-
             // progressive tree is in hand).
             let mut table = seed_lh.clone();
-            let seq_refs: Vec<&[u8]> = msa.sequences.iter()
-                .map(|s| s.as_slice()).collect();
-            let weights = final_progressive_topo.as_ref()
+            let seq_refs: Vec<&[u8]> = msa.sequences.iter().map(|s| s.as_slice()).collect();
+            let weights = final_progressive_topo
+                .as_ref()
                 .map(mafft_tree::sequence_weights)
                 .unwrap_or_else(|| vec![1.0; nseq]);
             mafft_align::recompute_importance(&mut table, &seq_refs, &weights);
@@ -1038,9 +1088,8 @@ impl MafftEngine {
         };
         // Stash the initial pairwise distance matrix for the refinement tree
         // (modes that ran pairlocalalign, where C's dvtditr reads `hat2`).
-        let initial_pairwise_dm: Option<DistanceMatrix> = pairwise_for_constraints
-            .as_ref()
-            .map(|(_, dm)| dm.clone());
+        let initial_pairwise_dm: Option<DistanceMatrix> =
+            pairwise_for_constraints.as_ref().map(|(_, dm)| dm.clone());
 
         // `--oneiteration`: C's `disttbfast -r` → `dooneiteration`
         // (`disttbfast.c:2217-2538`). Runs AFTER progressive merge,
@@ -1052,8 +1101,10 @@ impl MafftEngine {
         // confirmed: `--localpair --oneiteration` ≡ `--localpair`
         // alone, byte-identical).
         if self.oneiteration
-            && matches!(self.mode,
-                AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. })
+            && matches!(
+                self.mode,
+                AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
+            )
         {
             // `final_progressive_topo` is the guide tree from the
             // last `progressive_align_full_c_compat_ex` pass
@@ -1079,7 +1130,10 @@ impl MafftEngine {
                 ..Default::default()
             };
             crate::refinement::one_vs_others_refine(
-                &mut msa, &oneiter_topo, &scoring, &one_iter_params,
+                &mut msa,
+                &oneiter_topo,
+                &scoring,
+                &one_iter_params,
             );
         }
 
@@ -1124,7 +1178,8 @@ impl MafftEngine {
                     rounded
                 } else {
                     let dndpre_offset_shift = dndpre_offset_shift(seq_type.is_nucleotide());
-                    let mut shifted_matrix: Vec<Vec<i32>> = scoring.substitution_matrix
+                    let mut shifted_matrix: Vec<Vec<i32>> = scoring
+                        .substitution_matrix
                         .iter()
                         .map(|row| row.iter().map(|&v| v + dndpre_offset_shift).collect())
                         .collect();
@@ -1138,8 +1193,10 @@ impl MafftEngine {
                     }
                     let penalty_dist = scoring.gap.open;
                     let raw = compute_distance_matrix_scoring(
-                        &msa.sequences, &shifted_matrix,
-                        &scoring.amino_map, penalty_dist,
+                        &msa.sequences,
+                        &shifted_matrix,
+                        &scoring.amino_map,
+                        penalty_dist,
                     );
                     // C's dndpre writes hat2 with `%.3f` precision
                     // (`io.c::write_hat2`). dvtditr then reads back these
@@ -1240,12 +1297,13 @@ impl MafftEngine {
                 // Skipped under `--treein` (user_topo) since both phases use
                 // the same loaded tree, and for RNA modes (importance there
                 // is not distance-tree-derived).
-                if local_hom.is_some() && pairwise_for_constraints.is_some()
-                    && user_topo.is_none() && !uses_rna_constraints
+                if local_hom.is_some()
+                    && pairwise_for_constraints.is_some()
+                    && user_topo.is_none()
+                    && !uses_rna_constraints
                 {
                     let weights = mafft_tree::sequence_weights(&topo);
-                    let seq_refs: Vec<&[u8]> = msa.sequences.iter()
-                        .map(|s| s.as_slice()).collect();
+                    let seq_refs: Vec<&[u8]> = msa.sequences.iter().map(|s| s.as_slice()).collect();
                     if let Some(ref mut lh) = local_hom {
                         mafft_align::recompute_importance(lh, &seq_refs, &weights);
                     }
@@ -1281,20 +1339,34 @@ impl MafftEngine {
                         // `includemember && !samemember` at
                         // `dvtditr.c:997-1006`).
                         let nsteps = topo.steps.len();
-                        let sub_sets: Vec<std::collections::BTreeSet<usize>> =
-                            sub_alignments.iter().map(|s| s.iter().copied().collect()).collect();
-                        let skip_branches: Vec<(bool, bool)> = topo.steps.iter().map(|step| {
-                            let l: std::collections::BTreeSet<usize> = step.left.iter().copied().collect();
-                            let r: std::collections::BTreeSet<usize> = step.right.iter().copied().collect();
-                            let mut skip_l = false;
-                            let mut skip_r = false;
-                            for s in &sub_sets {
-                                if !skip_l && l.is_subset(s) && l != *s { skip_l = true; }
-                                if !skip_r && r.is_subset(s) && r != *s { skip_r = true; }
-                                if skip_l && skip_r { break; }
-                            }
-                            (skip_l, skip_r)
-                        }).collect();
+                        let sub_sets: Vec<std::collections::BTreeSet<usize>> = sub_alignments
+                            .iter()
+                            .map(|s| s.iter().copied().collect())
+                            .collect();
+                        let skip_branches: Vec<(bool, bool)> = topo
+                            .steps
+                            .iter()
+                            .map(|step| {
+                                let l: std::collections::BTreeSet<usize> =
+                                    step.left.iter().copied().collect();
+                                let r: std::collections::BTreeSet<usize> =
+                                    step.right.iter().copied().collect();
+                                let mut skip_l = false;
+                                let mut skip_r = false;
+                                for s in &sub_sets {
+                                    if !skip_l && l.is_subset(s) && l != *s {
+                                        skip_l = true;
+                                    }
+                                    if !skip_r && r.is_subset(s) && r != *s {
+                                        skip_r = true;
+                                    }
+                                    if skip_l && skip_r {
+                                        break;
+                                    }
+                                }
+                                (skip_l, skip_r)
+                            })
+                            .collect();
                         let _ = (nsteps, sub_alignments);
                         (false, skip_branches)
                     }
@@ -1320,16 +1392,22 @@ impl MafftEngine {
                         // pick best-gain branch per iteration. Bypasses both
                         // the BAATARI2 walk and the FFT-segmented variant.
                         crate::refinement::bestfirst_refine(
-                            &mut msa, &topo, &scoring, &params, local_hom.as_ref(),
+                            &mut msa,
+                            &topo,
+                            &scoring,
+                            &params,
+                            local_hom.as_ref(),
                         );
                     } else if use_segmented {
                         crate::refinement::segmented_iterative_refine(
-                            &mut msa, &topo, &scoring, &params, local_hom.as_ref(),
+                            &mut msa,
+                            &topo,
+                            &scoring,
+                            &params,
+                            local_hom.as_ref(),
                         );
                     } else {
-                        iterative_refine(
-                            &mut msa, &topo, &scoring, &params, local_hom.as_ref(),
-                        );
+                        iterative_refine(&mut msa, &topo, &scoring, &params, local_hom.as_ref());
                     }
                 }
             }
@@ -1354,18 +1432,16 @@ impl MafftEngine {
                     PtSeqKind::Protein
                 };
                 // CALL 1: parttree pivot pipeline on raw sequences.
-                let call1_order = mafft_tree::parttree_split::compute_parttree_order(
-                    &sequences, kind, 50,
-                );
+                let call1_order =
+                    mafft_tree::parttree_split::compute_parttree_order(&sequences, kind, 50);
                 // Reorder the FIRST-PASS aligned MSA into CALL 1's order so
                 // CALL 2 sees `pre_1` (C's intermediate alignment), not the
                 // final `pre_2`. Without using `first_pass_msa` here, our
                 // CALL 2 distances would diverge from C's because the two
                 // passes produce subtly different alignments.
-                let source_msa: &Vec<Vec<u8>> = first_pass_msa
-                    .as_ref().unwrap_or(&msa.sequences);
-                let aligned_reordered: Vec<Vec<u8>> = call1_order
-                    .iter().map(|&i| source_msa[i].clone()).collect();
+                let source_msa: &Vec<Vec<u8>> = first_pass_msa.as_ref().unwrap_or(&msa.sequences);
+                let aligned_reordered: Vec<Vec<u8>> =
+                    call1_order.iter().map(|&i| source_msa[i].clone()).collect();
                 // CALL 2: parttree pivot pipeline with `fromaln=1` scoring
                 // on the reordered aligned MSA. Uses the progressive-phase
                 // substitution matrix and gap penalty (matches C's `penalty`
@@ -1430,12 +1506,20 @@ impl MafftEngine {
 
         if let Some(op) = self.gap_open {
             let ppenalty = -(op * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 3.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                3.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             scoring.gap.open = (scale * ppenalty as f64 + 0.5) as i32;
         }
         if let Some(ep) = self.gap_offset {
             let poffset = -(ep * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 1.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                1.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             let new_offset = (scale * poffset as f64 + 0.5) as i32;
             let matrix_offset = 0i32;
             let delta = new_offset - matrix_offset;
@@ -1452,19 +1536,32 @@ impl MafftEngine {
             scoring.gap.offset = new_offset;
         }
 
-        let use_fft = !self.nofft && matches!(
-            self.mode,
-            AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
-        );
+        let use_fft = !self.nofft
+            && matches!(
+                self.mode,
+                AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
+            );
 
         let existing = MultipleAlignment {
-            sequences: existing_input.sequences.iter().map(|s| s.data.clone()).collect(),
-            names: existing_input.sequences.iter().map(|s| s.name.clone()).collect(),
+            sequences: existing_input
+                .sequences
+                .iter()
+                .map(|s| s.data.clone())
+                .collect(),
+            names: existing_input
+                .sequences
+                .iter()
+                .map(|s| s.name.clone())
+                .collect(),
             score: 0.0,
-            step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
 
-        let new_sequences: Vec<Vec<u8>> = new_input.sequences.iter().map(|s| s.data.clone()).collect();
+        let new_sequences: Vec<Vec<u8>> =
+            new_input.sequences.iter().map(|s| s.data.clone()).collect();
         let new_names: Vec<String> = new_input.sequences.iter().map(|s| s.name.clone()).collect();
 
         if keeplength {
@@ -1492,28 +1589,52 @@ impl MafftEngine {
         let mut scoring = build_context(scoring_model, seq_type);
         if let Some(op) = self.gap_open {
             let ppenalty = -(op * 1000.0) as i32;
-            let scale = if seq_type.is_nucleotide() { 3.0 * 600.0 / 1000.0 } else { 600.0 / 1000.0 };
+            let scale = if seq_type.is_nucleotide() {
+                3.0 * 600.0 / 1000.0
+            } else {
+                600.0 / 1000.0
+            };
             scoring.gap.open = (scale * ppenalty as f64 + 0.5) as i32;
         }
-        let use_fft = !self.nofft && matches!(
-            self.mode,
-            AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
-        );
+        let use_fft = !self.nofft
+            && matches!(
+                self.mode,
+                AlignmentMode::FftNs2 | AlignmentMode::FftNsi { .. }
+            );
         let existing = MultipleAlignment {
-            sequences: existing_input.sequences.iter().map(|s| s.data.clone()).collect(),
-            names: existing_input.sequences.iter().map(|s| s.name.clone()).collect(),
+            sequences: existing_input
+                .sequences
+                .iter()
+                .map(|s| s.data.clone())
+                .collect(),
+            names: existing_input
+                .sequences
+                .iter()
+                .map(|s| s.name.clone())
+                .collect(),
             score: 0.0,
-            step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         };
-        let new_sequences: Vec<Vec<u8>> = new_input.sequences.iter().map(|s| s.data.clone()).collect();
+        let new_sequences: Vec<Vec<u8>> =
+            new_input.sequences.iter().map(|s| s.data.clone()).collect();
         let new_names: Vec<String> = new_input.sequences.iter().map(|s| s.name.clone()).collect();
         crate::add::add_sequences_keeplength_with_map(
-            &existing, &new_sequences, &new_names, &scoring, use_fft,
+            &existing,
+            &new_sequences,
+            &new_names,
+            &scoring,
+            use_fft,
         )
     }
 
     /// Convenience: read FASTA file and align.
-    pub fn align_file(&self, path: &std::path::Path) -> Result<MultipleAlignment, mafft_io::IoError> {
+    pub fn align_file(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<MultipleAlignment, mafft_io::IoError> {
         let input = read_fasta(path)?;
         Ok(self.align(&input))
     }
@@ -1558,7 +1679,8 @@ fn compute_distance_matrix_scoring(
         .flat_map(|i| {
             let seqs = sequences;
             ((i + 1)..nseq).into_par_iter().map(move |j| {
-                let d = scoring_matrix_distance(&seqs[i], &seqs[j], matrix, amino_map, penalty_dist);
+                let d =
+                    scoring_matrix_distance(&seqs[i], &seqs[j], matrix, amino_map, penalty_dist);
                 (i, j, d)
             })
         })
@@ -1570,7 +1692,6 @@ fn compute_distance_matrix_scoring(
     }
     dm
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1589,7 +1710,10 @@ mod tests {
     #[test]
     fn nthread_selects_the_convergence_rule_like_c() {
         let per_cycle = |nthread: usize| nthread > 0;
-        assert!(!per_cycle(0), "no --thread / --thread 0 => C -C 0 => single-threaded rule");
+        assert!(
+            !per_cycle(0),
+            "no --thread / --thread 0 => C -C 0 => single-threaded rule"
+        );
         assert!(per_cycle(1), "--thread 1 => C -C 1 => athread rule");
         assert!(per_cycle(4));
         // Default engine must not opt into the athread rule.
@@ -1602,33 +1726,54 @@ mod tests {
         let c_offset = |poffset: i32| (0.6 * poffset as f64 + 0.5) as i32;
         assert_eq!(c_offset(-369), -220, "nucleotide DEFAULTOFS_N");
         assert_eq!(c_offset(-123), -73, "protein DEFAULTOFS_B");
-        assert_eq!(dndpre_offset_shift(true), 220, "DNA must not use the protein shift");
+        assert_eq!(
+            dndpre_offset_shift(true),
+            220,
+            "DNA must not use the protein shift"
+        );
         assert_eq!(dndpre_offset_shift(false), 73);
     }
 
     #[test]
     fn pair_penalty_scales_mirror_constants_c() {
         let (gap, off) = pair_penalty_scales(true);
-        assert_eq!(gap, 3.0 * 600.0 / 1000.0, "nucleotide gap scale must carry C's `3 *`");
-        assert_eq!(off, 600.0 / 1000.0, "nucleotide offset scale is `1 *`, not `3 *`");
+        assert_eq!(
+            gap,
+            3.0 * 600.0 / 1000.0,
+            "nucleotide gap scale must carry C's `3 *`"
+        );
+        assert_eq!(
+            off,
+            600.0 / 1000.0,
+            "nucleotide offset scale is `1 *`, not `3 *`"
+        );
         let (gap, off) = pair_penalty_scales(false);
         assert_eq!(gap, 600.0 / 1000.0);
         assert_eq!(off, 600.0 / 1000.0);
         // Worked values for the L-INS-i defaults (lgop=-2.00 → ppenalty=-2000,
         // laof=0.100 → poffset=100), rounded the way C's `(int)(x + 0.5)` does:
         let cc = |pp: i32, sc: f64| ((sc * pp as f64) + 0.5) as i32;
-        assert_eq!(cc(-2000, pair_penalty_scales(true).0), -3599);  // C: -3600+0.5 → -3599
+        assert_eq!(cc(-2000, pair_penalty_scales(true).0), -3599); // C: -3600+0.5 → -3599
         assert_eq!(cc(-2000, pair_penalty_scales(false).0), -1199);
         assert_eq!(cc(100, pair_penalty_scales(true).1), 60);
     }
-    use mafft_types::{Sequence, SeqType};
+    use mafft_types::{SeqType, Sequence};
 
     fn make_test_input() -> SequenceSet {
         SequenceSet {
             sequences: vec![
-                Sequence { name: "s1".into(), data: b"ACDEFGHIKLMNP".to_vec() },
-                Sequence { name: "s2".into(), data: b"ACDEFHIKLMNP".to_vec() },
-                Sequence { name: "s3".into(), data: b"ACDEHIKLMNP".to_vec() },
+                Sequence {
+                    name: "s1".into(),
+                    data: b"ACDEFGHIKLMNP".to_vec(),
+                },
+                Sequence {
+                    name: "s2".into(),
+                    data: b"ACDEFHIKLMNP".to_vec(),
+                },
+                Sequence {
+                    name: "s3".into(),
+                    data: b"ACDEHIKLMNP".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         }
@@ -1641,7 +1786,9 @@ mod tests {
         assert_eq!(msa.nseq(), 3);
         let w = msa.width();
         assert!(w >= 13);
-        for seq in &msa.sequences { assert_eq!(seq.len(), w); }
+        for seq in &msa.sequences {
+            assert_eq!(seq.len(), w);
+        }
     }
 
     #[test]
@@ -1650,15 +1797,23 @@ mod tests {
         let msa = engine.align(&make_test_input());
         assert_eq!(msa.nseq(), 3);
         let w = msa.width();
-        for seq in &msa.sequences { assert_eq!(seq.len(), w); }
+        for seq in &msa.sequences {
+            assert_eq!(seq.len(), w);
+        }
     }
 
     #[test]
     fn engine_two_sequences() {
         let input = SequenceSet {
             sequences: vec![
-                Sequence { name: "a".into(), data: b"ACDEFGHIK".to_vec() },
-                Sequence { name: "b".into(), data: b"ACDEFGHIK".to_vec() },
+                Sequence {
+                    name: "a".into(),
+                    data: b"ACDEFGHIK".to_vec(),
+                },
+                Sequence {
+                    name: "b".into(),
+                    data: b"ACDEFGHIK".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -1674,21 +1829,31 @@ mod tests {
         let msa = engine.align(&make_test_input());
         assert_eq!(msa.nseq(), 3);
         let w = msa.width();
-        for seq in &msa.sequences { assert_eq!(seq.len(), w); }
+        for seq in &msa.sequences {
+            assert_eq!(seq.len(), w);
+        }
     }
 
     #[test]
     fn engine_retree_1_vs_2() {
         let input = make_test_input();
-        let msa1 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(1).align(&input);
-        let msa2 = MafftEngine::new(AlignmentMode::FftNs2).with_retree(2).align(&input);
+        let msa1 = MafftEngine::new(AlignmentMode::FftNs2)
+            .with_retree(1)
+            .align(&input);
+        let msa2 = MafftEngine::new(AlignmentMode::FftNs2)
+            .with_retree(2)
+            .align(&input);
         // Both should produce valid alignments
         assert_eq!(msa1.nseq(), 3);
         assert_eq!(msa2.nseq(), 3);
         let w1 = msa1.width();
         let w2 = msa2.width();
-        for seq in &msa1.sequences { assert_eq!(seq.len(), w1); }
-        for seq in &msa2.sequences { assert_eq!(seq.len(), w2); }
+        for seq in &msa1.sequences {
+            assert_eq!(seq.len(), w1);
+        }
+        for seq in &msa2.sequences {
+            assert_eq!(seq.len(), w2);
+        }
     }
 
     /// Guard: refinement tree uses scoring-matrix distance, not identity distance.
@@ -1706,11 +1871,26 @@ mod tests {
     fn engine_refinement_uses_scoring_matrix_distance() {
         let input = SequenceSet {
             sequences: vec![
-                Sequence { name: "s1".into(), data: b"ACDEFGHIKLMNPQRSTVWY".to_vec() },
-                Sequence { name: "s2".into(), data: b"ACDEFGHIKLMNPQRSTVWY".to_vec() },
-                Sequence { name: "s3".into(), data: b"WWWWWWWWWWWWWWWWWWWW".to_vec() },
-                Sequence { name: "s4".into(), data: b"ACDHIKLMNP".to_vec() },
-                Sequence { name: "s5".into(), data: b"ACDEHIKLMNPQR".to_vec() },
+                Sequence {
+                    name: "s1".into(),
+                    data: b"ACDEFGHIKLMNPQRSTVWY".to_vec(),
+                },
+                Sequence {
+                    name: "s2".into(),
+                    data: b"ACDEFGHIKLMNPQRSTVWY".to_vec(),
+                },
+                Sequence {
+                    name: "s3".into(),
+                    data: b"WWWWWWWWWWWWWWWWWWWW".to_vec(),
+                },
+                Sequence {
+                    name: "s4".into(),
+                    data: b"ACDHIKLMNP".to_vec(),
+                },
+                Sequence {
+                    name: "s5".into(),
+                    data: b"ACDEHIKLMNPQR".to_vec(),
+                },
             ],
             seq_type: SeqType::Protein,
         };
@@ -1719,10 +1899,17 @@ mod tests {
         assert_eq!(msa.nseq(), 5);
         let w = msa.width();
         for (i, seq) in msa.sequences.iter().enumerate() {
-            assert_eq!(seq.len(), w, "sequence {i} has wrong width after refinement");
+            assert_eq!(
+                seq.len(),
+                w,
+                "sequence {i} has wrong width after refinement"
+            );
             let residues = seq.iter().filter(|&&c| c != b'-').count();
-            assert_eq!(residues, input.sequences[i].data.len(),
-                "sequence {i} lost residues during refinement");
+            assert_eq!(
+                residues,
+                input.sequences[i].data.len(),
+                "sequence {i} lost residues during refinement"
+            );
         }
     }
 
@@ -1738,5 +1925,4 @@ mod tests {
         let params = crate::refinement::RefinementParams::default();
         assert_eq!(params.cut, 0.0);
     }
-
 }

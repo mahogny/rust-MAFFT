@@ -23,7 +23,9 @@ fn parse_fasta(s: &str) -> Vec<(String, Vec<u8>)> {
 }
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: dump_ktuple_distance <fasta>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: dump_ktuple_distance <fasta>");
     let s = fs::read_to_string(&path).unwrap();
     let seqs = parse_fasta(&s);
     println!("loaded {} seqs", seqs.len());
@@ -35,7 +37,14 @@ fn main() {
     for i in 0..n {
         for j in (i + 1)..n {
             let d = ktuple_distance(&seqs[i].1, &seqs[j].1, 6);
-            println!("d({},{}) = {:.10}  ({}<->{})", i + 1, j + 1, d, seqs[i].0, seqs[j].0);
+            println!(
+                "d({},{}) = {:.10}  ({}<->{})",
+                i + 1,
+                j + 1,
+                d,
+                seqs[i].0,
+                seqs[j].0
+            );
         }
     }
 }

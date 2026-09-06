@@ -1,6 +1,6 @@
 //! Sanity: profile_align_imp(impmtx = zeros) must equal profile_align.
 
-use mafft_align::{Profile, profile_align, profile_align_imp, GapModel};
+use mafft_align::{GapModel, Profile, profile_align, profile_align_imp};
 
 fn build_amino_map() -> [u8; 256] {
     let mut map = [0xFFu8; 256];
@@ -33,12 +33,17 @@ fn imp_zero_matches_profile_align() {
     let plain = profile_align(&prof1, &prof2, &mtx, &gap, false, false);
 
     let imp_zero = vec![vec![0.0f64; prof2.length]; prof1.length];
-    let with_imp = profile_align_imp(
-        &prof1, &prof2, &mtx, &gap, false, false, Some(&imp_zero),
-    );
+    let with_imp = profile_align_imp(&prof1, &prof2, &mtx, &gap, false, false, Some(&imp_zero));
 
-    assert_eq!(plain.operations, with_imp.operations,
-        "ops differ: plain={:?} imp={:?}", plain.operations, with_imp.operations);
-    assert!((plain.score - with_imp.score).abs() < 1e-9,
-        "score differs: plain={} imp={}", plain.score, with_imp.score);
+    assert_eq!(
+        plain.operations, with_imp.operations,
+        "ops differ: plain={:?} imp={:?}",
+        plain.operations, with_imp.operations
+    );
+    assert!(
+        (plain.score - with_imp.score).abs() < 1e-9,
+        "score differs: plain={} imp={}",
+        plain.score,
+        with_imp.score
+    );
 }

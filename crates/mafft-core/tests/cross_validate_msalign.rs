@@ -13,12 +13,11 @@
 /// Inputs are chosen to exercise the recursive Hirschberg path
 /// (`lgth1 > DPTANNI=100`) — for shorter inputs both DPs delegate to
 /// the same base case and parity is trivially preserved.
-
 use std::ffi::CString;
 use std::os::raw::{c_char, c_double, c_int};
 use std::sync::Mutex;
 
-use mafft_align::{msalignmm, GapModel, Profile};
+use mafft_align::{GapModel, Profile, msalignmm};
 use mafft_scoring::build_context;
 use mafft_types::{ScoringModel, SeqType};
 
@@ -65,7 +64,14 @@ fn align_via_both(
     let prof1 = Profile::from_aligned(&[s1], &[1.0], amino_map, nalpha);
     let prof2 = Profile::from_aligned(&[s2], &[1.0], amino_map, nalpha);
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
-    let rust_aln = msalignmm(&prof1, &prof2, &scoring.consweight_matrix, &gap, head_gap, tail_gap);
+    let rust_aln = msalignmm(
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        head_gap,
+        tail_gap,
+    );
 
     let mut rust_s1 = Vec::with_capacity(rust_aln.operations.len());
     let mut rust_s2 = Vec::with_capacity(rust_aln.operations.len());
@@ -73,16 +79,20 @@ fn align_via_both(
     for op in &rust_aln.operations {
         match op {
             mafft_align::AlignOp::Match => {
-                rust_s1.push(s1[p]); p += 1;
-                rust_s2.push(s2[q]); q += 1;
+                rust_s1.push(s1[p]);
+                p += 1;
+                rust_s2.push(s2[q]);
+                q += 1;
             }
             mafft_align::AlignOp::Delete => {
-                rust_s1.push(s1[p]); p += 1;
+                rust_s1.push(s1[p]);
+                p += 1;
                 rust_s2.push(b'-');
             }
             mafft_align::AlignOp::Insert => {
                 rust_s1.push(b'-');
-                rust_s2.push(s2[q]); q += 1;
+                rust_s2.push(s2[q]);
+                q += 1;
             }
         }
     }
@@ -115,21 +125,36 @@ fn align_via_both(
 
         let _c_score = mafft_sys::MSalignmm(
             n_dyn,
-            &mut p1, &mut p2,
-            &mut eff1, &mut eff2,
-            1, 1,
+            &mut p1,
+            &mut p2,
+            &mut eff1,
+            &mut eff2,
+            1,
+            1,
             alloclen,
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(),
-            head_gap as c_int, tail_gap as c_int,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            1.0, 1.0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            head_gap as c_int,
+            tail_gap as c_int,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            1.0,
+            1.0,
         );
 
         // Read back the aligned strings (in-place edits).
         let c_width = {
-            let mut k = 0; while *p1.add(k) != 0 { k += 1; } k
+            let mut k = 0;
+            while *p1.add(k) != 0 {
+                k += 1;
+            }
+            k
         };
         let c_s1: Vec<u8> = (0..c_width).map(|k| *p1.add(k) as u8).collect();
         let c_s2: Vec<u8> = (0..c_width).map(|k| *p2.add(k) as u8).collect();
@@ -151,7 +176,10 @@ fn msalign_recursive_matches_c() {
     // motif in the middle of s2 that's absent in s1.
     let s1 = b"MKTIIALSYIFCLVFAKEDFREEKSPELLVNVPILTPVAGTHKAGKLITGSTMKAKEGNCGRDLLINGTGRLILSSSGKLPHRMNAIPRTNKPGSEDYTKVVNFLSGNLDRGQLSYLKLELKM";
     let s2 = b"MKTIIALSYIFCLVFAKEDFREEKSPELLVNVPILTPVAGTHKAGKLITGSTMKAKEGNCGRDPQLLLAGKSDESQRWSAALLINGTGRLILSSSGKLPHRMNAIPRTNKPGSEDYTKVVNFLSGNLDRGQLSYLKLELKM";
-    assert!(s1.len() > 100, "test input must exercise Hirschberg recursion");
+    assert!(
+        s1.len() > 100,
+        "test input must exercise Hirschberg recursion"
+    );
     assert!(s2.len() > 100);
 
     let (rust_s1, rust_s2, c_s1, c_s2) = align_via_both(s1, s2, true, true);
@@ -168,8 +196,13 @@ fn msalign_recursive_matches_c() {
     eprintln!("Rust seq2: {}", rust_str2);
     eprintln!("C    seq2: {}", c_str2);
 
-    assert_eq!(rust_s1.len(), c_s1.len(),
-        "alignment width mismatch: rust={} c={}", rust_s1.len(), c_s1.len());
+    assert_eq!(
+        rust_s1.len(),
+        c_s1.len(),
+        "alignment width mismatch: rust={} c={}",
+        rust_s1.len(),
+        c_s1.len()
+    );
     assert_eq!(rust_s1, c_s1, "seq1 aligned output differs");
     assert_eq!(rust_s2, c_s2, "seq2 aligned output differs");
 }
@@ -228,8 +261,19 @@ fn msalign_mid_state_matches_c() {
 
     // ---- Capture C state via the instrumented wrapper ----
     let _guard = C_MUTEX.lock().unwrap();
-    let (c_imid, c_jmid, c_jumpi, c_jumpj, c_midw, c_midm, c_midn,
-         c_jumpbacki, c_jumpbackj, c_jumpforwi, c_jumpforwj) = unsafe {
+    let (
+        c_imid,
+        c_jmid,
+        c_jumpi,
+        c_jumpj,
+        c_midw,
+        c_midm,
+        c_midn,
+        c_jumpbacki,
+        c_jumpbackj,
+        c_jumpforwi,
+        c_jumpforwj,
+    ) = unsafe {
         init_c_protein_blosum62();
 
         let alloclen = (lgth1 + lgth2 + 1000) as c_int;
@@ -264,10 +308,17 @@ fn msalign_mid_state_matches_c() {
         let mut out_jumpforwj = vec![0 as c_int; out_size];
 
         mafft_sys::rs_msalignmm_capture_top(
-            n_dyn, p1, p2,
-            lgth1 as c_int, lgth2 as c_int,
-            1, 1,
-            &mut out_imid, &mut out_jmid, &mut out_jumpi, &mut out_jumpj,
+            n_dyn,
+            p1,
+            p2,
+            lgth1 as c_int,
+            lgth2 as c_int,
+            1,
+            1,
+            &mut out_imid,
+            &mut out_jmid,
+            &mut out_jumpi,
+            &mut out_jumpj,
             out_midw.as_mut_ptr(),
             out_midm.as_mut_ptr(),
             out_midn.as_mut_ptr(),
@@ -278,29 +329,58 @@ fn msalign_mid_state_matches_c() {
         );
 
         mafft_sys::freeconstants();
-        (out_imid as usize, out_jmid as usize, out_jumpi as usize, out_jumpj as usize,
-         out_midw, out_midm, out_midn,
-         out_jumpbacki, out_jumpbackj, out_jumpforwi, out_jumpforwj)
+        (
+            out_imid as usize,
+            out_jmid as usize,
+            out_jumpi as usize,
+            out_jumpj as usize,
+            out_midw,
+            out_midm,
+            out_midn,
+            out_jumpbacki,
+            out_jumpbackj,
+            out_jumpforwi,
+            out_jumpforwj,
+        )
     };
 
-    eprintln!("C: imid={} jmid={} jumpi={} jumpj={}",
-        c_imid, c_jmid, c_jumpi, c_jumpj);
-    eprintln!("C: midw[95]={:.2} midw[99]={:.2} midw[100]={:.2}",
-        c_midw[95], c_midw[99], c_midw[100]);
-    eprintln!("C: midm[95]={:.2} midm[99]={:.2} midm[100]={:.2}",
-        c_midm[95], c_midm[99], c_midm[100]);
-    eprintln!("C: midn[94]={:.2} midn[98]={:.2} midn[99]={:.2}",
-        c_midn[94], c_midn[98], c_midn[99]);
+    eprintln!(
+        "C: imid={} jmid={} jumpi={} jumpj={}",
+        c_imid, c_jmid, c_jumpi, c_jumpj
+    );
+    eprintln!(
+        "C: midw[95]={:.2} midw[99]={:.2} midw[100]={:.2}",
+        c_midw[95], c_midw[99], c_midw[100]
+    );
+    eprintln!(
+        "C: midm[95]={:.2} midm[99]={:.2} midm[100]={:.2}",
+        c_midm[95], c_midm[99], c_midm[100]
+    );
+    eprintln!(
+        "C: midn[94]={:.2} midn[98]={:.2} midn[99]={:.2}",
+        c_midn[94], c_midn[98], c_midn[99]
+    );
     // Find C's max midw / midm.
     let mut c_max_midw = (0, f64::NEG_INFINITY);
     for j in 1..lgth2 {
-        if c_midw[j] > c_max_midw.1 { c_max_midw = (j, c_midw[j]); }
+        if c_midw[j] > c_max_midw.1 {
+            c_max_midw = (j, c_midw[j]);
+        }
     }
-    eprintln!("C: argmax(midw) = {} (val {:.2})", c_max_midw.0, c_max_midw.1);
+    eprintln!(
+        "C: argmax(midw) = {} (val {:.2})",
+        c_max_midw.0, c_max_midw.1
+    );
 
     eprintln!("C: midn[95]={:.2} midw[96]={:.2}", c_midn[95], c_midw[96]);
-    eprintln!("C: jumpbacki[96]={} jumpbackj[96]={}", c_jumpbacki[96], c_jumpbackj[96]);
-    eprintln!("C: jumpforwi[95]={} jumpforwj[95]={}", c_jumpforwi[95], c_jumpforwj[95]);
+    eprintln!(
+        "C: jumpbacki[96]={} jumpbackj[96]={}",
+        c_jumpbacki[96], c_jumpbackj[96]
+    );
+    eprintln!(
+        "C: jumpforwi[95]={} jumpforwj[95]={}",
+        c_jumpforwi[95], c_jumpforwj[95]
+    );
 
     let _ = c_jumpbacki;
     let _ = c_jumpbackj;
@@ -310,8 +390,18 @@ fn msalign_mid_state_matches_c() {
     // ---- Build the matching Rust profiles, run msalignmm, observe split.
     // (Splits are exposed via MS_DBG env; we just sanity-check that
     // `msalignmm` produces an alignment of any width.)
-    let prof1 = Profile::from_aligned(&[s1.as_slice()], &[1.0], &scoring.amino_map, scoring.nalphabets);
-    let prof2 = Profile::from_aligned(&[s2.as_slice()], &[1.0], &scoring.amino_map, scoring.nalphabets);
+    let prof1 = Profile::from_aligned(
+        &[s1.as_slice()],
+        &[1.0],
+        &scoring.amino_map,
+        scoring.nalphabets,
+    );
+    let prof2 = Profile::from_aligned(
+        &[s2.as_slice()],
+        &[1.0],
+        &scoring.amino_map,
+        scoring.nalphabets,
+    );
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
     let aln = msalignmm(&prof1, &prof2, &scoring.consweight_matrix, &gap, true, true);
     eprintln!("Rust msalignmm width: {}", aln.operations.len());
@@ -416,10 +506,17 @@ fn msalign_tanni_in_context_matches_c() {
         let mut out_s2 = vec![0u8; out_size];
         let mut out_width: c_int = 0;
         mafft_sys::rs_msalignmm_tanni_capture(
-            n_dyn, p1, p2,
-            lgth1 as c_int, lgth2 as c_int,
-            ist as c_int, ien as c_int, jst as c_int, jen as c_int,
-            1, 1,
+            n_dyn,
+            p1,
+            p2,
+            lgth1 as c_int,
+            lgth2 as c_int,
+            ist as c_int,
+            ien as c_int,
+            jst as c_int,
+            jen as c_int,
+            1,
+            1,
             out_s1.as_mut_ptr() as *mut c_char,
             out_s2.as_mut_ptr() as *mut c_char,
             &mut out_width,
@@ -434,22 +531,59 @@ fn msalign_tanni_in_context_matches_c() {
     // ---- Rust side: profile_align_imp_with_boundary on sub-profile.
     // Build profiles from FULL inputs, then slice (mirrors how
     // msalignmm.rs::base_case does it).
-    let prof1_full = Profile::from_aligned(&[s1_full.as_slice()], &[1.0], &scoring.amino_map, scoring.nalphabets);
-    let prof2_full = Profile::from_aligned(&[s2_full.as_slice()], &[1.0], &scoring.amino_map, scoring.nalphabets);
+    let prof1_full = Profile::from_aligned(
+        &[s1_full.as_slice()],
+        &[1.0],
+        &scoring.amino_map,
+        scoring.nalphabets,
+    );
+    let prof2_full = Profile::from_aligned(
+        &[s2_full.as_slice()],
+        &[1.0],
+        &scoring.amino_map,
+        scoring.nalphabets,
+    );
     let sub1 = prof1_full.sub_profile(ist, ien + 1);
     let sub2 = prof2_full.sub_profile(jst, jen + 1);
     // effective_head/tail per msalignmm::base_case logic
     let effective_head = true || ist != 0 || jst != 0;
     let effective_tail = true || ien + 1 != prof1_full.length || jen + 1 != prof2_full.length;
-    let head1 = if ist > 0 { prof1_full.nongap_freq[ist - 1] } else { 1.0 };
-    let head2 = if jst > 0 { prof2_full.nongap_freq[jst - 1] } else { 1.0 };
-    let tail1 = if ien + 1 < prof1_full.length { prof1_full.nongap_freq[ien + 1] } else { 1.0 };
-    let tail2 = if jen + 1 < prof2_full.length { prof2_full.nongap_freq[jen + 1] } else { 1.0 };
+    let head1 = if ist > 0 {
+        prof1_full.nongap_freq[ist - 1]
+    } else {
+        1.0
+    };
+    let head2 = if jst > 0 {
+        prof2_full.nongap_freq[jst - 1]
+    } else {
+        1.0
+    };
+    let tail1 = if ien + 1 < prof1_full.length {
+        prof1_full.nongap_freq[ien + 1]
+    } else {
+        1.0
+    };
+    let tail2 = if jen + 1 < prof2_full.length {
+        prof2_full.nongap_freq[jen + 1]
+    } else {
+        1.0
+    };
     let gap = GapModel::new(scoring.gap.open as f64, scoring.gap.extend as f64);
     let rust_aln = mafft_align::profile_align_imp_with_boundary(
-        &sub1, &sub2, &scoring.consweight_matrix, &gap,
-        effective_head, effective_tail, None, false,
-        mafft_align::BoundaryFreqs { head1, head2, tail1, tail2 },
+        &sub1,
+        &sub2,
+        &scoring.consweight_matrix,
+        &gap,
+        effective_head,
+        effective_tail,
+        None,
+        false,
+        mafft_align::BoundaryFreqs {
+            head1,
+            head2,
+            tail1,
+            tail2,
+        },
     );
     // Build the aligned strings from the operations.
     let mut rust_s1 = Vec::new();
@@ -460,29 +594,42 @@ fn msalign_tanni_in_context_matches_c() {
     for op in &rust_aln.operations {
         match op {
             mafft_align::AlignOp::Match => {
-                rust_s1.push(sub_s1[p]); p += 1;
-                rust_s2.push(sub_s2[q]); q += 1;
+                rust_s1.push(sub_s1[p]);
+                p += 1;
+                rust_s2.push(sub_s2[q]);
+                q += 1;
             }
             mafft_align::AlignOp::Delete => {
-                rust_s1.push(sub_s1[p]); p += 1;
+                rust_s1.push(sub_s1[p]);
+                p += 1;
                 rust_s2.push(b'-');
             }
             mafft_align::AlignOp::Insert => {
                 rust_s1.push(b'-');
-                rust_s2.push(sub_s2[q]); q += 1;
+                rust_s2.push(sub_s2[q]);
+                q += 1;
             }
         }
     }
 
-    eprintln!("C    in-context tanni: width={} ({} ops)", c_width, c_s1.len());
+    eprintln!(
+        "C    in-context tanni: width={} ({} ops)",
+        c_width,
+        c_s1.len()
+    );
     eprintln!("C    s1: {}", String::from_utf8_lossy(&c_s1));
     eprintln!("C    s2: {}", String::from_utf8_lossy(&c_s2));
     eprintln!("Rust full DP        : width={}", rust_s1.len());
     eprintln!("Rust s1: {}", String::from_utf8_lossy(&rust_s1));
     eprintln!("Rust s2: {}", String::from_utf8_lossy(&rust_s2));
 
-    assert_eq!(rust_s1.len(), c_s1.len(),
-        "in-context width differs: rust={} c={}", rust_s1.len(), c_s1.len());
+    assert_eq!(
+        rust_s1.len(),
+        c_s1.len(),
+        "in-context width differs: rust={} c={}",
+        rust_s1.len(),
+        c_s1.len()
+    );
     assert_eq!(rust_s1, c_s1, "in-context seq1 differs");
     assert_eq!(rust_s2, c_s2, "in-context seq2 differs");
 }
@@ -513,28 +660,70 @@ fn msalign_full_trace_c_reimpl_symmetric_matches() {
         let mut t1 = vec![0u8; out_size];
         let mut t2 = vec![0u8; out_size];
         let mut tw: c_int = 0;
-        let mut b1: Vec<u8> = cs1.as_bytes().to_vec(); b1.resize(alloclen as usize + 1, 0);
-        let mut b2: Vec<u8> = cs2.as_bytes().to_vec(); b2.resize(alloclen as usize + 1, 0);
+        let mut b1: Vec<u8> = cs1.as_bytes().to_vec();
+        b1.resize(alloclen as usize + 1, 0);
+        let mut b2: Vec<u8> = cs2.as_bytes().to_vec();
+        b2.resize(alloclen as usize + 1, 0);
         mafft_sys::rs_msalignmm_full_trace(
-            n_dyn, b1.as_mut_ptr() as *mut c_char, b2.as_mut_ptr() as *mut c_char,
-            s1.len() as c_int, s2.len() as c_int, 1, 1,
-            t1.as_mut_ptr() as *mut c_char, t2.as_mut_ptr() as *mut c_char, &mut tw);
+            n_dyn,
+            b1.as_mut_ptr() as *mut c_char,
+            b2.as_mut_ptr() as *mut c_char,
+            s1.len() as c_int,
+            s2.len() as c_int,
+            1,
+            1,
+            t1.as_mut_ptr() as *mut c_char,
+            t2.as_mut_ptr() as *mut c_char,
+            &mut tw,
+        );
 
-        let mut rb1: Vec<u8> = cs1.as_bytes().to_vec(); rb1.resize(alloclen as usize + 1, 0);
-        let mut rb2: Vec<u8> = cs2.as_bytes().to_vec(); rb2.resize(alloclen as usize + 1, 0);
+        let mut rb1: Vec<u8> = cs1.as_bytes().to_vec();
+        rb1.resize(alloclen as usize + 1, 0);
+        let mut rb2: Vec<u8> = cs2.as_bytes().to_vec();
+        rb2.resize(alloclen as usize + 1, 0);
         let mut rp1 = rb1.as_mut_ptr() as *mut c_char;
         let mut rp2 = rb2.as_mut_ptr() as *mut c_char;
-        let mut e1: c_double = 1.0; let mut e2: c_double = 1.0;
-        mafft_sys::MSalignmm(n_dyn, &mut rp1, &mut rp2, &mut e1, &mut e2, 1, 1, alloclen,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(), 1, 1,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), 1.0, 1.0);
-        let rw = { let mut k = 0; while *rp1.add(k) != 0 { k += 1; } k };
+        let mut e1: c_double = 1.0;
+        let mut e2: c_double = 1.0;
+        mafft_sys::MSalignmm(
+            n_dyn,
+            &mut rp1,
+            &mut rp2,
+            &mut e1,
+            &mut e2,
+            1,
+            1,
+            alloclen,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            1,
+            1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            1.0,
+            1.0,
+        );
+        let rw = {
+            let mut k = 0;
+            while *rp1.add(k) != 0 {
+                k += 1;
+            }
+            k
+        };
         mafft_sys::freeconstants();
         (tw as usize, rw)
     };
     eprintln!("symmetric: faithful={} real={}", trace_w, real_w);
-    assert_eq!(trace_w, real_w, "faithful re-impl differs from real C on symmetric");
+    assert_eq!(
+        trace_w, real_w,
+        "faithful re-impl differs from real C on symmetric"
+    );
 }
 
 /// Run the faithful C re-implementation of `MSalignmm_rec` (in
@@ -588,8 +777,10 @@ fn msalign_full_trace_c_reimpl_matches_real_c() {
             n_dyn,
             buf1.as_mut_ptr() as *mut c_char,
             buf2.as_mut_ptr() as *mut c_char,
-            lgth1 as c_int, lgth2 as c_int,
-            1, 1,
+            lgth1 as c_int,
+            lgth2 as c_int,
+            1,
+            1,
             trace_out_s1.as_mut_ptr() as *mut c_char,
             trace_out_s2.as_mut_ptr() as *mut c_char,
             &mut trace_out_width,
@@ -608,17 +799,35 @@ fn msalign_full_trace_c_reimpl_matches_real_c() {
         let mut eff1: c_double = 1.0;
         let mut eff2: c_double = 1.0;
         let _ = mafft_sys::MSalignmm(
-            n_dyn, &mut rp1, &mut rp2, &mut eff1, &mut eff2,
-            1, 1, alloclen,
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(),
-            1, 1,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            1.0, 1.0,
+            n_dyn,
+            &mut rp1,
+            &mut rp2,
+            &mut eff1,
+            &mut eff2,
+            1,
+            1,
+            alloclen,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            1,
+            1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            1.0,
+            1.0,
         );
         let rw = {
-            let mut k = 0; while *rp1.add(k) != 0 { k += 1; } k
+            let mut k = 0;
+            while *rp1.add(k) != 0 {
+                k += 1;
+            }
+            k
         };
         let rs1: Vec<u8> = (0..rw).map(|k| *rp1.add(k) as u8).collect();
         let rs2: Vec<u8> = (0..rw).map(|k| *rp2.add(k) as u8).collect();
@@ -636,9 +845,11 @@ fn msalign_full_trace_c_reimpl_matches_real_c() {
 
     // The faithful re-implementation should match real C MSalignmm.
     // If it doesn't, our reading of the algorithm is incomplete.
-    assert_eq!(trace_width, real_width,
+    assert_eq!(
+        trace_width, real_width,
         "faithful C re-impl width ({}) differs from real C MSalignmm ({})",
-        trace_width, real_width);
+        trace_width, real_width
+    );
 }
 
 /// Asymmetric lengths where `lgth1 < lgth2`. Closed 2026-05-16 by
@@ -654,8 +865,13 @@ fn msalign_asymmetric_lengths_matches_c() {
     eprintln!("C    s1: {}", String::from_utf8_lossy(&c_s1));
     eprintln!("Rust s2: {}", String::from_utf8_lossy(&rust_s2));
     eprintln!("C    s2: {}", String::from_utf8_lossy(&c_s2));
-    assert_eq!(rust_s1.len(), c_s1.len(),
-        "width differs: rust={} c={}", rust_s1.len(), c_s1.len());
+    assert_eq!(
+        rust_s1.len(),
+        c_s1.len(),
+        "width differs: rust={} c={}",
+        rust_s1.len(),
+        c_s1.len()
+    );
     assert_eq!(rust_s1, c_s1, "asymmetric seq1 differs");
     assert_eq!(rust_s2, c_s2, "asymmetric seq2 differs");
 }

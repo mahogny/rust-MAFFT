@@ -5,7 +5,6 @@
 /// This is the tree builder used in practice by MAFFT. It uses a
 /// nearest-neighbor cache for O(n²) performance, a doubly-linked list
 /// for efficient cluster removal, and configurable distance update functions.
-
 use crate::distance::DistanceMatrix;
 use crate::topology::{JoinStep, Topology};
 
@@ -83,8 +82,12 @@ pub fn musclesupg(dist: &DistanceMatrix, method: ClusterMethod) -> Topology {
 
     // Active cluster chain (simulates Bchain doubly-linked list)
     let mut active: Vec<bool> = vec![true; n];
-    let mut next: Vec<Option<usize>> = (0..n).map(|i| if i + 1 < n { Some(i + 1) } else { None }).collect();
-    let mut prev: Vec<Option<usize>> = (0..n).map(|i| if i > 0 { Some(i - 1) } else { None }).collect();
+    let mut next: Vec<Option<usize>> = (0..n)
+        .map(|i| if i + 1 < n { Some(i + 1) } else { None })
+        .collect();
+    let mut prev: Vec<Option<usize>> = (0..n)
+        .map(|i| if i > 0 { Some(i - 1) } else { None })
+        .collect();
     let first_active = 0usize;
 
     // Nearest-neighbor cache
@@ -139,9 +142,24 @@ pub fn musclesupg(dist: &DistanceMatrix, method: ClusterMethod) -> Topology {
         let right_len = node_height - tmplen[jm];
         if let Ok(f) = std::env::var("RS_UPGMA_TRACE") {
             use std::io::Write;
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-                let _ = writeln!(fp, "step={} im={} jm={} min_score={:.18e} node_height={:.18e} left_len={:.18e} right_len={:.18e} tmplen_im={:.18e} tmplen_jm={:.18e}",
-                    steps_done, im, jm, min_score, node_height, left_len, right_len, tmplen[im], tmplen[jm]);
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&f)
+            {
+                let _ = writeln!(
+                    fp,
+                    "step={} im={} jm={} min_score={:.18e} node_height={:.18e} left_len={:.18e} right_len={:.18e} tmplen_im={:.18e} tmplen_jm={:.18e}",
+                    steps_done,
+                    im,
+                    jm,
+                    min_score,
+                    node_height,
+                    left_len,
+                    right_len,
+                    tmplen[im],
+                    tmplen[jm]
+                );
             }
         }
 
@@ -222,7 +240,9 @@ pub fn musclesupg(dist: &DistanceMatrix, method: ClusterMethod) -> Topology {
 
 /// Get distance from half-matrix, handling i < j vs i > j.
 fn get_half(eff: &[Option<Vec<f64>>], i: usize, j: usize) -> f64 {
-    if i == j { return 0.0; }
+    if i == j {
+        return 0.0;
+    }
     let (lo, hi) = if i < j { (i, j) } else { (j, i) };
     eff[lo].as_ref().map_or(f64::MAX, |row| {
         row.get(hi - lo - 1).copied().unwrap_or(f64::MAX)
@@ -258,7 +278,9 @@ fn find_nearest(
 
     // Forward: pos+1 .. n-1
     for j in (pos + 1)..n {
-        if !active[j] { continue; }
+        if !active[j] {
+            continue;
+        }
         let d = get_half(eff, pos, j);
         if d < best_dist {
             best_dist = d;
@@ -268,7 +290,9 @@ fn find_nearest(
 
     // Backward: 0 .. pos-1
     for j in 0..pos {
-        if !active[j] { continue; }
+        if !active[j] {
+            continue;
+        }
         let d = get_half(eff, pos, j);
         if d < best_dist {
             best_dist = d;
@@ -308,7 +332,12 @@ mod tests {
 
         // First join should be 0+1 (distance 0.1)
         let first = &topo.steps[0];
-        let mut joined: Vec<usize> = first.left.iter().chain(first.right.iter()).copied().collect();
+        let mut joined: Vec<usize> = first
+            .left
+            .iter()
+            .chain(first.right.iter())
+            .copied()
+            .collect();
         joined.sort();
         assert_eq!(joined, vec![0, 1]);
     }

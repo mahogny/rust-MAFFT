@@ -1,7 +1,6 @@
 /// UPGMA (Unweighted Pair Group Method with Arithmetic Mean) tree construction.
 ///
 /// Ports the C `upg2()` and `veryfastsupg_int()` from mltaln9.c.
-
 use crate::distance::DistanceMatrix;
 use crate::topology::{JoinStep, Topology};
 
@@ -44,9 +43,13 @@ pub fn upgma(dist: &DistanceMatrix) -> Topology {
         let mut best_j = 0;
 
         for i in 0..n {
-            if !active[i] { continue; }
+            if !active[i] {
+                continue;
+            }
             for j in (i + 1)..n {
-                if !active[j] { continue; }
+                if !active[j] {
+                    continue;
+                }
                 if mtx[i][j] < min_dist {
                     min_dist = mtx[i][j];
                     best_i = i;
@@ -69,7 +72,9 @@ pub fn upgma(dist: &DistanceMatrix) -> Topology {
         let ni = members[im].len() as f64;
         let nj = members[jm].len() as f64;
         for k in 0..n {
-            if !active[k] || k == im || k == jm { continue; }
+            if !active[k] || k == im || k == jm {
+                continue;
+            }
             let new_dist = (mtx[k][im] * ni + mtx[k][jm] * nj) / (ni + nj);
             mtx[k][im] = new_dist;
             mtx[im][k] = new_dist;
@@ -125,7 +130,12 @@ mod tests {
 
         // First step should join 0 and 1 (closest)
         let first = &topo.steps[0];
-        let mut joined: Vec<usize> = first.left.iter().chain(first.right.iter()).copied().collect();
+        let mut joined: Vec<usize> = first
+            .left
+            .iter()
+            .chain(first.right.iter())
+            .copied()
+            .collect();
         joined.sort();
         assert_eq!(joined, vec![0, 1]);
     }

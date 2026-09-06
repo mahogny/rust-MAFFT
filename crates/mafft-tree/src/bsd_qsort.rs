@@ -243,11 +243,19 @@ mod tests {
         // `tag` is the "numinseq"-equivalent identity we use to verify
         // post-sort ordering.
         let mut v: Vec<(f64, usize)> = (0..36)
-            .map(|i| if i == 0 || i == 34 { (0.0, i) } else { (i as f64, i) })
+            .map(|i| {
+                if i == 0 || i == 34 {
+                    (0.0, i)
+                } else {
+                    (i as f64, i)
+                }
+            })
             .collect();
         // Replicate pick_reference swap: scan for max selfscore, swap to
         // index 0. Here we pre-set the tied entries; just sort.
-        bsd_qsort(&mut v, |a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+        bsd_qsort(&mut v, |a, b| {
+            a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal)
+        });
         // Both tied entries should be at the front.
         assert_eq!(v[0].0, 0.0);
         assert_eq!(v[1].0, 0.0);

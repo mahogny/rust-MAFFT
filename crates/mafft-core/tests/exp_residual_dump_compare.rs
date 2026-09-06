@@ -91,14 +91,18 @@ fn parse_dump(path: &str) -> Vec<DumpEntry> {
             .filter_map(|kv| kv.split_once('='))
             .collect();
         let parse_seqs = |k: &str| -> Vec<Vec<u8>> {
-            parts.get(k).map(|s| s.split(';').map(|x| x.as_bytes().to_vec()).collect()).unwrap_or_default()
+            parts
+                .get(k)
+                .map(|s| s.split(';').map(|x| x.as_bytes().to_vec()).collect())
+                .unwrap_or_default()
         };
         let parse_weights = |k: &str| -> Vec<f64> {
-            parts.get(k).map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default()
+            parts
+                .get(k)
+                .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+                .unwrap_or_default()
         };
-        let parse_i = |k: &str| -> i32 {
-            parts.get(k).and_then(|s| s.parse().ok()).unwrap_or(0)
-        };
+        let parse_i = |k: &str| -> i32 { parts.get(k).and_then(|s| s.parse().ok()).unwrap_or(0) };
         out.push(DumpEntry {
             g1: parse_seqs("g1"),
             g2: parse_seqs("g2"),
@@ -118,7 +122,10 @@ fn parse_dump(path: &str) -> Vec<DumpEntry> {
 }
 
 #[test]
-#[cfg_attr(target_os = "linux", ignore = "potential glibc teardown issue mirroring other FFI tests")]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "potential glibc teardown issue mirroring other FFI tests"
+)]
 fn exp_residual_compare_per_step_with_a__align() {
     let dump_path = "/tmp/rs_dp.txt";
     if !std::path::Path::new(dump_path).exists() {
@@ -145,35 +152,65 @@ fn exp_residual_compare_per_step_with_a__align() {
 
         let mut first_divergence: Option<usize> = None;
         for (idx, entry) in entries.iter().enumerate() {
-            if entry.has_constraint { continue; } // constraint-aware path uses a different DP
+            if entry.has_constraint {
+                continue;
+            } // constraint-aware path uses a different DP
             // Set up A__align inputs.
             let len1_max = entry.g1.iter().map(|s| s.len()).max().unwrap_or(0);
             let len2_max = entry.g2.iter().map(|s| s.len()).max().unwrap_or(0);
             let alloclen = (len1_max + len2_max) * 4 + 100;
 
-            let c_seq1_boxed: Vec<Box<[u8]>> = entry.g1.iter().map(|s| {
-                let mut v = s.clone();
-                v.resize(alloclen + 1, 0);
-                v.into_boxed_slice()
-            }).collect();
-            let c_seq2_boxed: Vec<Box<[u8]>> = entry.g2.iter().map(|s| {
-                let mut v = s.clone();
-                v.resize(alloclen + 1, 0);
-                v.into_boxed_slice()
-            }).collect();
-            let mut c_seq1_ptrs: Vec<*mut c_char> = c_seq1_boxed.iter().map(|v| v.as_ptr() as *mut c_char).collect();
-            let mut c_seq2_ptrs: Vec<*mut c_char> = c_seq2_boxed.iter().map(|v| v.as_ptr() as *mut c_char).collect();
+            let c_seq1_boxed: Vec<Box<[u8]>> = entry
+                .g1
+                .iter()
+                .map(|s| {
+                    let mut v = s.clone();
+                    v.resize(alloclen + 1, 0);
+                    v.into_boxed_slice()
+                })
+                .collect();
+            let c_seq2_boxed: Vec<Box<[u8]>> = entry
+                .g2
+                .iter()
+                .map(|s| {
+                    let mut v = s.clone();
+                    v.resize(alloclen + 1, 0);
+                    v.into_boxed_slice()
+                })
+                .collect();
+            let mut c_seq1_ptrs: Vec<*mut c_char> = c_seq1_boxed
+                .iter()
+                .map(|v| v.as_ptr() as *mut c_char)
+                .collect();
+            let mut c_seq2_ptrs: Vec<*mut c_char> = c_seq2_boxed
+                .iter()
+                .map(|v| v.as_ptr() as *mut c_char)
+                .collect();
 
             // Normalize weights per-group (matches merge_step_cached's
             // C `fastconjuction_noname` per-group sum-to-1 normalization).
             let s1: f64 = entry.w1.iter().sum();
             let s2: f64 = entry.w2.iter().sum();
-            let w1n: Vec<f64> = if s1 > 0.0 { entry.w1.iter().map(|x| x / s1).collect() } else { vec![1.0; entry.w1.len()] };
-            let w2n: Vec<f64> = if s2 > 0.0 { entry.w2.iter().map(|x| x / s2).collect() } else { vec![1.0; entry.w2.len()] };
-            let eff1: *mut c_double = alloc_zeroed(entry.w1.len() * std::mem::size_of::<c_double>()) as _;
-            for (i, &w) in w1n.iter().enumerate() { *eff1.add(i) = w; }
-            let eff2: *mut c_double = alloc_zeroed(entry.w2.len() * std::mem::size_of::<c_double>()) as _;
-            for (i, &w) in w2n.iter().enumerate() { *eff2.add(i) = w; }
+            let w1n: Vec<f64> = if s1 > 0.0 {
+                entry.w1.iter().map(|x| x / s1).collect()
+            } else {
+                vec![1.0; entry.w1.len()]
+            };
+            let w2n: Vec<f64> = if s2 > 0.0 {
+                entry.w2.iter().map(|x| x / s2).collect()
+            } else {
+                vec![1.0; entry.w2.len()]
+            };
+            let eff1: *mut c_double =
+                alloc_zeroed(entry.w1.len() * std::mem::size_of::<c_double>()) as _;
+            for (i, &w) in w1n.iter().enumerate() {
+                *eff1.add(i) = w;
+            }
+            let eff2: *mut c_double =
+                alloc_zeroed(entry.w2.len() * std::mem::size_of::<c_double>()) as _;
+            for (i, &w) in w2n.iter().enumerate() {
+                *eff2.add(i) = w;
+            }
 
             // For FFT-mode steps, call Falign (the FFT-segmented DP).
             // For non-FFT steps, call A__align (the direct profile DP).
@@ -185,28 +222,53 @@ fn exp_residual_compare_per_step_with_a__align() {
                 std::ptr::addr_of_mut!(mafft_sys::outgap).write(entry.tailgp);
                 let mut fftlog: c_int = 0;
                 let _c_score = mafft_sys::Falign(
-                    std::ptr::null_mut(), std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
                     n_dyn,
-                    c_seq1_ptrs.as_mut_ptr(), c_seq2_ptrs.as_mut_ptr(),
-                    eff1, eff2,
-                    std::ptr::null_mut(), std::ptr::null_mut(),
-                    entry.g1.len() as c_int, entry.g2.len() as c_int,
-                    alloclen as c_int, &mut fftlog as *mut c_int,
-                    std::ptr::null_mut(), 0, std::ptr::null_mut(),
+                    c_seq1_ptrs.as_mut_ptr(),
+                    c_seq2_ptrs.as_mut_ptr(),
+                    eff1,
+                    eff2,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    entry.g1.len() as c_int,
+                    entry.g2.len() as c_int,
+                    alloclen as c_int,
+                    &mut fftlog as *mut c_int,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
                 );
             } else {
                 let _c_score = mafft_sys::A__align(
-                    n_dyn, entry.penalty as c_int, entry.penalty_ex as c_int,
-                    c_seq1_ptrs.as_mut_ptr(), c_seq2_ptrs.as_mut_ptr(),
-                    eff1, eff2,
-                    entry.g1.len() as c_int, entry.g2.len() as c_int,
-                    alloclen as c_int, 0, std::ptr::null_mut(),
-                    std::ptr::null_mut(), std::ptr::null_mut(),
-                    std::ptr::null_mut(), std::ptr::null_mut(),
-                    std::ptr::null_mut(), 0, std::ptr::null_mut(),
-                    entry.headgp, entry.tailgp, -1, -1,
-                    std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-                    0.0, 0.0,
+                    n_dyn,
+                    entry.penalty as c_int,
+                    entry.penalty_ex as c_int,
+                    c_seq1_ptrs.as_mut_ptr(),
+                    c_seq2_ptrs.as_mut_ptr(),
+                    eff1,
+                    eff2,
+                    entry.g1.len() as c_int,
+                    entry.g2.len() as c_int,
+                    alloclen as c_int,
+                    0,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    entry.headgp,
+                    entry.tailgp,
+                    -1,
+                    -1,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    0.0,
+                    0.0,
                 );
             }
 
@@ -216,14 +278,20 @@ fn exp_residual_compare_per_step_with_a__align() {
                 let mut k = 0;
                 loop {
                     let c = *ptr.add(k);
-                    if c == 0 { break; }
+                    if c == 0 {
+                        break;
+                    }
                     v.push(c as u8);
                     k += 1;
                 }
                 v
             };
-            let c_out1: Vec<Vec<u8>> = (0..entry.g1.len()).map(|i| read_cstr(c_seq1_ptrs[i])).collect();
-            let c_out2: Vec<Vec<u8>> = (0..entry.g2.len()).map(|i| read_cstr(c_seq2_ptrs[i])).collect();
+            let c_out1: Vec<Vec<u8>> = (0..entry.g1.len())
+                .map(|i| read_cstr(c_seq1_ptrs[i]))
+                .collect();
+            let c_out2: Vec<Vec<u8>> = (0..entry.g2.len())
+                .map(|i| read_cstr(c_seq2_ptrs[i]))
+                .collect();
 
             // Compare to rust's stored output.
             let widths_c = (
@@ -248,17 +316,35 @@ fn exp_residual_compare_per_step_with_a__align() {
             }
 
             if widths_c != widths_r {
-                eprintln!("Step {idx}: WIDTH DIVERGE — rust=({},{}) C=({},{})  (g1.len={}, g2.len={}, use_fft={}, penalty_ex={})",
-                    widths_r.0, widths_r.1, widths_c.0, widths_c.1,
-                    entry.g1.len(), entry.g2.len(), entry.use_fft, entry.penalty_ex);
-                if first_divergence.is_none() { first_divergence = Some(idx); }
+                eprintln!(
+                    "Step {idx}: WIDTH DIVERGE — rust=({},{}) C=({},{})  (g1.len={}, g2.len={}, use_fft={}, penalty_ex={})",
+                    widths_r.0,
+                    widths_r.1,
+                    widths_c.0,
+                    widths_c.1,
+                    entry.g1.len(),
+                    entry.g2.len(),
+                    entry.use_fft,
+                    entry.penalty_ex
+                );
+                if first_divergence.is_none() {
+                    first_divergence = Some(idx);
+                }
             } else if !divergent_rows.is_empty() {
-                eprintln!("Step {idx}: CONTENT DIVERGE in {} row(s) ({}+{} rows, widths {},{}, use_fft={}, penalty_ex={})",
-                    divergent_rows.len(), entry.g1.len(), entry.g2.len(),
-                    widths_r.0, widths_r.1, entry.use_fft, entry.penalty_ex);
-                if first_divergence.is_none() { first_divergence = Some(idx); }
+                eprintln!(
+                    "Step {idx}: CONTENT DIVERGE in {} row(s) ({}+{} rows, widths {},{}, use_fft={}, penalty_ex={})",
+                    divergent_rows.len(),
+                    entry.g1.len(),
+                    entry.g2.len(),
+                    widths_r.0,
+                    widths_r.1,
+                    entry.use_fft,
+                    entry.penalty_ex
+                );
+                if first_divergence.is_none() {
+                    first_divergence = Some(idx);
+                }
             }
-
         }
         mafft_sys::FreeDoubleMtx(n_dyn);
 

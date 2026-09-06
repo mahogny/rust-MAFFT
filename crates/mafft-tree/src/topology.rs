@@ -144,16 +144,22 @@ mod tests {
         let mut t = Topology::new(4);
         // Tree: ((0,2), (1,3)) — left ++ right gives DFS order.
         t.steps.push(JoinStep {
-            left: vec![0], right: vec![2],
-            left_length: 0.0, right_length: 0.0,
+            left: vec![0],
+            right: vec![2],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         t.steps.push(JoinStep {
-            left: vec![1], right: vec![3],
-            left_length: 0.0, right_length: 0.0,
+            left: vec![1],
+            right: vec![3],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         t.steps.push(JoinStep {
-            left: vec![0, 2], right: vec![1, 3],
-            left_length: 0.0, right_length: 0.0,
+            left: vec![0, 2],
+            right: vec![1, 3],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         assert_eq!(t.dfs_order(), vec![0, 2, 1, 3]);
     }

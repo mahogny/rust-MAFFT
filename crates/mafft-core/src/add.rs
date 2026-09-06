@@ -10,12 +10,9 @@
 ///
 /// The existing input sequences must already be aligned (all the same
 /// width). The new sequences are treated as raw (gap chars stripped).
-
 use rayon::prelude::*;
 
-use mafft_tree::{
-    DistanceMatrix, musclesupg, ClusterMethod, ktuple_distance, Topology,
-};
+use mafft_tree::{ClusterMethod, DistanceMatrix, Topology, ktuple_distance, musclesupg};
 use mafft_types::ScoringContext;
 
 use crate::progressive::{MergeOrAlign, MultipleAlignment};
@@ -64,7 +61,11 @@ pub fn add_sequences(
     let mut all_seqs: Vec<Vec<u8>> = stripped_existing;
     for s in new_sequences {
         // Strip any gap chars from incoming new sequences (defensive).
-        let raw: Vec<u8> = s.iter().filter(|&&c| c != b'-' && c != b'.').copied().collect();
+        let raw: Vec<u8> = s
+            .iter()
+            .filter(|&&c| c != b'-' && c != b'.')
+            .copied()
+            .collect();
         all_seqs.push(raw);
     }
     let mut all_names: Vec<String> = existing.names.clone();
@@ -111,9 +112,8 @@ pub fn add_sequences_keeplength(
     scoring: &ScoringContext,
     use_fft: bool,
 ) -> MultipleAlignment {
-    let (msa, _) = add_sequences_keeplength_with_map(
-        existing, new_sequences, new_names, scoring, use_fft,
-    );
+    let (msa, _) =
+        add_sequences_keeplength_with_map(existing, new_sequences, new_names, scoring, use_fft);
     msa
 }
 
@@ -181,7 +181,9 @@ pub fn add_sequences_keeplength_with_map(
                     run_len = 0;
                 }
             } else {
-                if run_len == 0 { run_start = addbk_pos; }
+                if run_len == 0 {
+                    run_start = addbk_pos;
+                }
                 run_len += 1;
             }
             addbk_pos += 1;
@@ -195,7 +197,9 @@ pub fn add_sequences_keeplength_with_map(
     for s in full.sequences.iter_mut() {
         let mut filtered: Vec<u8> = Vec::with_capacity(target_width);
         for col in 0..s.len() {
-            if keep[col] { filtered.push(s[col]); }
+            if keep[col] {
+                filtered.push(s[col]);
+            }
         }
         *s = filtered;
     }
@@ -233,9 +237,9 @@ pub fn compute_mergeoralign(
         let right_all_new = step.right.iter().all(|&i| i >= n_existing);
         let tag = match (left_all_new, right_all_new) {
             (false, false) => MergeOrAlign::SkipExisting, // 'n'
-            (true, false) => MergeOrAlign::NewLeft,        // '1'
-            (false, true) => MergeOrAlign::NewRight,       // '2'
-            (true, true) => MergeOrAlign::Wide,             // 'w'
+            (true, false) => MergeOrAlign::NewLeft,       // '1'
+            (false, true) => MergeOrAlign::NewRight,      // '2'
+            (true, true) => MergeOrAlign::Wide,           // 'w'
         };
         tags.push(tag);
     }
@@ -245,7 +249,9 @@ pub fn compute_mergeoralign(
 /// `commongappick`: drop columns where ALL `sequences` are gap chars.
 /// Mirrors C `addfunctions.c::commongappick`'s filter behavior.
 pub fn commongappick(sequences: &[Vec<u8>]) -> Vec<Vec<u8>> {
-    if sequences.is_empty() { return Vec::new(); }
+    if sequences.is_empty() {
+        return Vec::new();
+    }
     let width = sequences[0].len();
     let mut keep = vec![false; width];
     for col in 0..width {
@@ -262,7 +268,9 @@ pub fn commongappick(sequences: &[Vec<u8>]) -> Vec<Vec<u8>> {
         .map(|s| {
             let mut out = Vec::with_capacity(width);
             for col in 0..s.len() {
-                if keep[col] { out.push(s[col]); }
+                if keep[col] {
+                    out.push(s[col]);
+                }
             }
             out
         })
@@ -305,7 +313,10 @@ mod tests {
             ],
             names: vec!["s1".into(), "s2".into(), "s3".into()],
             score: 0.0,
-            step_trace: Vec::new(), guide_tree: None, first_pass_sequences: None, distance_matrix: None,
+            step_trace: Vec::new(),
+            guide_tree: None,
+            first_pass_sequences: None,
+            distance_matrix: None,
         }
     }
 
@@ -318,7 +329,9 @@ mod tests {
         let result = add_sequences(&existing, &new_seqs, &new_names, &scoring, false);
         assert_eq!(result.nseq(), 4);
         let w = result.sequences[0].len();
-        for s in &result.sequences { assert_eq!(s.len(), w); }
+        for s in &result.sequences {
+            assert_eq!(s.len(), w);
+        }
     }
 
     #[test]
@@ -349,15 +362,24 @@ mod tests {
         let mut topo = Topology::new(4);
         // Step 0: join 0 and 1 (existing-only, 'n').
         topo.steps.push(JoinStep {
-            left: vec![0], right: vec![1], left_length: 0.0, right_length: 0.0,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         // Step 1: join (0,1) with 2 (existing-only, 'n').
         topo.steps.push(JoinStep {
-            left: vec![0, 1], right: vec![2], left_length: 0.0, right_length: 0.0,
+            left: vec![0, 1],
+            right: vec![2],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         // Step 2: join (0,1,2) with 3 (right is all-new, '2').
         topo.steps.push(JoinStep {
-            left: vec![0, 1, 2], right: vec![3], left_length: 0.0, right_length: 0.0,
+            left: vec![0, 1, 2],
+            right: vec![3],
+            left_length: 0.0,
+            right_length: 0.0,
         });
 
         let tags = compute_mergeoralign(&topo, 3, 1);
@@ -376,16 +398,25 @@ mod tests {
         let mut topo = Topology::new(4);
         // Step 0: join 2 and 3 (both new, 'w').
         topo.steps.push(JoinStep {
-            left: vec![2], right: vec![3], left_length: 0.0, right_length: 0.0,
+            left: vec![2],
+            right: vec![3],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         // Step 1: join 0 and (2,3) — left is existing, right is all-new ('2').
         topo.steps.push(JoinStep {
-            left: vec![0], right: vec![2, 3], left_length: 0.0, right_length: 0.0,
+            left: vec![0],
+            right: vec![2, 3],
+            left_length: 0.0,
+            right_length: 0.0,
         });
         // Step 2: join (0,2,3) and 1 — left is MIXED, right is existing.
         // Neither side is all-new, so 'n'.
         topo.steps.push(JoinStep {
-            left: vec![0, 2, 3], right: vec![1], left_length: 0.0, right_length: 0.0,
+            left: vec![0, 2, 3],
+            right: vec![1],
+            left_length: 0.0,
+            right_length: 0.0,
         });
 
         let tags = compute_mergeoralign(&topo, 2, 2);

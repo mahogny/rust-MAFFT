@@ -3,7 +3,6 @@
 /// Computes all-vs-all pairwise local alignments and stores the results
 /// as a `LocalHomologyTable`, which is then used to guide progressive
 /// alignment in L-INS-i and E-INS-i modes.
-
 use rayon::prelude::*;
 
 use mafft_types::{HomologyRegion, LocalHomologyTable};
@@ -48,7 +47,9 @@ pub fn build_imp_matrix(
     for (gi, &s1) in group1.iter().enumerate() {
         for (gj, &s2) in group2.iter().enumerate() {
             let regions = localhom.get(s1, s2);
-            if regions.is_empty() { continue; }
+            if regions.is_empty() {
+                continue;
+            }
             let effij = eff1[gi] * eff2[gj] * effijx;
             let seq1 = g1_seqs[gi];
             let seq2 = g2_seqs[gj];
@@ -107,7 +108,9 @@ pub fn build_imp_matrix(
                         k1 += 1;
                         k2 += 1;
                     }
-                    if k1 > end1 || k2 > end2 { break; }
+                    if k1 > end1 || k2 > end2 {
+                        break;
+                    }
                 }
             }
         }
@@ -117,29 +120,49 @@ pub fn build_imp_matrix(
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALL_NO: AtomicUsize = AtomicUsize::new(0);
         let n = CALL_NO.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
+        if let Ok(mut fp) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&f)
+        {
             let mut sum = 0.0f64;
             let mut nonzero = 0usize;
             for row in &imp {
                 for &v in row {
-                    if v != 0.0 { sum += v; nonzero += 1; }
+                    if v != 0.0 {
+                        sum += v;
+                        nonzero += 1;
+                    }
                 }
             }
             let d = lgth1.min(lgth2);
             let mut diag_sum = 0.0f64;
-            for k in 0..d { diag_sum += imp[k][k]; }
-            let imp00 = if lgth1 > 0 && lgth2 > 0 { imp[0][0] } else { 0.0 };
-            let _ = writeln!(fp, "call={} lgth1={} lgth2={} nonzero={} sum={:.18e} diag_sum={:.18e} imp00={:.18e}",
-                n, lgth1, lgth2, nonzero, sum, diag_sum, imp00);
+            for k in 0..d {
+                diag_sum += imp[k][k];
+            }
+            let imp00 = if lgth1 > 0 && lgth2 > 0 {
+                imp[0][0]
+            } else {
+                0.0
+            };
+            let _ = writeln!(
+                fp,
+                "call={} lgth1={} lgth2={} nonzero={} sum={:.18e} diag_sum={:.18e} imp00={:.18e}",
+                n, lgth1, lgth2, nonzero, sum, diag_sum, imp00
+            );
             // Extended: dump eff + per-pair impmtx[0][0] contribution
             // for the specific BB11005 step-5 shape gate.
             if lgth1 == 355 && lgth2 == 367 {
                 let _ = writeln!(fp, "  effijx={:.18e}", effijx);
                 let _ = write!(fp, "  eff1=");
-                for v in eff1 { let _ = write!(fp, "{:.18e},", v); }
+                for v in eff1 {
+                    let _ = write!(fp, "{:.18e},", v);
+                }
                 let _ = writeln!(fp);
                 let _ = write!(fp, "  eff2=");
-                for v in eff2 { let _ = write!(fp, "{:.18e},", v); }
+                for v in eff2 {
+                    let _ = write!(fp, "{:.18e},", v);
+                }
                 let _ = writeln!(fp);
                 // Per-pair impmtx[0][0] contribution decomposition.
                 for (gi, &s1) in group1.iter().enumerate() {
@@ -161,14 +184,35 @@ pub fn build_imp_matrix(
                                 }
                             }
                         }
-                        let _ = writeln!(fp,
+                        let _ = writeln!(
+                            fp,
                             "  pair[{},{}] gi={} gj={} effij={:.18e} regions={} hits_at(0,0)={} sum_imp_at(0,0)={:.18e}  contrib_to_imp00={:.18e}",
-                            s1, s2, gi, gj, effij, regions.len(), hits_at_00, sum_imp_at_00, sum_imp_at_00 * effij);
+                            s1,
+                            s2,
+                            gi,
+                            gj,
+                            effij,
+                            regions.len(),
+                            hits_at_00,
+                            sum_imp_at_00,
+                            sum_imp_at_00 * effij
+                        );
                         // Per-region full dump for these specific pairs.
                         for (rid, region) in regions.iter().enumerate() {
-                            let _ = writeln!(fp,
+                            let _ = writeln!(
+                                fp,
                                 "    R_REG pair=[{},{}] r={} s1={} e1={} s2={} e2={} opt={:.18e} overlap={} importance={:.18e}",
-                                s1, s2, rid, region.start1, region.end1, region.start2, region.end2, region.opt, region.overlapaa, region.importance);
+                                s1,
+                                s2,
+                                rid,
+                                region.start1,
+                                region.end1,
+                                region.start2,
+                                region.end2,
+                                region.opt,
+                                region.overlapaa,
+                                region.importance
+                            );
                         }
                     }
                 }
@@ -223,7 +267,10 @@ pub fn extract_putlocalhom2_regions(
             let end1 = pos1 - 1;
             let end2 = pos2 - 1;
             regions.push(HomologyRegion {
-                start1, end1, start2, end2,
+                start1,
+                end1,
+                start2,
+                end2,
                 opt: 0.0,
                 overlapaa: end2 - start2 + 1,
                 korh,
@@ -245,14 +292,21 @@ pub fn extract_putlocalhom2_regions(
                 iscore += matrix[i1][i2];
             }
         }
-        if !g1 { pos1 += 1; }
-        if !g2 { pos2 += 1; }
+        if !g1 {
+            pos1 += 1;
+        }
+        if !g2 {
+            pos2 += 1;
+        }
     }
     if st {
         let end1 = pos1 - 1;
         let end2 = pos2 - 1;
         regions.push(HomologyRegion {
-            start1, end1, start2, end2,
+            start1,
+            end1,
+            start2,
+            end2,
             opt: 0.0,
             overlapaa: end2 - start2 + 1,
             korh,
@@ -290,9 +344,14 @@ pub fn extract_putlocalhom2_regions(
         let hat3_value = opt_rescaled / 600.0 * 5.8;
         let opt_file: f64 = format!("{:.5}", hat3_value).parse().unwrap();
         opt_file / 5.8 * 600.0
-    } else { 0.0 };
-    let provisional_importance =
-        if sumoverlap > 0 { opt / sumoverlap as f64 } else { 0.0 };
+    } else {
+        0.0
+    };
+    let provisional_importance = if sumoverlap > 0 {
+        opt / sumoverlap as f64
+    } else {
+        0.0
+    };
     for r in regions.iter_mut() {
         r.opt = opt;
         r.overlapaa = sumoverlap;
@@ -351,14 +410,23 @@ pub fn build_seed_homology_table(
                 let gi = group.global_indices[i];
                 let gj = group.global_indices[j];
                 let regions = extract_putlocalhom2_regions(
-                    group.aligned[i], group.aligned[j],
-                    matrix, amino_map, 0, 0, b'k',
+                    group.aligned[i],
+                    group.aligned[j],
+                    matrix,
+                    amino_map,
+                    0,
+                    0,
+                    b'k',
                 );
-                if regions.is_empty() { continue; }
+                if regions.is_empty() {
+                    continue;
+                }
                 let overlapaa = regions[0].overlapaa;
                 let boosted_importance = if overlapaa > 0 {
                     (regions[0].opt * tsuyosa) / overlapaa as f64
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 for r in &regions {
                     let mut fwd = r.clone();
                     fwd.opt = r.opt * tsuyosa;
@@ -410,30 +478,32 @@ pub fn build_seed_homology_table(
 /// Blank lines and lines starting with `#` are skipped (matching the
 /// `grep -v "^$"` pre-filter in `scripts/mafft:1149`). Any malformed line
 /// returns an `Err` with a 1-based line number for diagnostics.
-pub fn parse_hat3_seed(
-    text: &str,
-    nseq: usize,
-) -> Result<LocalHomologyTable, String> {
+pub fn parse_hat3_seed(text: &str, nseq: usize) -> Result<LocalHomologyTable, String> {
     let mut table = LocalHomologyTable::new(nseq);
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 9 {
             return Err(format!(
-                "hat3 line {}: expected 9 fields, got {}", lineno + 1, parts.len()));
+                "hat3 line {}: expected 9 fields, got {}",
+                lineno + 1,
+                parts.len()
+            ));
         }
         let parse_usize = |s: &str, field: &str| -> Result<usize, String> {
-            s.parse::<usize>().map_err(|e| format!(
-                "hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
+            s.parse::<usize>()
+                .map_err(|e| format!("hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
         };
         let parse_i32 = |s: &str, field: &str| -> Result<i32, String> {
-            s.parse::<i32>().map_err(|e| format!(
-                "hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
+            s.parse::<i32>()
+                .map_err(|e| format!("hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
         };
         let parse_f64 = |s: &str, field: &str| -> Result<f64, String> {
-            s.parse::<f64>().map_err(|e| format!(
-                "hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
+            s.parse::<f64>()
+                .map_err(|e| format!("hat3 line {}: parse `{}` ({}): {}", lineno + 1, field, s, e))
         };
         let i = parse_usize(parts[0], "i")?;
         let j = parse_usize(parts[1], "j")?;
@@ -447,12 +517,25 @@ pub fn parse_hat3_seed(
         if i >= nseq || j >= nseq {
             return Err(format!(
                 "hat3 line {}: index ({}, {}) out of range for nseq={}",
-                lineno + 1, i, j, nseq));
+                lineno + 1,
+                i,
+                j,
+                nseq
+            ));
         }
-        if i == j { continue; }
-        let importance = if overlapaa > 0 { opt / overlapaa as f64 } else { 0.0 };
+        if i == j {
+            continue;
+        }
+        let importance = if overlapaa > 0 {
+            opt / overlapaa as f64
+        } else {
+            0.0
+        };
         let fwd = HomologyRegion {
-            start1, end1, start2, end2,
+            start1,
+            end1,
+            start2,
+            end2,
             opt,
             overlapaa,
             importance,
@@ -476,10 +559,14 @@ pub fn parse_hat3_seed(
 /// `nseq`. Used to fold a seed-derived homology table into the pairwise
 /// homology table built by L-INS-i / G-INS-i / E-INS-i.
 pub fn merge_homology_tables(into: &mut LocalHomologyTable, extra: &LocalHomologyTable) {
-    if into.nseq != extra.nseq { return; }
+    if into.nseq != extra.nseq {
+        return;
+    }
     for i in 0..into.nseq {
         for j in 0..into.nseq {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             for r in extra.get(i, j) {
                 into.push(i, j, r.clone());
             }
@@ -507,16 +594,16 @@ pub fn merge_homology_tables(into: &mut LocalHomologyTable, extra: &LocalHomolog
 /// `eff` is the global tree-weight vector (typically from
 /// `mafft-tree::sequence_weights`) — match the value C's `tbfast` passes
 /// to `calcimportance` after building the tree.
-pub fn recompute_importance(
-    localhom: &mut LocalHomologyTable,
-    sequences: &[&[u8]],
-    eff: &[f64],
-) {
+pub fn recompute_importance(localhom: &mut LocalHomologyTable, sequences: &[&[u8]], eff: &[f64]) {
     let nseq = sequences.len();
-    if nseq < 2 || localhom.nseq != nseq { return; }
+    if nseq < 2 || localhom.nseq != nseq {
+        return;
+    }
 
-    let nogaplen: Vec<usize> = sequences.iter()
-        .map(|s| s.iter().filter(|&&c| c != b'-').count()).collect();
+    let nogaplen: Vec<usize> = sequences
+        .iter()
+        .map(|s| s.iter().filter(|&&c| c != b'-').count())
+        .collect();
     // C `mltaln9.c:11806-11814` totaleff computation mirrors:
     //   totaleff = 0.0;
     //   for(i=0; i<nseq; i++) {
@@ -526,37 +613,67 @@ pub fn recompute_importance(
     // Sequential `+=` to match C's accumulation order exactly.
     let mut totaleff = 0.0f64;
     for i in 0..nseq {
-        if nogaplen[i] > 0 { totaleff += eff[i]; }
+        if nogaplen[i] > 0 {
+            totaleff += eff[i];
+        }
     }
-    if totaleff <= 0.0 { return; }
-    let ieff: Vec<f64> = (0..nseq).map(|i| {
-        if nogaplen[i] > 0 { eff[i] / totaleff } else { 0.0 }
-    }).collect();
+    if totaleff <= 0.0 {
+        return;
+    }
+    let ieff: Vec<f64> = (0..nseq)
+        .map(|i| {
+            if nogaplen[i] > 0 {
+                eff[i] / totaleff
+            } else {
+                0.0
+            }
+        })
+        .collect();
     let nlenmax = nogaplen.iter().copied().max().unwrap_or(0);
-    if nlenmax == 0 { return; }
+    if nlenmax == 0 {
+        return;
+    }
 
     // Pass 1: per-i position-vote → set importance = mean(support over region) * opt
     let mut support = vec![0.0f64; nlenmax];
     for i in 0..nseq {
-        for v in support.iter_mut() { *v = 0.0; }
+        for v in support.iter_mut() {
+            *v = 0.0;
+        }
         for j in 0..nseq {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             for region in localhom.get(i, j) {
                 let s = (region.start1 as usize).min(nlenmax);
                 let e = (region.end1 as usize).min(nlenmax.saturating_sub(1));
                 for pos in s..=e {
-                    if pos < nlenmax { support[pos] += ieff[j]; }
+                    if pos < nlenmax {
+                        support[pos] += ieff[j];
+                    }
                 }
             }
         }
         if let Ok(f) = std::env::var("RS_SUPPORT_DUMP") {
             use std::io::Write;
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&f) {
-                let _ = writeln!(fp, "R_SUPPORT i={} ieff={:?} support[0..5]={:?}", i, &ieff[..nseq.min(ieff.len())], &support[..5.min(support.len())]);
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&f)
+            {
+                let _ = writeln!(
+                    fp,
+                    "R_SUPPORT i={} ieff={:?} support[0..5]={:?}",
+                    i,
+                    &ieff[..nseq.min(ieff.len())],
+                    &support[..5.min(support.len())]
+                );
             }
         }
         for j in 0..nseq {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             // Note: C iterates `for tmpptr = localhom[i]+j; tmpptr; tmpptr=tmpptr->next`
             // — a linked list. We have a Vec; iterate by index so we can mutate.
             let regions_count = localhom.get(i, j).len();
@@ -597,10 +714,8 @@ pub fn recompute_importance(
             let n_ji = localhom.get(j, i).len();
             let n = n_ij.min(n_ji);
             for r in 0..n {
-                let avg = 0.5 * (
-                    localhom.get(i, j)[r].importance
-                  + localhom.get(j, i)[r].importance
-                );
+                let avg =
+                    0.5 * (localhom.get(i, j)[r].importance + localhom.get(j, i)[r].importance);
                 localhom.get_mut(i, j)[r].importance = avg;
                 localhom.get_mut(j, i)[r].importance = avg;
             }
@@ -626,7 +741,9 @@ fn move_to_seq_pos(seq: &[u8], raw_pos: usize) -> Option<usize> {
             last_residue_idx = idx;
             found_any = true;
         }
-        if count == target { return Some(idx); }
+        if count == target {
+            return Some(idx);
+        }
     }
     if found_any && raw_pos > count as usize {
         Some(last_residue_idx + 1)
@@ -662,7 +779,6 @@ pub enum PairAligner {
     GeneralizedAffine,
 }
 
-
 /// Build a local homology table from all-vs-all pairwise alignments.
 ///
 /// Defaults to local Smith-Waterman. See `build_homology_table` for the
@@ -675,8 +791,13 @@ pub fn build_local_homology_table(
     score_offset: f64,
 ) -> (LocalHomologyTable, Vec<Vec<f64>>) {
     build_homology_table(
-        sequences, matrix, amino_map, gap, score_offset,
-        PairAligner::Local, 0.0,
+        sequences,
+        matrix,
+        amino_map,
+        gap,
+        score_offset,
+        PairAligner::Local,
+        0.0,
     )
 }
 
@@ -696,7 +817,14 @@ pub fn build_homology_table(
     op_penalty: f64,
 ) -> (LocalHomologyTable, Vec<Vec<f64>>) {
     build_homology_table_with_unalign(
-        sequences, matrix, amino_map, gap, score_offset, aligner, op_penalty, 0.0,
+        sequences,
+        matrix,
+        amino_map,
+        gap,
+        score_offset,
+        aligner,
+        op_penalty,
+        0.0,
     )
 }
 
@@ -731,16 +859,19 @@ pub fn build_homology_table_with_unalign(
     //   bunbo = min(selfscore[i], selfscore[j])
     //   dist = (1 - pscore / bunbo) * 2  (clamped to [0, 2])
     let n_alpha = matrix.len();
-    let selfscore: Vec<f64> = sequences.iter().map(|s| {
-        let mut sum = 0.0f64;
-        for &c in *s {
-            let i = amino_map[c as usize] as usize;
-            if i < n_alpha {
-                sum += matrix[i][i];
+    let selfscore: Vec<f64> = sequences
+        .iter()
+        .map(|s| {
+            let mut sum = 0.0f64;
+            for &c in *s {
+                let i = amino_map[c as usize] as usize;
+                if i < n_alpha {
+                    sum += matrix[i][i];
+                }
             }
-        }
-        sum
-    }).collect();
+            sum
+        })
+        .collect();
 
     // Generate all (i, j) pairs with i < j
     let pairs: Vec<(usize, usize)> = (0..nseq)
@@ -885,15 +1016,11 @@ pub fn build_homology_table_with_unalign(
                     let gap_idx = amino_map[b'-' as usize] as usize;
                     // C `mltaln9.c::makedynamicmtx` computes
                     //     out[i][j] = in[i][j] + offset * 600
-                    // per cell, which clang at -O3 with the default
-                    // FP_CONTRACT=on lowers to a single FMA
-                    // `fmadd(offset, 600, in[i][j])`. Precomputing
-                    // `delta = off * 600` and doing `v + delta` is two
-                    // rounded ops and drifts ~1 ULP per cell — enough to
-                    // flip a tied DP cell (BB12003 first-divergent cell
-                    // (2, 18) in the warp pairwise DP). Use mul_add to
-                    // mirror C's FMA fusion exactly. Same fix shape as
-                    // §B.10 (calcW) and the other FP_CONTRACT divergences.
+                    // per cell. The pinned C reference does not contract
+                    // this expression, so keep the multiply and add explicit
+                    // here. Precomputing `delta = off * 600` outside the
+                    // loop changes where rounding happens and can drift
+                    // enough to flip tied DP cells.
                     let dyn_matrix: Vec<Vec<f64>> = matrix
                         .iter().enumerate()
                         .map(|(i, row)| {
@@ -915,8 +1042,8 @@ pub fn build_homology_table_with_unalign(
                         if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
                             let _ = writeln!(fp, "R_DYNMTX_INPUTS i={} j={} selfi={:.17e} selfj={:.17e} bunbo={:.17e} pscore={:.17e}",
                                 i, j, selfscore[i], selfscore[j], bunbo, alignment.score);
-                            // delta is no longer pre-computed (now fused via mul_add per cell);
-                            // print off*600 as the reference for diffing.
+                            // delta is deliberately not pre-computed; print
+                            // off*600 as the reference for diffing.
                             let _ = writeln!(fp, "R_DYNMTX_OUTPUT dist={:.17e} off={:.17e} delta={:.17e}",
                                 dist_for_offset, off, off * 600.0);
                             let _ = write!(fp, "R_DYNMTX_R12");
@@ -1022,7 +1149,11 @@ pub fn build_homology_table_with_unalign(
             let mut sorted: Vec<&PairResult> = results.iter().collect();
             sorted.sort_by_key(|r| (r.i, r.j));
             for r in &sorted {
-                let _ = writeln!(fp, "pair[{},{}] pscore={:.18e} bunbo={:.18e} dist={:.18e}", r.i, r.j, r._debug_pscore, r._debug_bunbo, r.distance);
+                let _ = writeln!(
+                    fp,
+                    "pair[{},{}] pscore={:.18e} bunbo={:.18e} dist={:.18e}",
+                    r.i, r.j, r._debug_pscore, r._debug_bunbo, r.distance
+                );
             }
         }
     }
@@ -1033,9 +1164,18 @@ pub fn build_homology_table_with_unalign(
             sorted.sort_by_key(|r| (r.i, r.j));
             for r in &sorted {
                 for region in &r.regions {
-                    let _ = writeln!(fp, "{} {} {} {:7.5} {} {} {} {} h",
-                        r.i, r.j, region.overlapaa, region.opt,
-                        region.start1, region.end1, region.start2, region.end2);
+                    let _ = writeln!(
+                        fp,
+                        "{} {} {} {:7.5} {} {} {} {} h",
+                        r.i,
+                        r.j,
+                        region.overlapaa,
+                        region.opt,
+                        region.start1,
+                        region.end1,
+                        region.start2,
+                        region.end2
+                    );
                 }
             }
         }
@@ -1051,13 +1191,17 @@ pub fn build_homology_table_with_unalign(
 
         for region in &r.regions {
             table.push(r.i, r.j, region.clone());
-            table.push(r.j, r.i, HomologyRegion {
-                start1: region.start2,
-                end1: region.end2,
-                start2: region.start1,
-                end2: region.end1,
-                ..region.clone()
-            });
+            table.push(
+                r.j,
+                r.i,
+                HomologyRegion {
+                    start1: region.start2,
+                    end1: region.end2,
+                    start2: region.start1,
+                    end2: region.end1,
+                    ..region.clone()
+                },
+            );
         }
     }
 
@@ -1070,10 +1214,14 @@ mod tests {
 
     fn simple_setup() -> (Vec<Vec<f64>>, [u8; 256]) {
         let mut mtx = vec![vec![-100.0f64; 5]; 5];
-        for i in 0..4 { mtx[i][i] = 100.0; }
+        for i in 0..4 {
+            mtx[i][i] = 100.0;
+        }
         let mut map = [0xFFu8; 256];
-        map[b'A' as usize] = 0; map[b'C' as usize] = 1;
-        map[b'G' as usize] = 2; map[b'T' as usize] = 3;
+        map[b'A' as usize] = 0;
+        map[b'C' as usize] = 1;
+        map[b'G' as usize] = 2;
+        map[b'T' as usize] = 3;
         map[b'-' as usize] = 4;
         (mtx, map)
     }
@@ -1087,8 +1235,15 @@ mod tests {
         let (table, dist) = build_local_homology_table(&seqs, &mtx, &map, &gap, 0.0);
 
         let regions_01 = table.get(0, 1);
-        assert!(!regions_01.is_empty(), "should find homology between identical seqs");
-        assert!(dist[0][1] < 1e-6, "identical seqs should have distance ~0, got {}", dist[0][1]);
+        assert!(
+            !regions_01.is_empty(),
+            "should find homology between identical seqs"
+        );
+        assert!(
+            dist[0][1] < 1e-6,
+            "identical seqs should have distance ~0, got {}",
+            dist[0][1]
+        );
     }
 
     #[test]

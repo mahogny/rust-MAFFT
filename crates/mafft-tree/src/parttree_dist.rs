@@ -166,8 +166,9 @@ pub fn parttree_distance_protein(
     raw_len1: usize,
     raw_len2: usize,
 ) -> f64 {
-    parttree_distance_with(points1, points2, raw_len1, raw_len2, 46656,
-        PLENFACA, PLENFACB, PLENFACC, PLENFACD)
+    parttree_distance_with(
+        points1, points2, raw_len1, raw_len2, 46656, PLENFACA, PLENFACB, PLENFACC, PLENFACD,
+    )
 }
 
 pub fn parttree_distance_dna(
@@ -176,8 +177,9 @@ pub fn parttree_distance_dna(
     raw_len1: usize,
     raw_len2: usize,
 ) -> f64 {
-    parttree_distance_with(points1, points2, raw_len1, raw_len2, 4096,
-        DLENFACA, DLENFACB, DLENFACC, DLENFACD)
+    parttree_distance_with(
+        points1, points2, raw_len1, raw_len2, 4096, DLENFACA, DLENFACB, DLENFACC, DLENFACD,
+    )
 }
 
 fn parttree_distance_with(
@@ -186,7 +188,10 @@ fn parttree_distance_with(
     raw_len1: usize,
     raw_len2: usize,
     tsize: usize,
-    a: f64, b: f64, c: f64, d: f64,
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
 ) -> f64 {
     let pl1 = points1.len();
     let pl2 = points2.len();
@@ -199,8 +204,12 @@ fn parttree_distance_with(
     let raw = 1.0 - common as f64 / bunbo;
     let lf = lenfac(raw_len1, raw_len2, a, b, c, d);
     let mut dist = raw * lf;
-    if dist > MAX6DIST { dist = MAX6DIST; }
-    if dist < 0.0 { dist = 0.0; }
+    if dist > MAX6DIST {
+        dist = MAX6DIST;
+    }
+    if dist < 0.0 {
+        dist = 0.0;
+    }
     dist
 }
 
@@ -211,12 +220,29 @@ fn amino_grp_protein(c: u8) -> Option<u32> {
     // Group assignments from blosum.c:13-17 (locgrpd[]).
     // Order in locaminod[]: ARNDCQEGHILKMFPSTWYVBZX.-J
     match c.to_ascii_uppercase() {
-        b'A' => Some(0), b'R' => Some(3), b'N' => Some(2), b'D' => Some(2),
-        b'C' => Some(5), b'Q' => Some(2), b'E' => Some(2), b'G' => Some(0),
-        b'H' => Some(3), b'I' => Some(1), b'L' => Some(1), b'K' => Some(3),
-        b'M' => Some(1), b'F' => Some(4), b'P' => Some(0), b'S' => Some(0),
-        b'T' => Some(0), b'W' => Some(4), b'Y' => Some(4), b'V' => Some(1),
-        b'B' => Some(2), b'Z' => Some(2), b'J' => Some(1),
+        b'A' => Some(0),
+        b'R' => Some(3),
+        b'N' => Some(2),
+        b'D' => Some(2),
+        b'C' => Some(5),
+        b'Q' => Some(2),
+        b'E' => Some(2),
+        b'G' => Some(0),
+        b'H' => Some(3),
+        b'I' => Some(1),
+        b'L' => Some(1),
+        b'K' => Some(3),
+        b'M' => Some(1),
+        b'F' => Some(4),
+        b'P' => Some(0),
+        b'S' => Some(0),
+        b'T' => Some(0),
+        b'W' => Some(4),
+        b'Y' => Some(4),
+        b'V' => Some(1),
+        b'B' => Some(2),
+        b'Z' => Some(2),
+        b'J' => Some(1),
         // X, '.', '-' map to grp=6 in locgrpd, dropped by `if(tmp<6)` filter.
         _ => None,
     }

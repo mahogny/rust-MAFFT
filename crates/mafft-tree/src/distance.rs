@@ -12,9 +12,7 @@ pub struct DistanceMatrix {
 
 impl DistanceMatrix {
     pub fn new(nseq: usize) -> Self {
-        let data = (0..nseq)
-            .map(|i| vec![0.0; nseq - i - 1])
-            .collect();
+        let data = (0..nseq).map(|i| vec![0.0; nseq - i - 1]).collect();
         Self { nseq, data }
     }
 
@@ -49,7 +47,6 @@ impl DistanceMatrix {
             self.data[j][i - j - 1] = val;
         }
     }
-
 }
 
 /// Compute identity-based distance between two aligned sequences.
@@ -100,10 +97,17 @@ pub fn ktuple_distance(seq1: &[u8], seq2: &[u8], k: usize) -> f64 {
     }
 
     // Detect if DNA or protein based on content
-    let is_dna = seq1.iter().chain(seq2.iter())
+    let is_dna = seq1
+        .iter()
+        .chain(seq2.iter())
         .filter(|&&c| c.is_ascii_alphabetic())
         .take(100)
-        .all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T' | b'U' | b'a' | b'c' | b'g' | b't' | b'u' | b'N' | b'n'));
+        .all(|&c| {
+            matches!(
+                c,
+                b'A' | b'C' | b'G' | b'T' | b'U' | b'a' | b'c' | b'g' | b't' | b'u' | b'N' | b'n'
+            )
+        });
 
     if is_dna {
         ktuple_distance_nuc(seq1, seq2, k)
@@ -176,11 +180,14 @@ pub fn scoring_matrix_distance(
     let score = naive_pair_score(seq1, seq2, matrix, amino_map, penalty);
     // C's distcompact_msa clamps high at 10.0 and low at 0.0 (with warning).
     let mut d = (1.0 - score / bunbo) * 2.0;
-    if d > 10.0 { d = 10.0; }
-    if d < 0.0 { d = 0.0; }
+    if d > 10.0 {
+        d = 10.0;
+    }
+    if d < 0.0 {
+        d = 0.0;
+    }
     d
 }
-
 
 /// C's naivepairscore11: score two aligned sequences.
 fn naive_pair_score(
@@ -207,12 +214,16 @@ fn naive_pair_score(
     while k < s1.len() {
         if s1[k] == b'-' {
             score += penalty as f64;
-            while k < s1.len() && s1[k] == b'-' { k += 1; }
+            while k < s1.len() && s1[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         if s2[k] == b'-' {
             score += penalty as f64;
-            while k < s2.len() && s2[k] == b'-' { k += 1; }
+            while k < s2.len() && s2[k] == b'-' {
+                k += 1;
+            }
             continue;
         }
         let i = amino_map[s1[k] as usize] as usize;
@@ -226,12 +237,7 @@ fn naive_pair_score(
 }
 
 /// Self-score: naivepairscore11(seq, seq) = sum of diagonal matrix values.
-fn self_score(
-    seq: &[u8],
-    matrix: &[Vec<i32>],
-    amino_map: &[u8; 256],
-    _penalty: i32,
-) -> f64 {
+fn self_score(seq: &[u8], matrix: &[Vec<i32>], amino_map: &[u8; 256], _penalty: i32) -> f64 {
     let nalpha = matrix.len();
     let mut score = 0.0f64;
     for &ch in seq {
@@ -475,8 +481,10 @@ mod tests {
         // Same group content (X is filtered both times), but nogaplen
         // differs by 1 → lenfac differs → distance differs.
         let diff = (with_x - without_x).abs();
-        assert!(diff > 1e-7,
-            "ktuple_distance must depend on nogaplen (X kept), not filtered groups; got with_x={with_x}, without_x={without_x}, diff={diff}");
+        assert!(
+            diff > 1e-7,
+            "ktuple_distance must depend on nogaplen (X kept), not filtered groups; got with_x={with_x}, without_x={without_x}, diff={diff}"
+        );
     }
 
     #[test]

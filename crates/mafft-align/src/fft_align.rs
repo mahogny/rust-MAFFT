@@ -5,14 +5,12 @@
 /// Uses multi-channel FFT cross-correlation to find anchor points between
 /// two sequence groups, selects optimal anchors via DP, then applies full
 /// DP alignment within each anchored segment.
-
 use mafft_fft::{
-    alignable_segments, block_align, get_top_candidates,
-    multichannel_correlate, SegmentParams,
+    SegmentParams, alignable_segments, block_align, get_top_candidates, multichannel_correlate,
 };
 
 use crate::dp::{Alignment, GapModel};
-use crate::profile::{align_with_anchors_outgap, profile_align, Profile};
+use crate::profile::{Profile, align_with_anchors_outgap, profile_align};
 
 /// Parameters controlling FFT-accelerated alignment.
 #[derive(Debug, Clone)]
@@ -129,11 +127,17 @@ pub fn find_fft_anchors(
     // C's loop bounds: `if (lag <= -len1 || lag >= len2) continue;`
     // (`Falign.c:1310`) and break on first empty `tmpint == 0`
     // (`Falign.c:1330`).
-    struct PairSeg { center1: usize, center2: usize, score: f64 }
+    struct PairSeg {
+        center1: usize,
+        center2: usize,
+        score: f64,
+    }
     let mut all: Vec<PairSeg> = Vec::new();
     for cand in &candidates {
         let lag = cand.lag;
-        if lag <= -(n as i32) || lag >= m as i32 { continue; }
+        if lag <= -(n as i32) || lag >= m as i32 {
+            continue;
+        }
         let shifted_scores = shift_and_score(prof1, prof2, matrix, lag);
         let segments = alignable_segments(&shifted_scores, &params.segment_params);
         if segments.is_empty() {
@@ -150,12 +154,20 @@ pub fn find_fft_anchors(
             } else {
                 ((seg.center as i32 - lag) as usize, seg.center as i32)
             };
-            if c1 >= n || c2_signed < 0 || (c2_signed as usize) >= m { continue; }
-            all.push(PairSeg { center1: c1, center2: c2_signed as usize, score: seg.score });
+            if c1 >= n || c2_signed < 0 || (c2_signed as usize) >= m {
+                continue;
+            }
+            all.push(PairSeg {
+                center1: c1,
+                center2: c2_signed as usize,
+                score: seg.score,
+            });
         }
     }
 
-    if all.is_empty() { return None; }
+    if all.is_empty() {
+        return None;
+    }
 
     let nseg = all.len();
     let mut sort1: Vec<usize> = (0..nseg).collect();
@@ -165,8 +177,12 @@ pub fn find_fft_anchors(
 
     let mut rank1 = vec![0usize; nseg];
     let mut rank2 = vec![0usize; nseg];
-    for (r, &i) in sort1.iter().enumerate() { rank1[i] = r; }
-    for (r, &i) in sort2.iter().enumerate() { rank2[i] = r; }
+    for (r, &i) in sort1.iter().enumerate() {
+        rank1[i] = r;
+    }
+    for (r, &i) in sort2.iter().enumerate() {
+        rank2[i] = r;
+    }
 
     let size = nseg + 2;
     let mut crossscore = vec![vec![0.0f64; size]; size];
@@ -180,13 +196,21 @@ pub fn find_fft_anchors(
 
     let mut anchors: Vec<(usize, usize)> = Vec::new();
     for (&si, &sj) in sel_i.iter().zip(sel_j.iter()) {
-        if si == 0 || si == size - 1 { continue; }
-        if sj == 0 || sj == size - 1 { continue; }
+        if si == 0 || si == size - 1 {
+            continue;
+        }
+        if sj == 0 || sj == size - 1 {
+            continue;
+        }
         let r1 = si - 1;
         let r2 = sj - 1;
-        if r1 >= nseg || r2 >= nseg { continue; }
+        if r1 >= nseg || r2 >= nseg {
+            continue;
+        }
         let seg_idx = sort1[r1];
-        if rank2[seg_idx] != r2 { continue; }
+        if rank2[seg_idx] != r2 {
+            continue;
+        }
         let seg = &all[seg_idx];
         if seg.center1 < n && seg.center2 < m {
             anchors.push((seg.center1, seg.center2));
@@ -226,7 +250,11 @@ pub fn fft_profile_align(
 
     match find_fft_anchors(prof1, prof2, matrix, params) {
         Some(anchors) => align_with_anchors_outgap(
-            prof1, prof2, matrix, &params.gap, &anchors,
+            prof1,
+            prof2,
+            matrix,
+            &params.gap,
+            &anchors,
             // The fft path's `head_gap`/`tail_gap` are conventionally
             // both equal to the outer C `outgap` (Falign passes a single
             // value into its first/last segment). Pass `head_gap` as the
@@ -235,7 +263,14 @@ pub fn fft_profile_align(
             // `penalize_term_gaps` in `progressive::merge_step_cached`).
             params.head_gap,
         ),
-        None => profile_align(prof1, prof2, matrix, &params.gap, params.head_gap, params.tail_gap),
+        None => profile_align(
+            prof1,
+            prof2,
+            matrix,
+            &params.gap,
+            params.head_gap,
+            params.tail_gap,
+        ),
     }
 }
 
@@ -245,8 +280,7 @@ fn profile_to_channels(
     num_channels: usize,
     fft_size: usize,
 ) -> Vec<Vec<num_complex::Complex64>> {
-    let mut channels =
-        vec![vec![num_complex::Complex64::new(0.0, 0.0); fft_size]; num_channels];
+    let mut channels = vec![vec![num_complex::Complex64::new(0.0, 0.0); fft_size]; num_channels];
     for pos in 0..prof.length.min(fft_size) {
         for ch in 0..num_channels.min(prof.nalphabets) {
             channels[ch][pos] = num_complex::Complex64::new(prof.freqs[pos][ch], 0.0);
@@ -305,12 +339,7 @@ fn profile_to_property_channels(
 ///   `lag <  0`: `min(prof1.length + lag, prof2.length)`
 /// scores beyond that range are absent — segment detection sees only valid
 /// overlap, not zero-padding.
-fn shift_and_score(
-    prof1: &Profile,
-    prof2: &Profile,
-    matrix: &[Vec<f64>],
-    lag: i32,
-) -> Vec<f64> {
+fn shift_and_score(prof1: &Profile, prof2: &Profile, matrix: &[Vec<f64>], lag: i32) -> Vec<f64> {
     let n = prof1.length as i32;
     let m = prof2.length as i32;
     let valid_len = if lag >= 0 {

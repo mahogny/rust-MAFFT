@@ -1,13 +1,12 @@
+use mafft_fft::{SegmentParams, alignable_segments, block_align};
 /// Constrained alignment: FFT alignment guided by local homology tables
 /// and partial (segment-wise) profile alignment.
 ///
 /// Ports the C `Falign_localhom.c` and `partSalignmm.c`.
-
 use mafft_types::LocalHomologyTable;
-use mafft_fft::{SegmentParams, alignable_segments, block_align};
 
 use crate::dp::{Alignment, GapModel};
-use crate::profile::{align_with_anchors, profile_align, Profile};
+use crate::profile::{Profile, align_with_anchors, profile_align};
 
 /// Parameters for constrained FFT alignment.
 #[derive(Debug, Clone)]
@@ -57,16 +56,18 @@ pub fn constrained_profile_align(
     }
 
     // Build constraint importance map
-    let importance_map = build_importance_map(
-        constraints, group1_members, group2_members, n, m,
-    );
+    let importance_map = build_importance_map(constraints, group1_members, group2_members, n, m);
 
     // Compute site scores with constraint bonus
     let site_scores: Vec<f64> = (0..n)
         .map(|i| {
             if i < m {
                 let base = prof1.match_score(i, prof2, i, matrix);
-                let bonus = importance_map.get(i).and_then(|row| row.get(i)).copied().unwrap_or(0.0);
+                let bonus = importance_map
+                    .get(i)
+                    .and_then(|row| row.get(i))
+                    .copied()
+                    .unwrap_or(0.0);
                 base + bonus * params.constraint_weight
             } else {
                 0.0
@@ -89,7 +90,10 @@ pub fn constrained_profile_align(
             cross_scores[i][j] = seg_i.score.min(seg_j.score);
             let center_i = seg_i.center.min(n - 1);
             let center_j = seg_j.center.min(m - 1);
-            if let Some(imp) = importance_map.get(center_i).and_then(|row| row.get(center_j)) {
+            if let Some(imp) = importance_map
+                .get(center_i)
+                .and_then(|row| row.get(center_j))
+            {
                 cross_scores[i][j] += imp * params.constraint_weight;
             }
         }
@@ -106,7 +110,12 @@ pub fn constrained_profile_align(
     let anchors: Vec<(usize, usize)> = sel_i
         .iter()
         .zip(sel_j.iter())
-        .map(|(&si, &sj)| (segments[si].center.min(n - 1), segments[sj].center.min(m - 1)))
+        .map(|(&si, &sj)| {
+            (
+                segments[si].center.min(n - 1),
+                segments[sj].center.min(m - 1),
+            )
+        })
         .collect();
 
     align_with_anchors(prof1, prof2, matrix, &params.gap, &anchors)
@@ -172,10 +181,14 @@ mod tests {
 
     fn simple_setup() -> (Vec<Vec<f64>>, [u8; 256], usize) {
         let mut mtx = vec![vec![-100.0f64; 5]; 5];
-        for i in 0..4 { mtx[i][i] = 100.0; }
+        for i in 0..4 {
+            mtx[i][i] = 100.0;
+        }
         let mut map = [0xFFu8; 256];
-        map[b'A' as usize] = 0; map[b'C' as usize] = 1;
-        map[b'G' as usize] = 2; map[b'T' as usize] = 3;
+        map[b'A' as usize] = 0;
+        map[b'C' as usize] = 1;
+        map[b'G' as usize] = 2;
+        map[b'T' as usize] = 3;
         map[b'-' as usize] = 4;
         (mtx, map, 5)
     }
@@ -188,9 +201,7 @@ mod tests {
         let table = LocalHomologyTable::new(2);
         let params = ConstrainedAlignParams::default();
 
-        let aln = constrained_profile_align(
-            &prof, &prof, &mtx, &table, &[0], &[1], &params,
-        );
+        let aln = constrained_profile_align(&prof, &prof, &mtx, &table, &[0], &[1], &params);
         assert!(aln.score > 0.0 || !aln.operations.is_empty());
     }
 

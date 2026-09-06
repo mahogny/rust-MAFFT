@@ -1,7 +1,9 @@
 /// An alphabet mapping between characters and internal indices.
 pub trait Alphabet {
     fn chars(&self) -> &[u8];
-    fn len(&self) -> usize { self.chars().len() }
+    fn len(&self) -> usize {
+        self.chars().len()
+    }
     fn char_to_index(&self, ch: u8) -> Option<usize>;
     fn index_to_char(&self, idx: usize) -> Option<u8>;
 
@@ -28,14 +30,17 @@ pub struct ProteinAlphabet {
 pub static PROTEIN_ALPHABET: ProteinAlphabet = ProteinAlphabet {
     chars: *b"ARNDCQEGHILKMFPSTWYVBZX.-J",
     groups: [
-        0, 3, 2, 2, 5, 2, 2, 0, 3, 1, 1, 3, 1, 4, 0, 0, 0, 4, 4, 1, 2, 2,
-        6, 6, 6, 1,
+        0, 3, 2, 2, 5, 2, 2, 0, 3, 1, 1, 3, 1, 4, 0, 0, 0, 4, 4, 1, 2, 2, 6, 6, 6, 1,
     ],
 };
 
 impl Alphabet for ProteinAlphabet {
-    fn chars(&self) -> &[u8] { &self.chars }
-    fn len(&self) -> usize { 26 }
+    fn chars(&self) -> &[u8] {
+        &self.chars
+    }
+    fn len(&self) -> usize {
+        26
+    }
 
     fn char_to_index(&self, ch: u8) -> Option<usize> {
         self.chars.iter().position(|&c| c == ch)
@@ -59,15 +64,17 @@ pub struct DnaAlphabet {
 pub static DNA_ALPHABET: DnaAlphabet = DnaAlphabet {
     chars: *b"agctuAGCTUnNbdhkmnrsvwyx-O",
     groups: [
-        0, 1, 2, 3, 3, 0, 1, 2, 3, 3,
-        4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
-        5, 5, 5, 5, 5, 5,
+        0, 1, 2, 3, 3, 0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
     ],
 };
 
 impl Alphabet for DnaAlphabet {
-    fn chars(&self) -> &[u8] { &self.chars }
-    fn len(&self) -> usize { 26 }
+    fn chars(&self) -> &[u8] {
+        &self.chars
+    }
+    fn len(&self) -> usize {
+        26
+    }
 
     fn char_to_index(&self, ch: u8) -> Option<usize> {
         self.chars.iter().position(|&c| c == ch)

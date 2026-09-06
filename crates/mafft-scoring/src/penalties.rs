@@ -100,14 +100,32 @@ mod tests {
         assert_eq!(p.penalty, -917, "protein penalty = (int)(0.6*-1530+0.5)");
         assert_eq!(n.penalty_ex, 0, "nuc DEFAULTGEP_N = 0");
         assert_eq!(p.penalty_ex, 0, "protein DEFAULTGEP_B = 0");
-        assert_eq!(n.penalty_ln, -3599, "nuc penaltyLN = (int)(3*0.6*-2000+0.5)");
-        assert_eq!(p.penalty_ln, -1199, "protein penaltyLN = (int)(0.6*-2000+0.5)");
-        assert_eq!(n.penalty_ex_ln, -179, "nuc penalty_exLN = (int)(3*0.6*-100+0.5)");
-        assert_eq!(p.penalty_ex_ln, -59, "protein penalty_exLN = (int)(0.6*-100+0.5)");
+        assert_eq!(
+            n.penalty_ln, -3599,
+            "nuc penaltyLN = (int)(3*0.6*-2000+0.5)"
+        );
+        assert_eq!(
+            p.penalty_ln, -1199,
+            "protein penaltyLN = (int)(0.6*-2000+0.5)"
+        );
+        assert_eq!(
+            n.penalty_ex_ln, -179,
+            "nuc penalty_exLN = (int)(3*0.6*-100+0.5)"
+        );
+        assert_eq!(
+            p.penalty_ex_ln, -59,
+            "protein penalty_exLN = (int)(0.6*-100+0.5)"
+        );
         // offsets: C uses `1 *` for nucleotide here, NOT `3 *`
-        assert_eq!(n.offset_ln, 60, "nuc offsetLN = (int)(1*0.6*100+0.5) -- 1x, not 3x");
+        assert_eq!(
+            n.offset_ln, 60,
+            "nuc offsetLN = (int)(1*0.6*100+0.5) -- 1x, not 3x"
+        );
         assert_eq!(p.offset_ln, 60, "protein offsetLN = (int)(0.6*100+0.5)");
-        assert_eq!(n.offset_ln, p.offset_ln, "offsetLN is the same for both alphabets");
+        assert_eq!(
+            n.offset_ln, p.offset_ln,
+            "offsetLN is the same for both alphabets"
+        );
         assert_eq!(n.offset_fft, 0);
         assert_eq!(p.offset_fft, 0);
         // the script passes -h 0.000, so poffset = 0 on both paths

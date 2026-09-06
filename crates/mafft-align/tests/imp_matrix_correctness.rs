@@ -1,7 +1,7 @@
 //! Verify build_imp_matrix produces the same values as C's fillimp would
 //! for a known synthetic localhom table.
 
-use mafft_align::{build_imp_matrix, FASTATHRESHOLD_DEFAULT};
+use mafft_align::{FASTATHRESHOLD_DEFAULT, build_imp_matrix};
 use mafft_types::{HomologyRegion, LocalHomologyTable};
 
 #[test]
@@ -12,21 +12,41 @@ fn impmtx_diagonal_for_one_region_no_gaps() {
     //          (eff1=eff2=1.0 since groups have 1 seq each, sum-1 normalized)
     //          impmtx[k][l] = 0 for k != l
     let mut table = LocalHomologyTable::new(2);
-    table.push(0, 1, HomologyRegion {
-        start1: 0, end1: 4, start2: 0, end2: 4,
-        opt: 0.0, overlapaa: 5,
-        importance: 10.0, korh: b'h',
-        ..Default::default()
-    });
-    table.push(1, 0, HomologyRegion {
-        start1: 0, end1: 4, start2: 0, end2: 4,
-        opt: 0.0, overlapaa: 5,
-        importance: 10.0, korh: b'h',
-        ..Default::default()
-    });
+    table.push(
+        0,
+        1,
+        HomologyRegion {
+            start1: 0,
+            end1: 4,
+            start2: 0,
+            end2: 4,
+            opt: 0.0,
+            overlapaa: 5,
+            importance: 10.0,
+            korh: b'h',
+            ..Default::default()
+        },
+    );
+    table.push(
+        1,
+        0,
+        HomologyRegion {
+            start1: 0,
+            end1: 4,
+            start2: 0,
+            end2: 4,
+            opt: 0.0,
+            overlapaa: 5,
+            importance: 10.0,
+            korh: b'h',
+            ..Default::default()
+        },
+    );
 
     let mut amino_map = [0xFFu8; 256];
-    for (i, &c) in b"ACGT-".iter().enumerate() { amino_map[c as usize] = i as u8; }
+    for (i, &c) in b"ACGT-".iter().enumerate() {
+        amino_map[c as usize] = i as u8;
+    }
 
     let s1 = b"ACGTA";
     let s2 = b"ACGTA";
@@ -35,24 +55,35 @@ fn impmtx_diagonal_for_one_region_no_gaps() {
 
     let imp = build_imp_matrix(
         &table,
-        &[0], &[1],
-        &g1, &g2,
-        &[1.0], &[1.0],
-        5, 5,
+        &[0],
+        &[1],
+        &g1,
+        &g2,
+        &[1.0],
+        &[1.0],
+        5,
+        5,
         FASTATHRESHOLD_DEFAULT,
     );
 
     let expected_diag = 10.0 * 1.0 * 1.0 * FASTATHRESHOLD_DEFAULT;
     for k in 0..5 {
-        assert!((imp[k][k] - expected_diag).abs() < 1e-9,
-            "imp[{k}][{k}]={} expected={}", imp[k][k], expected_diag);
+        assert!(
+            (imp[k][k] - expected_diag).abs() < 1e-9,
+            "imp[{k}][{k}]={} expected={}",
+            imp[k][k],
+            expected_diag
+        );
     }
     // off-diagonal should be 0
     for i in 0..5 {
         for j in 0..5 {
             if i != j {
-                assert!(imp[i][j].abs() < 1e-9,
-                    "imp[{i}][{j}]={} expected 0", imp[i][j]);
+                assert!(
+                    imp[i][j].abs() < 1e-9,
+                    "imp[{i}][{j}]={} expected 0",
+                    imp[i][j]
+                );
             }
         }
     }
@@ -75,16 +106,28 @@ fn impmtx_handles_gap_in_seq1() {
     // So impmtx has entries at (0,0), (2,2), (3,3) with value imp*eff*FAST
     let mut table = LocalHomologyTable::new(2);
     let region = HomologyRegion {
-        start1: 0, end1: 3, start2: 0, end2: 3,
-        opt: 0.0, overlapaa: 4,
-        importance: 1.0, korh: b'h',
+        start1: 0,
+        end1: 3,
+        start2: 0,
+        end2: 3,
+        opt: 0.0,
+        overlapaa: 4,
+        importance: 1.0,
+        korh: b'h',
         ..Default::default()
     };
     table.push(0, 1, region.clone());
-    table.push(1, 0, HomologyRegion {
-        start1: 0, end1: 3, start2: 0, end2: 3,
-        ..region
-    });
+    table.push(
+        1,
+        0,
+        HomologyRegion {
+            start1: 0,
+            end1: 3,
+            start2: 0,
+            end2: 3,
+            ..region
+        },
+    );
 
     let s1 = b"A-CGT";
     let s2 = b"ACGT";
@@ -93,10 +136,14 @@ fn impmtx_handles_gap_in_seq1() {
 
     let imp = build_imp_matrix(
         &table,
-        &[0], &[1],
-        &g1, &g2,
-        &[1.0], &[1.0],
-        s1.len(), s2.len(),
+        &[0],
+        &[1],
+        &g1,
+        &g2,
+        &[1.0],
+        &[1.0],
+        s1.len(),
+        s2.len(),
         FASTATHRESHOLD_DEFAULT,
     );
 
@@ -150,6 +197,10 @@ fn impmtx_handles_gap_in_seq1() {
     // would have the same behavior with this input, so we're consistent.
     //
     // For a more meaningful test, let's just verify (0,0) is set correctly.
-    assert!((imp[0][0] - v).abs() < 1e-9,
-        "imp[0][0]={} expected {}", imp[0][0], v);
+    assert!(
+        (imp[0][0] - v).abs() < 1e-9,
+        "imp[0][0]={} expected {}",
+        imp[0][0],
+        v
+    );
 }

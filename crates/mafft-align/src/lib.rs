@@ -30,37 +30,35 @@
 //!          local homology constraint building (pairlocalalign),
 //!          and constrained alignment (Falign_localhom, partSalignmm).
 
+mod constrained_align;
+mod constraints;
 mod dp;
+mod fft_align;
+mod genaffine;
 mod global;
 mod local;
-mod genaffine;
-mod profile;
-mod multimtx;
-mod fft_align;
-mod constraints;
-mod constrained_align;
 mod msalign;
+mod multimtx;
+mod profile;
 
-pub use dp::{Alignment, AlignOp, GapModel, matrix_i32_to_f64};
-pub use global::global_align;
-pub use local::{local_align, LocalAlignment};
-pub use genaffine::{genaffine_local_align, GenAffineGapModel};
-pub use profile::{
-    Profile, profile_align, profile_align_imp, profile_align_imp_with_tiebreak,
-    profile_align_imp_with_boundary, profile_align_imp_multimtx, BoundaryFreqs,
-    pairwise_align11, pairwise_align11_ex, align_with_anchors,
-    reset_dp_pools, reset_cpmx_memo,
-};
-pub use multimtx::MultiMtx;
-pub use fft_align::{fft_profile_align, find_fft_anchors, FftAlignParams, Anchor};
-pub use constraints::{
-    build_local_homology_table, build_homology_table,
-    build_homology_table_with_unalign, build_imp_matrix,
-    recompute_importance, PairAligner, FASTATHRESHOLD_DEFAULT,
-    extract_putlocalhom2_regions, build_seed_homology_table,
-    merge_homology_tables, parse_hat3_seed, SeedGroup,
-};
 pub use constrained_align::{
-    constrained_profile_align, partial_profile_align, ConstrainedAlignParams,
+    ConstrainedAlignParams, constrained_profile_align, partial_profile_align,
 };
+pub use constraints::{
+    FASTATHRESHOLD_DEFAULT, PairAligner, SeedGroup, build_homology_table,
+    build_homology_table_with_unalign, build_imp_matrix, build_local_homology_table,
+    build_seed_homology_table, extract_putlocalhom2_regions, merge_homology_tables,
+    parse_hat3_seed, recompute_importance,
+};
+pub use dp::{AlignOp, Alignment, GapModel, matrix_i32_to_f64};
+pub use fft_align::{Anchor, FftAlignParams, fft_profile_align, find_fft_anchors};
+pub use genaffine::{GenAffineGapModel, genaffine_local_align};
+pub use global::global_align;
+pub use local::{LocalAlignment, local_align};
 pub use msalign::msalignmm;
+pub use multimtx::MultiMtx;
+pub use profile::{
+    BoundaryFreqs, Profile, align_with_anchors, pairwise_align11, pairwise_align11_ex,
+    profile_align, profile_align_imp, profile_align_imp_multimtx, profile_align_imp_with_boundary,
+    profile_align_imp_with_tiebreak, reset_cpmx_memo, reset_dp_pools,
+};

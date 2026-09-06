@@ -4,7 +4,6 @@
 /// Uses the same max-so-far DP scheme as `L__align11` but without the
 /// local-stop reset and with `>=` tie-break (vs `>` in L), terminal-gap
 /// handling for `headgp == 0` / `tailgp == 0`, and `Atracking` traceback.
-
 use crate::dp::{AlignOp, Alignment, GapModel};
 
 /// Perform global alignment of two sequences.
@@ -154,7 +153,9 @@ pub fn global_align(
                 currentw[k] = 0.0;
             }
         }
-        if m < currentw.len() { currentw[m] = 0.0; }
+        if m < currentw.len() {
+            currentw[m] = 0.0;
+        }
 
         // currentw[0] = initverticalw[i] (overwrite first column).
         if i < n {
@@ -208,8 +209,9 @@ pub fn global_align(
             // `fpenalty_shift + fpenalty_ex * Manhattan_distance`.
             if try_warp {
                 let fpenalty_tmp = fpenalty_shift
-                    + f_ext * ((i as i32 - prevwarpi[j - 1]) as f64
-                             + (j as i32 - prevwarpj[j - 1]) as f64);
+                    + f_ext
+                        * ((i as i32 - prevwarpi[j - 1]) as f64
+                            + (j as i32 - prevwarpj[j - 1]) as f64);
                 let g = prevwmrecords[j - 1] + fpenalty_tmp;
                 if g > wm {
                     if warpn > 0
@@ -248,7 +250,6 @@ pub fn global_align(
                     warpj[j] = j as i32;
                 }
             }
-
         }
 
         // End of row: snapshot wmrecords/warpi/warpj for next row's warp lookup.
@@ -272,11 +273,18 @@ pub fn global_align(
                     let sn: usize = p[0].parse().ok()?;
                     let sm: usize = p[1].parse().ok()?;
                     Some(n == sn && m == sm)
-                } else { None }
-            }).unwrap_or(false);
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
         if shape_ok {
             use std::io::Write;
-            if let Ok(mut fp) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            if let Ok(mut fp) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+            {
                 let _ = writeln!(fp, "R_IJP_CALL n={} m={} warpn={}", n, m, warpn);
                 for i in 1..=n {
                     let _ = write!(fp, "R_IJP i={}", i);
@@ -287,10 +295,14 @@ pub fn global_align(
                 }
                 // Also dump warpis/warpjs for reference (warp anchors).
                 let _ = write!(fp, "R_WARPIS");
-                for k in 0..warpis.len() { let _ = write!(fp, " {}", warpis[k]); }
+                for k in 0..warpis.len() {
+                    let _ = write!(fp, " {}", warpis[k]);
+                }
                 let _ = writeln!(fp);
                 let _ = write!(fp, "R_WARPJS");
-                for k in 0..warpjs.len() { let _ = write!(fp, " {}", warpjs[k]); }
+                for k in 0..warpjs.len() {
+                    let _ = write!(fp, " {}", warpjs[k]);
+                }
                 let _ = writeln!(fp);
             }
         }

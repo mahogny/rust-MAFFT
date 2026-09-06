@@ -63,10 +63,7 @@ pub struct AlignableSegment {
 /// where the windowed score exceeds the threshold.
 ///
 /// Ports the C `alignableReagion()` logic.
-pub fn alignable_segments(
-    site_scores: &[f64],
-    params: &SegmentParams,
-) -> Vec<AlignableSegment> {
+pub fn alignable_segments(site_scores: &[f64], params: &SegmentParams) -> Vec<AlignableSegment> {
     let len = site_scores.len();
     if len <= params.window_size {
         return Vec::new();

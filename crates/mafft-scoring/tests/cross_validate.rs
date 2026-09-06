@@ -2,7 +2,6 @@
 /// cell-by-cell by calling the C `constants()` function through FFI.
 ///
 /// C globals are shared mutable state, so all FFI tests must be serialized.
-
 use std::ptr::addr_of;
 use std::sync::Mutex;
 
@@ -23,80 +22,90 @@ static C_MUTEX: Mutex<()> = Mutex::new(());
 /// Setting poffset=0 here matches the production invocation path that our
 /// Rust `build_context()` targets. Other parameters are left NOTSPECIFIED so
 /// `constants()` applies its usual defaults for them.
-unsafe fn init_c_globals() { unsafe {
-    mafft_sys::initglobalvariables();
-    std::ptr::addr_of_mut!(mafft_sys::ppenalty).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::ppenalty_ex).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::ppenalty_EX).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::ppenalty_OP).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::ppenalty_dist).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::poffset).write(0); // mafft.tmpl: -h 0.000
-    std::ptr::addr_of_mut!(mafft_sys::kimuraR).write(mafft_sys::NOTSPECIFIED);
-    std::ptr::addr_of_mut!(mafft_sys::pamN).write(mafft_sys::NOTSPECIFIED);
-}}
+unsafe fn init_c_globals() {
+    unsafe {
+        mafft_sys::initglobalvariables();
+        std::ptr::addr_of_mut!(mafft_sys::ppenalty).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::ppenalty_ex).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::ppenalty_EX).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::ppenalty_OP).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::ppenalty_dist).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::poffset).write(0); // mafft.tmpl: -h 0.000
+        std::ptr::addr_of_mut!(mafft_sys::kimuraR).write(mafft_sys::NOTSPECIFIED);
+        std::ptr::addr_of_mut!(mafft_sys::pamN).write(mafft_sys::NOTSPECIFIED);
+    }
+}
 
 /// Call C constants() with a dummy sequence.
-unsafe fn call_c_constants(dorp: u8, scoremtx: i32, nblosum: i32) { unsafe {
-    std::ptr::addr_of_mut!(mafft_sys::dorp).write(dorp as i32);
-    std::ptr::addr_of_mut!(mafft_sys::scoremtx).write(scoremtx);
-    std::ptr::addr_of_mut!(mafft_sys::nblosum).write(nblosum);
-    std::ptr::addr_of_mut!(mafft_sys::fmodel).write(0);
+unsafe fn call_c_constants(dorp: u8, scoremtx: i32, nblosum: i32) {
+    unsafe {
+        std::ptr::addr_of_mut!(mafft_sys::dorp).write(dorp as i32);
+        std::ptr::addr_of_mut!(mafft_sys::scoremtx).write(scoremtx);
+        std::ptr::addr_of_mut!(mafft_sys::nblosum).write(nblosum);
+        std::ptr::addr_of_mut!(mafft_sys::fmodel).write(0);
 
-    let seq_data = b"ACDEFGHIKLMNPQRSTVWY\0";
-    let mut seq_ptr = seq_data.as_ptr() as *mut i8;
-    let seq_arr: *mut *mut i8 = &mut seq_ptr;
-    mafft_sys::constants(1, seq_arr);
-}}
+        let seq_data = b"ACDEFGHIKLMNPQRSTVWY\0";
+        let mut seq_ptr = seq_data.as_ptr() as *mut i8;
+        let seq_arr: *mut *mut i8 = &mut seq_ptr;
+        mafft_sys::constants(1, seq_arr);
+    }
+}
 
 /// Call C constants() in JTT/TM mode (scoremtx=0). `is_tm` flips
 /// `TMorJTT` so the constants pipeline picks the TM frequency table.
 /// `pam_n` mirrors `--jtt N`/`--tm N`.
-unsafe fn call_c_constants_jtt(is_tm: bool, pam_n: i32) { unsafe {
-    std::ptr::addr_of_mut!(mafft_sys::dorp).write(b'p' as i32);
-    std::ptr::addr_of_mut!(mafft_sys::scoremtx).write(0);
-    std::ptr::addr_of_mut!(mafft_sys::pamN).write(pam_n);
-    // JTT = 201, TM = 202 (mafft-upstream/core/mltaln.h)
-    std::ptr::addr_of_mut!(mafft_sys::TMorJTT).write(if is_tm { 202 } else { 201 });
-    std::ptr::addr_of_mut!(mafft_sys::fmodel).write(0);
+unsafe fn call_c_constants_jtt(is_tm: bool, pam_n: i32) {
+    unsafe {
+        std::ptr::addr_of_mut!(mafft_sys::dorp).write(b'p' as i32);
+        std::ptr::addr_of_mut!(mafft_sys::scoremtx).write(0);
+        std::ptr::addr_of_mut!(mafft_sys::pamN).write(pam_n);
+        // JTT = 201, TM = 202 (mafft-upstream/core/mltaln.h)
+        std::ptr::addr_of_mut!(mafft_sys::TMorJTT).write(if is_tm { 202 } else { 201 });
+        std::ptr::addr_of_mut!(mafft_sys::fmodel).write(0);
 
-    let seq_data = b"ACDEFGHIKLMNPQRSTVWY\0";
-    let mut seq_ptr = seq_data.as_ptr() as *mut i8;
-    let seq_arr: *mut *mut i8 = &mut seq_ptr;
-    mafft_sys::constants(1, seq_arr);
-}}
+        let seq_data = b"ACDEFGHIKLMNPQRSTVWY\0";
+        let mut seq_ptr = seq_data.as_ptr() as *mut i8;
+        let seq_arr: *mut *mut i8 = &mut seq_ptr;
+        mafft_sys::constants(1, seq_arr);
+    }
+}
 
 /// Read the C n_dis matrix into a Vec<Vec<i32>>.
-unsafe fn read_c_n_dis() -> Vec<Vec<i32>> { unsafe {
-    let nalpha = addr_of!(mafft_sys::nalphabets).read() as usize;
-    let n_dis_ptr = addr_of!(mafft_sys::n_dis).read();
+unsafe fn read_c_n_dis() -> Vec<Vec<i32>> {
+    unsafe {
+        let nalpha = addr_of!(mafft_sys::nalphabets).read() as usize;
+        let n_dis_ptr = addr_of!(mafft_sys::n_dis).read();
 
-    let mut matrix = vec![vec![0i32; nalpha]; nalpha];
-    for i in 0..nalpha {
-        let row_ptr = *n_dis_ptr.add(i);
-        for j in 0..nalpha {
-            matrix[i][j] = *row_ptr.add(j);
+        let mut matrix = vec![vec![0i32; nalpha]; nalpha];
+        for i in 0..nalpha {
+            let row_ptr = *n_dis_ptr.add(i);
+            for j in 0..nalpha {
+                matrix[i][j] = *row_ptr.add(j);
+            }
         }
+        matrix
     }
-    matrix
-}}
+}
 
 /// Read the C n_disFFT matrix into a Vec<Vec<i32>>.
-unsafe fn read_c_n_dis_fft() -> Vec<Vec<i32>> { unsafe {
-    let nalpha = addr_of!(mafft_sys::nalphabets).read() as usize;
-    let ptr = addr_of!(mafft_sys::n_disFFT).read();
-    if ptr.is_null() {
-        return vec![vec![0; nalpha]; nalpha];
-    }
-
-    let mut matrix = vec![vec![0i32; nalpha]; nalpha];
-    for i in 0..nalpha {
-        let row_ptr = *ptr.add(i);
-        for j in 0..nalpha {
-            matrix[i][j] = *row_ptr.add(j);
+unsafe fn read_c_n_dis_fft() -> Vec<Vec<i32>> {
+    unsafe {
+        let nalpha = addr_of!(mafft_sys::nalphabets).read() as usize;
+        let ptr = addr_of!(mafft_sys::n_disFFT).read();
+        if ptr.is_null() {
+            return vec![vec![0; nalpha]; nalpha];
         }
+
+        let mut matrix = vec![vec![0i32; nalpha]; nalpha];
+        for i in 0..nalpha {
+            let row_ptr = *ptr.add(i);
+            for j in 0..nalpha {
+                matrix[i][j] = *row_ptr.add(j);
+            }
+        }
+        matrix
     }
-    matrix
-}}
+}
 
 // ---------------------------------------------------------------------------
 // Basic validation tests (no FFI)
@@ -108,11 +117,18 @@ fn build_context_blosum62_produces_valid_matrix() {
     assert_eq!(ctx.substitution_matrix.len(), 26);
     assert_eq!(ctx.substitution_matrix[0].len(), 26);
     for i in 0..20 {
-        assert!(ctx.substitution_matrix[i][i] > 0, "diagonal [{i}][{i}] = {}", ctx.substitution_matrix[i][i]);
+        assert!(
+            ctx.substitution_matrix[i][i] > 0,
+            "diagonal [{i}][{i}] = {}",
+            ctx.substitution_matrix[i][i]
+        );
     }
     for i in 0..26 {
         for j in 0..26 {
-            assert_eq!(ctx.substitution_matrix[i][j], ctx.substitution_matrix[j][i], "asymmetric at [{i}][{j}]");
+            assert_eq!(
+                ctx.substitution_matrix[i][j], ctx.substitution_matrix[j][i],
+                "asymmetric at [{i}][{j}]"
+            );
         }
     }
 }
@@ -122,13 +138,17 @@ fn build_context_jtt_produces_valid_matrix() {
     let ctx = build_context(ScoringModel::Jtt(200), SeqType::Protein);
     assert_eq!(ctx.nalphabets, 26);
     assert_eq!(ctx.nscoredalphabets, 20);
-    for i in 0..20 { assert!(ctx.substitution_matrix[i][i] > 0); }
+    for i in 0..20 {
+        assert!(ctx.substitution_matrix[i][i] > 0);
+    }
 }
 
 #[test]
 fn build_context_tm_produces_valid_matrix() {
     let ctx = build_context(ScoringModel::Tm(200), SeqType::Protein);
-    for i in 0..20 { assert!(ctx.substitution_matrix[i][i] > 0); }
+    for i in 0..20 {
+        assert!(ctx.substitution_matrix[i][i] > 0);
+    }
 }
 
 #[test]
@@ -199,7 +219,11 @@ fn cross_validate_blosum62_n_dis_cell_by_cell() {
     if !mismatches.is_empty() {
         let total_cells = nalpha * nalpha;
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
 
         eprintln!(
             "BLOSUM62 n_dis: {n_mismatch}/{total_cells} cells differ (max diff = {max_diff})"
@@ -215,7 +239,11 @@ fn cross_validate_blosum62_n_dis_cell_by_cell() {
             "BLOSUM62 n_dis has cells differing by more than 2: max_diff={max_diff}, {n_mismatch} mismatches"
         );
     } else {
-        eprintln!("BLOSUM62 n_dis: all {}/{} cells match exactly", nalpha * nalpha, nalpha * nalpha);
+        eprintln!(
+            "BLOSUM62 n_dis: all {}/{} cells match exactly",
+            nalpha * nalpha,
+            nalpha * nalpha
+        );
     }
 }
 
@@ -258,8 +286,14 @@ fn cross_validate_blosum80_n_dis_cell_by_cell() {
     if !mismatches.is_empty() {
         let total_cells = nalpha * nalpha;
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("BLOSUM80 n_dis: {n_mismatch}/{total_cells} cells differ (max diff = {max_diff})");
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "BLOSUM80 n_dis: {n_mismatch}/{total_cells} cells differ (max diff = {max_diff})"
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -297,8 +331,15 @@ fn cross_validate_blosum62_n_dis_fft_cell_by_cell() {
 
     if !mismatches.is_empty() {
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("BLOSUM62 n_disFFT: {n_mismatch}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "BLOSUM62 n_disFFT: {n_mismatch}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_disFFT[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -332,8 +373,15 @@ fn cross_validate_blosum45_n_dis_cell_by_cell() {
     }
     if !mismatches.is_empty() {
         let n = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("BLOSUM45 n_dis: {n}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "BLOSUM45 n_dis: {n}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -363,8 +411,15 @@ fn cross_validate_blosum50_n_dis_cell_by_cell() {
     }
     if !mismatches.is_empty() {
         let n = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("BLOSUM50 n_dis: {n}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "BLOSUM50 n_dis: {n}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -395,8 +450,15 @@ fn cross_validate_blosum50_n_dis_fft_cell_by_cell() {
     }
     if !mismatches.is_empty() {
         let n = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("BLOSUM50 n_disFFT: {n}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "BLOSUM50 n_disFFT: {n}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_disFFT[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -427,8 +489,15 @@ fn cross_validate_jtt100_n_dis_cell_by_cell() {
     }
     if !mismatches.is_empty() {
         let n = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("JTT 100 n_dis: {n}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "JTT 100 n_dis: {n}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -459,8 +528,15 @@ fn cross_validate_tm_n_dis_fft_cell_by_cell() {
     }
     if !mismatches.is_empty() {
         let n = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("TM n_disFFT: {n}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "TM n_disFFT: {n}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_disFFT[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -493,14 +569,23 @@ fn cross_validate_tm_n_dis_cell_by_cell() {
         for j in 0..nalpha {
             let c_val = c_matrix[i][j];
             let r_val = rust_ctx.substitution_matrix[i][j];
-            if c_val != r_val { mismatches.push((i, j, c_val, r_val)); }
+            if c_val != r_val {
+                mismatches.push((i, j, c_val, r_val));
+            }
         }
     }
 
     if !mismatches.is_empty() {
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("TM n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "TM n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(15) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -523,7 +608,10 @@ fn cross_validate_tm_n_dis_cell_by_cell() {
 ///     cargo test -p mafft-scoring --release --test cross_validate \
 ///         cross_validate_jtt_n_dis_cell_by_cell -- --ignored --nocapture
 #[test]
-#[cfg_attr(target_os = "linux", ignore = "C-default JTT path is platform-fragile under glibc — see fn docstring")]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "C-default JTT path is platform-fragile under glibc — see fn docstring"
+)]
 fn cross_validate_jtt_n_dis_cell_by_cell() {
     let _lock = C_MUTEX.lock().unwrap();
     let rust_ctx = build_context(ScoringModel::Jtt(200), SeqType::Protein);
@@ -550,8 +638,15 @@ fn cross_validate_jtt_n_dis_cell_by_cell() {
 
     if !mismatches.is_empty() {
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("JTT n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "JTT n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -588,8 +683,15 @@ fn cross_validate_dna_n_dis_cell_by_cell() {
 
     if !mismatches.is_empty() {
         let n_mismatch = mismatches.len();
-        let max_diff = mismatches.iter().map(|(_, _, c, r)| (c - r).abs()).max().unwrap_or(0);
-        eprintln!("DNA n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})", nalpha * nalpha);
+        let max_diff = mismatches
+            .iter()
+            .map(|(_, _, c, r)| (c - r).abs())
+            .max()
+            .unwrap_or(0);
+        eprintln!(
+            "DNA n_dis: {n_mismatch}/{} cells differ (max diff = {max_diff})",
+            nalpha * nalpha
+        );
         for (i, j, c, r) in mismatches.iter().take(10) {
             eprintln!("  n_dis[{i}][{j}]: C={c}, Rust={r} (diff={})", c - r);
         }
@@ -613,11 +715,13 @@ fn cross_validate_penalty_values() {
 
         assert!(
             (c_penalty - rust_gap.penalty).abs() <= 1,
-            "penalty mismatch: C={c_penalty}, Rust={}", rust_gap.penalty
+            "penalty mismatch: C={c_penalty}, Rust={}",
+            rust_gap.penalty
         );
         assert!(
             (c_offset - rust_gap.offset).abs() <= 1,
-            "offset mismatch: C={c_offset}, Rust={}", rust_gap.offset
+            "offset mismatch: C={c_offset}, Rust={}",
+            rust_gap.offset
         );
 
         mafft_sys::freeconstants();
@@ -655,10 +759,10 @@ fn cross_validate_amino_mapping() {
 #[test]
 fn debug_jtt_pam1_vs_c() {
     let _lock = C_MUTEX.lock().unwrap();
-    
+
     // Build Rust PAM1 (just 1 iteration to isolate the issue)
     let rust_pam1 = mafft_scoring::jtt::build_jtt_pam_matrix(false, 1);
-    
+
     // Build C's with pamN=1
     unsafe {
         init_c_globals();
@@ -681,21 +785,28 @@ fn debug_jtt_pam1_vs_c() {
         let freq = mafft_scoring::jtt::jtt_frequencies();
         let gap = mafft_scoring::default_protein_gap_params();
         let rust_norm = mafft_scoring::build_scoring_matrix(&rust_pam1, &freq, gap.offset, true);
-        
+
         let mut mismatches = 0;
         let mut max_diff = 0i32;
         for i in 0..20 {
             for j in 0..20 {
                 let diff = (c_matrix[i][j] - rust_norm[i][j]).abs();
-                if diff > 0 { mismatches += 1; }
-                if diff > max_diff { max_diff = diff; }
+                if diff > 0 {
+                    mismatches += 1;
+                }
+                if diff > max_diff {
+                    max_diff = diff;
+                }
             }
         }
         eprintln!("JTT PAM1: {mismatches}/400 cells differ, max_diff={max_diff}");
         if mismatches > 0 {
             for i in 0..3 {
                 for j in 0..3 {
-                    eprintln!("  [{i}][{j}]: C={}, Rust={}", c_matrix[i][j], rust_norm[i][j]);
+                    eprintln!(
+                        "  [{i}][{j}]: C={}, Rust={}",
+                        c_matrix[i][j], rust_norm[i][j]
+                    );
                 }
             }
         }

@@ -28,7 +28,8 @@ pub fn read_localhom_table<R: Read>(reader: R, nseq: usize) -> Result<LocalHomol
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() < 9 {
             return Err(IoError::LocalHomFormat(format!(
-                "expected 9 fields, got {}: '{line}'", fields.len()
+                "expected 9 fields, got {}: '{line}'",
+                fields.len()
             )));
         }
 
@@ -147,9 +148,9 @@ mod tests {
         let regions_10 = table.get(1, 0);
         assert_eq!(regions_10.len(), 1);
         assert_eq!(regions_10[0].start1, 20); // was start2
-        assert_eq!(regions_10[0].end1, 70);   // was end2
+        assert_eq!(regions_10[0].end1, 70); // was end2
         assert_eq!(regions_10[0].start2, 10); // was start1
-        assert_eq!(regions_10[0].end2, 60);   // was end1
+        assert_eq!(regions_10[0].end2, 60); // was end1
 
         // Score scaling: 290.0 / 5.8 * 600 = 30000.0
         let expected_opt = (290.0 / 5.8) * 600.0;

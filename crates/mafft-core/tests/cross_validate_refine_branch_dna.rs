@@ -90,7 +90,15 @@ fn load_branch(path: &Path) -> Branch {
     assert_eq!(seqs.len(), nseq);
     assert!(seqs.iter().all(|s| s.len() == width));
     assert_eq!(weights.len(), nseq);
-    Branch { nseq, width, group1, group2, weights, gap_open, seqs }
+    Branch {
+        nseq,
+        width,
+        group1,
+        group2,
+        weights,
+        gap_open,
+        seqs,
+    }
 }
 
 unsafe fn init_c_dna() {
@@ -132,7 +140,10 @@ unsafe fn alloc_c_char_mtx(seqs: &[Vec<u8>], capacity: usize) -> (Vec<*mut c_cha
             v
         })
         .collect();
-    let ptrs: Vec<*mut c_char> = rows.iter_mut().map(|r| r.as_mut_ptr() as *mut c_char).collect();
+    let ptrs: Vec<*mut c_char> = rows
+        .iter_mut()
+        .map(|r| r.as_mut_ptr() as *mut c_char)
+        .collect();
     (ptrs, rows)
 }
 
@@ -140,18 +151,20 @@ unsafe fn alloc_c_char_mtx(seqs: &[Vec<u8>], capacity: usize) -> (Vec<*mut c_cha
 fn refine_branch_seg10_profile_dp_matches_c() {
     let _guard = C_MUTEX.lock().unwrap();
 
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/refine_branch_seg10_dna.txt");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/refine_branch_seg10_dna.txt");
     let b = load_branch(&fixture);
     eprintln!(
         "branch: nseq={} width={} clus1={} clus2={} gap_open={}",
-        b.nseq, b.width, b.group1.len(), b.group2.len(), b.gap_open
+        b.nseq,
+        b.width,
+        b.group1.len(),
+        b.group2.len(),
+        b.gap_open
     );
 
-    let scoring = mafft_scoring::build_context(
-        mafft_types::ScoringModel::Dna,
-        mafft_types::SeqType::Dna,
-    );
+    let scoring =
+        mafft_scoring::build_context(mafft_types::ScoringModel::Dna, mafft_types::SeqType::Dna);
     // Sanity: the DP must be running C's nucleotide gap scale, not the
     // protein one. C: penalty = (int)(3 * 600/1000 * -1530 + 0.5) = -2753.
     assert_eq!(
@@ -179,7 +192,14 @@ fn refine_branch_seg10_profile_dp_matches_c() {
     // Refinement zeroes the extend penalty: C's `dvtditr` is invoked without
     // `-g`, so `penalty_ex = 0` in the refinement DP (see `iterative_refine`).
     let gap = GapModel::new(scoring.gap.open as f64, 0.0);
-    let rust_aln = profile_align(&prof1, &prof2, &scoring.consweight_matrix, &gap, false, false);
+    let rust_aln = profile_align(
+        &prof1,
+        &prof2,
+        &scoring.consweight_matrix,
+        &gap,
+        false,
+        false,
+    );
     let rust_width = rust_aln.operations.len();
 
     // ---- C ----
@@ -203,28 +223,49 @@ fn refine_branch_seg10_profile_dp_matches_c() {
     let mut dumdb = 0.0f64;
     let c_score = unsafe {
         mafft_sys::A__align(
-            n_dynamicmtx, penalty, 0,
-            m1.as_mut_ptr(), m2.as_mut_ptr(),
-            e1.as_mut_ptr(), e2.as_mut_ptr(),
-            g1.len() as c_int, g2.len() as c_int, alloclen,
-            0, &mut dumdb,
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            std::ptr::null_mut(), 0, std::ptr::null_mut(),
-            0, 0, -1, 0,
-            std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(),
-            orieff1, orieff2,
+            n_dynamicmtx,
+            penalty,
+            0,
+            m1.as_mut_ptr(),
+            m2.as_mut_ptr(),
+            e1.as_mut_ptr(),
+            e2.as_mut_ptr(),
+            g1.len() as c_int,
+            g2.len() as c_int,
+            alloclen,
+            0,
+            &mut dumdb,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            0,
+            0,
+            -1,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            orieff1,
+            orieff2,
         )
     };
     let c_width = unsafe {
         let p = m1[0];
         let mut w = 0usize;
-        while *p.add(w) != 0 { w += 1; }
+        while *p.add(w) != 0 {
+            w += 1;
+        }
         w
     };
     let read = |ptr: *mut c_char, w: usize| {
         let mut v = vec![0u8; w];
-        for i in 0..w { v[i] = unsafe { *ptr.add(i) as u8 }; }
+        for i in 0..w {
+            v[i] = unsafe { *ptr.add(i) as u8 };
+        }
         v
     };
     let c_g1: Vec<Vec<u8>> = m1.iter().map(|&p| read(p, c_width)).collect();
@@ -237,18 +278,31 @@ fn refine_branch_seg10_profile_dp_matches_c() {
     for op in &rust_aln.operations {
         match op {
             AlignOp::Match => {
-                for k in 0..g1.len() { r_g1[k].push(g1[k][c1]); }
-                for k in 0..g2.len() { r_g2[k].push(g2[k][c2]); }
-                c1 += 1; c2 += 1;
+                for k in 0..g1.len() {
+                    r_g1[k].push(g1[k][c1]);
+                }
+                for k in 0..g2.len() {
+                    r_g2[k].push(g2[k][c2]);
+                }
+                c1 += 1;
+                c2 += 1;
             }
             AlignOp::Delete => {
-                for k in 0..g1.len() { r_g1[k].push(g1[k][c1]); }
-                for k in 0..g2.len() { r_g2[k].push(b'-'); }
+                for k in 0..g1.len() {
+                    r_g1[k].push(g1[k][c1]);
+                }
+                for k in 0..g2.len() {
+                    r_g2[k].push(b'-');
+                }
                 c1 += 1;
             }
             AlignOp::Insert => {
-                for k in 0..g1.len() { r_g1[k].push(b'-'); }
-                for k in 0..g2.len() { r_g2[k].push(g2[k][c2]); }
+                for k in 0..g1.len() {
+                    r_g1[k].push(b'-');
+                }
+                for k in 0..g2.len() {
+                    r_g2[k].push(g2[k][c2]);
+                }
                 c2 += 1;
             }
         }
@@ -267,28 +321,45 @@ fn refine_branch_seg10_profile_dp_matches_c() {
     let mut fftlog: c_int = 0;
     let f_score = unsafe {
         mafft_sys::Falign(
-            std::ptr::null_mut(), std::ptr::null_mut(), n_dynamicmtx,
-            f1.as_mut_ptr(), f2.as_mut_ptr(),
-            fe1.as_mut_ptr(), fe2.as_mut_ptr(),
-            std::ptr::null_mut(), std::ptr::null_mut(),
-            g1.len() as c_int, g2.len() as c_int, alloclen,
-            &mut fftlog, std::ptr::null_mut(), 0, std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            n_dynamicmtx,
+            f1.as_mut_ptr(),
+            f2.as_mut_ptr(),
+            fe1.as_mut_ptr(),
+            fe2.as_mut_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            g1.len() as c_int,
+            g2.len() as c_int,
+            alloclen,
+            &mut fftlog,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
         )
     };
     let f_width = unsafe {
         let p = f1[0];
         let mut w = 0usize;
-        while *p.add(w) != 0 { w += 1; }
+        while *p.add(w) != 0 {
+            w += 1;
+        }
         w
     };
     let f_g1: Vec<Vec<u8>> = f1.iter().map(|&p| read(p, f_width)).collect();
     let f_g2: Vec<Vec<u8>> = f2.iter().map(|&p| read(p, f_width)).collect();
     let f_unchanged = f_g1 == g1 && f_g2 == g2;
-    eprintln!("C Falign: width={f_width} score={f_score:.6} unchanged_input={f_unchanged} fftlog={fftlog}");
+    eprintln!(
+        "C Falign: width={f_width} score={f_score:.6} unchanged_input={f_unchanged} fftlog={fftlog}"
+    );
 
     let rust_unchanged = r_g1 == g1 && r_g2 == g2;
     let c_unchanged = c_g1 == g1 && c_g2 == g2;
-    eprintln!("rust: width={rust_width} score={:.6} unchanged_input={rust_unchanged}", rust_aln.score);
+    eprintln!(
+        "rust: width={rust_width} score={:.6} unchanged_input={rust_unchanged}",
+        rust_aln.score
+    );
     eprintln!("C   : width={c_width} score={c_score:.6} unchanged_input={c_unchanged}");
     eprintln!("score delta (rust - C) = {:.6}", rust_aln.score - c_score);
 
@@ -299,9 +370,17 @@ fn refine_branch_seg10_profile_dp_matches_c() {
         "profile DP score differs: rust={:.6} C={:.6} (delta {:.6}). \
          A non-zero delta means the recurrence, gap penalties or profile \
          construction differ for this 26-vs-94 split, not the acceptance test.",
-        rust_aln.score, c_score, rust_aln.score - c_score
+        rust_aln.score,
+        c_score,
+        rust_aln.score - c_score
     );
     assert_eq!(rust_width, c_width, "profile DP alignment width differs");
-    assert_eq!(r_g1, c_g1, "group1 rows differ between rust profile_align and C A__align");
-    assert_eq!(r_g2, c_g2, "group2 rows differ between rust profile_align and C A__align");
+    assert_eq!(
+        r_g1, c_g1,
+        "group1 rows differ between rust profile_align and C A__align"
+    );
+    assert_eq!(
+        r_g2, c_g2,
+        "group2 rows differ between rust profile_align and C A__align"
+    );
 }

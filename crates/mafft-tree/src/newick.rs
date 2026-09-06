@@ -99,8 +99,10 @@ mod tests {
     fn newick_two_leaf() {
         let mut t = Topology::new(2);
         t.steps.push(JoinStep {
-            left: vec![0], right: vec![1],
-            left_length: 0.1, right_length: 0.2,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.1,
+            right_length: 0.2,
         });
         let names = vec!["A".to_string(), "B".to_string()];
         // %7.5f -> "0.10000" / "0.20000"
@@ -112,18 +114,27 @@ mod tests {
     fn newick_four_leaf_balanced() {
         let mut t = Topology::new(4);
         t.steps.push(JoinStep {
-            left: vec![0], right: vec![1],
-            left_length: 0.05, right_length: 0.05,
+            left: vec![0],
+            right: vec![1],
+            left_length: 0.05,
+            right_length: 0.05,
         });
         t.steps.push(JoinStep {
-            left: vec![2], right: vec![3],
-            left_length: 0.10, right_length: 0.10,
+            left: vec![2],
+            right: vec![3],
+            left_length: 0.10,
+            right_length: 0.10,
         });
         t.steps.push(JoinStep {
-            left: vec![0, 1], right: vec![2, 3],
-            left_length: 0.20, right_length: 0.15,
+            left: vec![0, 1],
+            right: vec![2, 3],
+            left_length: 0.20,
+            right_length: 0.15,
         });
-        let names: Vec<String> = vec!["a", "b", "c", "d"].into_iter().map(|s| s.to_string()).collect();
+        let names: Vec<String> = vec!["a", "b", "c", "d"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         let nw = topology_to_newick(&t, &names);
         assert!(nw.ends_with(";\n"));
         assert!(nw.contains("(\n1_a\n:0.05000,\n2_b\n:0.05000)"));

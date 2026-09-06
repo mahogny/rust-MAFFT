@@ -97,8 +97,10 @@ mod tests {
         let n = 16;
         let mut a = vec![0.0f64; n];
         let mut b = vec![0.0f64; n];
-        a[5] = 10.0; a[6] = 5.0;
-        b[2] = 10.0; b[3] = 5.0;
+        a[5] = 10.0;
+        a[6] = 5.0;
+        b[2] = 10.0;
+        b[3] = 5.0;
 
         let corr = cross_correlate(&a, &b);
         let fft_size = corr.len(); // next power of 2 >= 32
@@ -116,6 +118,10 @@ mod tests {
         } else {
             peak_idx as i32
         };
-        assert_eq!(lag.abs(), 3, "should detect shift magnitude of 3, got {lag}");
+        assert_eq!(
+            lag.abs(),
+            3,
+            "should detect shift magnitude of 3, got {lag}"
+        );
     }
 }

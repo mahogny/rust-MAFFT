@@ -1,7 +1,6 @@
 /// Neighbor-Joining tree construction.
 ///
 /// Ports the C `nj()` function from nj.c.
-
 use crate::distance::DistanceMatrix;
 use crate::topology::{JoinStep, Topology};
 
@@ -68,9 +67,13 @@ pub fn neighbor_joining(dist: &DistanceMatrix) -> Topology {
         // Compute row sums
         let mut r = vec![0.0f64; n];
         for i in 0..n {
-            if !active[i] { continue; }
+            if !active[i] {
+                continue;
+            }
             for j in 0..n {
-                if !active[j] || i == j { continue; }
+                if !active[j] || i == j {
+                    continue;
+                }
                 r[i] += mtx[i][j];
             }
         }
@@ -82,9 +85,13 @@ pub fn neighbor_joining(dist: &DistanceMatrix) -> Topology {
         let mut best_j = 0;
 
         for i in 0..n {
-            if !active[i] { continue; }
+            if !active[i] {
+                continue;
+            }
             for j in (i + 1)..n {
-                if !active[j] { continue; }
+                if !active[j] {
+                    continue;
+                }
                 let q = (na - 2.0) * mtx[i][j] - r[i] - r[j];
                 if q < min_q {
                     min_q = q;
@@ -110,7 +117,9 @@ pub fn neighbor_joining(dist: &DistanceMatrix) -> Topology {
 
         // Update distance matrix: merge jm into im
         for k in 0..n {
-            if !active[k] || k == im || k == jm { continue; }
+            if !active[k] || k == im || k == jm {
+                continue;
+            }
             let new_dist = (mtx[k][im] + mtx[k][jm] - d_ij) / 2.0;
             mtx[k][im] = new_dist;
             mtx[im][k] = new_dist;
@@ -167,7 +176,9 @@ mod tests {
 
         // NJ can produce slightly negative branch lengths for star topologies;
         // verify total tree length is reasonable
-        let total_len: f64 = topo.steps.iter()
+        let total_len: f64 = topo
+            .steps
+            .iter()
             .map(|s| s.left_length + s.right_length)
             .sum();
         assert!(total_len > 0.0, "total tree length should be positive");

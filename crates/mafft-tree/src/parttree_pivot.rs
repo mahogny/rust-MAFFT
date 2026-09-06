@@ -27,11 +27,9 @@
 //! and would need to be matched bit-for-bit (macOS BSD ≠ glibc).
 
 use crate::parttree_dist::{
-    common_sextets_p, composition_table, encode_points_dna,
-    encode_points_protein, lenfac, MAX6DIST,
-    DLENFACA, DLENFACB, DLENFACC, DLENFACD,
-    PLENFACA, PLENFACB, PLENFACC, PLENFACD,
-    PICKSIZE, TOKYORIPARA,
+    DLENFACA, DLENFACB, DLENFACC, DLENFACD, MAX6DIST, PICKSIZE, PLENFACA, PLENFACB, PLENFACC,
+    PLENFACD, TOKYORIPARA, common_sextets_p, composition_table, encode_points_dna,
+    encode_points_protein, lenfac,
 };
 
 /// Per-sequence info, mirroring C's `Scores` struct in `mltaln.h`.
@@ -130,7 +128,9 @@ pub fn build_score_entries(sequences: &[Vec<u8>], kind: PtSeqKind) -> Vec<ScoreE
 /// `uselongest=1` branch — linear scan for max selfscore (ties: keep
 /// the first one), swap winner to index 0.
 pub fn pick_reference_max_selfscore(scores: &mut [ScoreEntry]) {
-    if scores.is_empty() { return; }
+    if scores.is_empty() {
+        return;
+    }
     let mut best = 0usize;
     let mut best_score = scores[0].selfscore;
     for i in 1..scores.len() {
@@ -150,7 +150,9 @@ pub fn pick_reference_max_selfscore(scores: &mut [ScoreEntry]) {
 /// `scores[0]` to `scores[i]`. Mirrors `splittbfast.c::1393-1448` in
 /// the non-doalign branch.
 pub fn compute_initial_scores(scores: &mut [ScoreEntry], kind: PtSeqKind) {
-    if scores.is_empty() { return; }
+    if scores.is_empty() {
+        return;
+    }
     let tsize = kind.tsize();
     let (a, b, c, d) = kind.lenfac_constants();
 
@@ -161,10 +163,16 @@ pub fn compute_initial_scores(scores: &mut [ScoreEntry], kind: PtSeqKind) {
     for i in 0..scores.len() {
         let common = common_sextets_p(&table0, &scores[i].points, tsize);
         let bunbo = selfscore0.min(scores[i].selfscore) as f64;
-        let raw = if bunbo > 0.0 { 1.0 - common as f64 / bunbo } else { 1.0 };
+        let raw = if bunbo > 0.0 {
+            1.0 - common as f64 / bunbo
+        } else {
+            1.0
+        };
         let lf = lenfac(orilen0, scores[i].orilen, a, b, c, d);
         let mut s = raw * lf;
-        if s > MAX6DIST { s = MAX6DIST; }
+        if s > MAX6DIST {
+            s = MAX6DIST;
+        }
         scores[i].score = s;
     }
 }
@@ -189,14 +197,26 @@ pub fn dcompare_sort(scores: &mut [ScoreEntry]) {
     }
     crate::bsd_qsort::bsd_qsort(scores, |a, b| {
         // Primary: score ASC (`dcompare:74-76`).
-        if a.score > b.score { return std::cmp::Ordering::Greater; }
-        if a.score < b.score { return std::cmp::Ordering::Less; }
+        if a.score > b.score {
+            return std::cmp::Ordering::Greater;
+        }
+        if a.score < b.score {
+            return std::cmp::Ordering::Less;
+        }
         // Tie: selfscore DESC (`dcompare:78-79` returns 1 when a < b).
-        if a.selfscore < b.selfscore { return std::cmp::Ordering::Greater; }
-        if a.selfscore > b.selfscore { return std::cmp::Ordering::Less; }
+        if a.selfscore < b.selfscore {
+            return std::cmp::Ordering::Greater;
+        }
+        if a.selfscore > b.selfscore {
+            return std::cmp::Ordering::Less;
+        }
         // Tie: orilen DESC (`dcompare:82-83` returns 1 when a < b).
-        if a.orilen < b.orilen { return std::cmp::Ordering::Greater; }
-        if a.orilen > b.orilen { return std::cmp::Ordering::Less; }
+        if a.orilen < b.orilen {
+            return std::cmp::Ordering::Greater;
+        }
+        if a.orilen > b.orilen {
+            return std::cmp::Ordering::Less;
+        }
         std::cmp::Ordering::Equal
     });
 }
@@ -216,8 +236,12 @@ pub fn dcompare_sort(scores: &mut [ScoreEntry]) {
 /// the `qsort` makes the random-pick order irrelevant.
 pub fn select_pivots(scores: &[ScoreEntry], picksize: usize) -> Vec<usize> {
     let nin = scores.len();
-    if nin == 0 { return Vec::new(); }
-    if nin == 1 { return vec![0]; }
+    if nin == 0 {
+        return Vec::new();
+    }
+    if nin == 1 {
+        return vec![0];
+    }
 
     let mut pickkouho: Vec<usize> = (1..nin).collect();
     let mut nkouho = pickkouho.len(); // = nin - 1
@@ -235,7 +259,10 @@ pub fn select_pivots(scores: &[ScoreEntry], picksize: usize) -> Vec<usize> {
         // sequence equals an existing pick's. For ungapped protein
         // input this matches C's path exactly for non-degenerate
         // datasets.
-        if !picks.iter().any(|&p| seqs_equal(&scores[p], &scores[picktmp])) {
+        if !picks
+            .iter()
+            .any(|&p| seqs_equal(&scores[p], &scores[picktmp]))
+        {
             picks.push(picktmp);
         }
     }
@@ -259,7 +286,10 @@ pub fn select_pivots(scores: &[ScoreEntry], picksize: usize) -> Vec<usize> {
         // C: pickkouho[rn] = pickkouho[nkouho]; (swap with last, then shrink)
         pickkouho[rn] = pickkouho[nkouho];
 
-        if !picks.iter().any(|&p| seqs_equal(&scores[p], &scores[picktmp])) {
+        if !picks
+            .iter()
+            .any(|&p| seqs_equal(&scores[p], &scores[picktmp]))
+        {
             picks.push(picktmp);
         }
     }
@@ -284,19 +314,13 @@ fn seqs_equal(a: &ScoreEntry, b: &ScoreEntry) -> bool {
 /// Rows `i >= 1` compute via `localcommonsextet_p` + `lenfac`.
 ///
 /// Mirrors `splittbfast.c::1620-1707`.
-pub fn build_pickmtx(
-    scores: &[ScoreEntry],
-    picks: &[usize],
-    kind: PtSeqKind,
-) -> Vec<Vec<f64>> {
+pub fn build_pickmtx(scores: &[ScoreEntry], picks: &[usize], kind: PtSeqKind) -> Vec<Vec<f64>> {
     let npick = picks.len();
     let tsize = kind.tsize();
     let (a, b, c, d) = kind.lenfac_constants();
 
     // Each row i has length `npick - i` (slot 0 unused).
-    let mut pickmtx: Vec<Vec<f64>> = (0..npick)
-        .map(|i| vec![0.0f64; npick - i])
-        .collect();
+    let mut pickmtx: Vec<Vec<f64>> = (0..npick).map(|i| vec![0.0f64; npick - i]).collect();
 
     // C lines 1620-1626: pickmtx[0][s_p_map[j]] = scores[j].score.
     // Translation: for each sorted-position j that's a pick, find its
@@ -318,10 +342,16 @@ pub fn build_pickmtx(
         for i in (j + 1)..npick {
             let common = common_sextets_p(&table_j, &scores[picks[i]].points, tsize);
             let bunbo = selfscore_j.min(scores[picks[i]].selfscore) as f64;
-            let raw = if bunbo > 0.0 { 1.0 - common as f64 / bunbo } else { 1.0 };
+            let raw = if bunbo > 0.0 {
+                1.0 - common as f64 / bunbo
+            } else {
+                1.0
+            };
             let lf = lenfac(orilen_j, scores[picks[i]].orilen, a, b, c, d);
             let mut dist = raw * lf;
-            if dist > MAX6DIST { dist = MAX6DIST; }
+            if dist > MAX6DIST {
+                dist = MAX6DIST;
+            }
             pickmtx[j][i - j] = dist;
         }
     }
@@ -347,9 +377,13 @@ pub fn redundancy_filter(pickmtx: &[Vec<f64>], maxdist: f64, tokyoripara: f64) -
     let kijun = maxdist * tokyoripara;
 
     for i in 0..npick.saturating_sub(1) {
-        if !tsukau[i] { continue; }
+        if !tsukau[i] {
+            continue;
+        }
         for j in (i + 1)..npick {
-            if !tsukau[j] { continue; }
+            if !tsukau[j] {
+                continue;
+            }
             let d = pickmtx[i][j - i];
             if d < kijun {
                 tsukau[j] = false;
@@ -419,4 +453,6 @@ pub fn run_pivot_pipeline(
 }
 
 #[allow(dead_code)]
-fn _unused_constants_anchor() -> usize { PICKSIZE }
+fn _unused_constants_anchor() -> usize {
+    PICKSIZE
+}

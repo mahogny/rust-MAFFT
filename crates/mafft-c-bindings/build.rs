@@ -36,10 +36,7 @@ fn main() {
         "iteration.c",
     ];
 
-    let mut source_paths: Vec<PathBuf> = library_sources
-        .iter()
-        .map(|f| core_dir.join(f))
-        .collect();
+    let mut source_paths: Vec<PathBuf> = library_sources.iter().map(|f| core_dir.join(f)).collect();
 
     // Local wrappers for symbols stuck behind `static` in splittbfast.c
     // or living in C files with their own `main()` (addsingle.c,
@@ -75,7 +72,14 @@ fn main() {
     for src in &source_paths {
         println!("cargo:rerun-if-changed={}", src.display());
     }
-    for header in &["mltaln.h", "mtxutl.h", "mafft.h", "fft.h", "dp.h", "functions.h"] {
+    for header in &[
+        "mltaln.h",
+        "mtxutl.h",
+        "mafft.h",
+        "fft.h",
+        "dp.h",
+        "functions.h",
+    ] {
         println!("cargo:rerun-if-changed={}", core_dir.join(header).display());
     }
 }

@@ -128,11 +128,8 @@ pub fn fft_inplace(x: &mut [Complex64], inverse: bool) {
                 let xi = x[i].im;
                 let xikr = x[ik].re;
                 let xiki = x[ik].im;
-                // Match C's exact multiply-add order (the reference build does NOT fuse;
-                // these as `fmadd`):
-                //   dR = s * x[ik].I + c * x[ik].R   →  fma(s, xiki, c * xikr)
-                //   dI = c * x[ik].I - s * x[ik].R   →  fma(-s, xikr, c * xiki)
-                //                                    or  fma(c, xiki, -(s * xikr))
+                // Match C's exact multiply-add order. The reference build does not fuse
+                // these operations, so keep the multiply results explicit before adding.
                 let d_r = s * xiki + (c * xikr);
                 let d_i = c * xiki + (-(s * xikr));
                 x[ik].re = xr - d_r;
@@ -167,9 +164,7 @@ mod tests {
         // Two forward applications would give 1/n², etc. Roundtrip
         // forward+inverse on a single signal should give input/1 = input.
         let n = 16;
-        let signal: Vec<Complex64> = (0..n)
-            .map(|i| Complex64::new(i as f64, 0.0))
-            .collect();
+        let signal: Vec<Complex64> = (0..n).map(|i| Complex64::new(i as f64, 0.0)).collect();
         let mut x = signal.clone();
         fft_inplace(&mut x, false);
         // After forward: x = (1/n) * DFT(signal)
@@ -179,8 +174,12 @@ mod tests {
         //               = N * (1/N) * signal = signal
         fft_inplace(&mut x, true);
         for (orig, got) in signal.iter().zip(x.iter()) {
-            assert!((orig.re - got.re).abs() < 1e-10,
-                "roundtrip failed: orig={} got={}", orig.re, got.re);
+            assert!(
+                (orig.re - got.re).abs() < 1e-10,
+                "roundtrip failed: orig={} got={}",
+                orig.re,
+                got.re
+            );
             assert!((orig.im - got.im).abs() < 1e-10);
         }
     }

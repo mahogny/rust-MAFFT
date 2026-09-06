@@ -82,4 +82,3 @@ impl LocalHomologyTable {
         self.entries[i * self.nseq + j].push(region);
     }
 }
-

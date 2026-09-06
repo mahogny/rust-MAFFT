@@ -6,7 +6,6 @@
 /// property) gets its own complex channel. The FFT correlation is computed
 /// per-channel and summed, giving a position-specific similarity score that
 /// accounts for all residue types simultaneously.
-
 use num_complex::Complex64;
 
 /// Number of channels for different sequence types.
@@ -30,7 +29,9 @@ pub fn sequences_to_channels(
 
     for (seq, &w) in sequences.iter().zip(weights.iter()) {
         for (pos, &ch) in seq.iter().enumerate() {
-            if pos >= fft_size { break; }
+            if pos >= fft_size {
+                break;
+            }
             let idx = amino_map[ch as usize] as usize;
             if idx < num_channels {
                 channels[idx][pos] += Complex64::new(w, 0.0);

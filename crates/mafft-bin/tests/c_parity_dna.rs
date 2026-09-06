@@ -1,4 +1,5 @@
-//! Byte-for-byte parity with C MAFFT 7.526 on nucleotide input.
+//! Byte-for-byte parity with C MAFFT 7.526 on nucleotide input, plus pinned
+//! Panaroo-workload regression fixtures for the same DNA invocation shape.
 //!
 //! Every `.expected` file here is the verbatim stdout of C MAFFT 7.526
 //! (`conda` build, `mafft --version` → `v7.526 (2024/Apr/26)`) for the
@@ -18,12 +19,19 @@
 //!   substitutions and indels. Uniform-random or fixture-only corpora did
 //!   not reliably surface the gap-scale bug; this shape did (16/30 before
 //!   the fix), so it is the regression guard for that whole class.
+//! * `panaroo_tiny_dna_clusters/` — five real Panaroo tiny-run gene-family
+//!   shapes, reconstructed by stripping gaps from the aligned output. These
+//!   are pinned-output regression tests for Panaroo's exact
+//!   `--auto --adjustdirection --thread 1 --nuc` call, not independent C
+//!   reference captures.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 /// Run `mafft-rs <flags> <input>` in-process and return the FASTA bytes.
@@ -105,7 +113,14 @@ fn auto_refines_a_pair_like_c() {
 fn fftnsi_120seq_dna_matches_c() {
     let f = fixtures();
     expect_identical(
-        &["--adjustdirection", "--nuc", "--retree", "2", "--maxiterate", "2"],
+        &[
+            "--adjustdirection",
+            "--nuc",
+            "--retree",
+            "2",
+            "--maxiterate",
+            "2",
+        ],
         &f.join("mtb_cds_120x1400.fa"),
         &f.join("mtb_cds_120x1400.fftnsi.expected"),
     );
@@ -123,11 +138,19 @@ fn r2_real_ancestor_clusters_match_c_under_auto() {
         .filter(|p| p.extension().is_some_and(|x| x == "fa"))
         .collect();
     inputs.sort();
-    assert_eq!(inputs.len(), 30, "expected 30 clusters in {}", dir.display());
+    assert_eq!(
+        inputs.len(),
+        30,
+        "expected 30 clusters in {}",
+        dir.display()
+    );
     let mut failures = Vec::new();
     for input in &inputs {
         let expected = input.with_extension("expected");
-        let got = run(&["--auto", "--adjustdirection", "--thread", "1", "--nuc"], input);
+        let got = run(
+            &["--auto", "--adjustdirection", "--thread", "1", "--nuc"],
+            input,
+        );
         let want = std::fs::read(&expected).expect("read expected");
         if got != want {
             failures.push(input.file_name().unwrap().to_string_lossy().into_owned());
@@ -136,6 +159,48 @@ fn r2_real_ancestor_clusters_match_c_under_auto() {
     assert!(
         failures.is_empty(),
         "{} of {} clusters differ from C MAFFT 7.526: {failures:?}",
+        failures.len(),
+        inputs.len()
+    );
+}
+
+/// Panaroo invokes MAFFT once per gene family as:
+/// `mafft --auto --adjustdirection --thread 1 --nuc <cluster.fa>`.
+///
+/// These fixtures are gap-stripped inputs reconstructed from real Panaroo tiny-run
+/// gene-family alignments, including indel-heavy and ambiguous-N cases. The expected files
+/// pin the alignment bytes that Panaroo's downstream core-alignment stage consumes.
+#[test]
+fn panaroo_tiny_gene_clusters_match_pinned_alignment() {
+    let dir = fixtures().join("panaroo_tiny_dna_clusters");
+    let mut inputs: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("panaroo_tiny_dna_clusters")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "fa"))
+        .collect();
+    inputs.sort();
+    assert_eq!(
+        inputs.len(),
+        5,
+        "expected 5 Panaroo-derived clusters in {}",
+        dir.display()
+    );
+
+    let mut failures = Vec::new();
+    for input in &inputs {
+        let expected = input.with_extension("expected");
+        let got = run(
+            &["--auto", "--adjustdirection", "--thread", "1", "--nuc"],
+            input,
+        );
+        let want = std::fs::read(&expected).expect("read expected");
+        if got != want {
+            failures.push(input.file_name().unwrap().to_string_lossy().into_owned());
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} Panaroo-derived clusters differ from pinned alignment: {failures:?}",
         failures.len(),
         inputs.len()
     );
