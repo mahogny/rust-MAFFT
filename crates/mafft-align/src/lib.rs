@@ -37,8 +37,11 @@ mod fft_align;
 mod genaffine;
 mod global;
 mod local;
+mod local_fill;
+mod local_fill_avx2;
 mod msalign;
 mod multimtx;
+mod pair_dedup;
 mod profile;
 
 pub use constrained_align::{

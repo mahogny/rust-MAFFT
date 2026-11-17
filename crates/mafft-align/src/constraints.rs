@@ -878,8 +878,11 @@ pub fn build_homology_table_with_unalign(
         .flat_map(|i| ((i + 1)..nseq).map(move |j| (i, j)))
         .collect();
 
-    // Compute all pairwise alignments in parallel
-    let results: Vec<PairResult> = pairs
+    // Compute all pairwise alignments in parallel, once per distinct pair of
+    // contents; see `pair_dedup` (debug traces below fire once per distinct pair)
+    let dedup = crate::pair_dedup::distinct_pairs(sequences, &pairs);
+    let computed: Vec<PairResult> = dedup
+        .distinct
         .par_iter()
         .map(|&(i, j)| {
             // Branch at the alignment call to keep the rest of the
@@ -1141,6 +1144,11 @@ pub fn build_homology_table_with_unalign(
 
             PairResult { i, j, distance: d, regions, _debug_pscore: score_for_dist, _debug_bunbo: bunbo }
         })
+        .collect();
+    let results: Vec<PairResult> = pairs
+        .iter()
+        .zip(&dedup.owner)
+        .map(|(&(i, j), &o)| PairResult { i, j, regions: computed[o].regions.clone(), ..computed[o] })
         .collect();
 
     if let Ok(f) = std::env::var("RS_LINSI_DUMP") {

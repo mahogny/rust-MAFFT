@@ -174,7 +174,7 @@ pub fn local_align(
         mp_arr[j] = 0;
     }
 
-    const LOCALSTOP: i32 = i32::MIN;
+    use crate::local_fill::LOCALSTOP;
     let ijp_stride = m + 1;
     ijp.clear();
     ijp.resize((n + 1) * ijp_stride, 0);
@@ -185,199 +185,21 @@ pub fn local_align(
         ijp[j] = LOCALSTOP;
     }
 
-    let mut maxwm = f64::NEG_INFINITY;
-    let mut endali = 0i32;
-    let mut endalj = 0i32;
-
-    for i in 1..=n {
-        std::mem::swap(&mut previousw, &mut currentw);
-        // Match scores for row i are fused into the DP loop below. This
-        // preserves C's `currentw[j] = match; currentw[j] += wm` arithmetic
-        // order while avoiding a separate full-row fill pass.
-        let row_i = if i < n {
-            let idx = amino_map[seq1[i] as usize] as usize;
-            if idx < n_alpha {
-                Some(&matrix[idx])
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // currentw[0] = initverticalw[i] (row column-0 match score)
-        currentw[0] = if i < n { initverticalw[i] } else { 0.0 };
-
-        let mut mi = previousw[0];
-        let mut mpi: i32 = 0;
-        // Hot DP loop: all slices below have length m + 1, and j runs 1..=m.
-        // Bind rows once and use unchecked indexing to avoid repeating bounds
-        // checks and the outer ijp row lookup in every cell.
-        let row_start = i * ijp_stride;
-        let ijp_row = &mut ijp[row_start..row_start + ijp_stride];
-        let prev = &previousw;
-        let cur = &mut currentw;
-        let m_state = &mut m_arr;
-        let mp_state = &mut mp_arr;
-
-        if let Some(score_row) = row_i {
-            for j in 1..m {
-                let prev_diag = unsafe { *prev.get_unchecked(j - 1) };
-                let mut wm = prev_diag;
-                unsafe {
-                    *ijp_row.get_unchecked_mut(j) = 0;
-                }
-
-                let g = mi + f_open;
-                if g > wm {
-                    wm = g;
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = -((j as i32) - mpi);
-                    }
-                }
-                if prev_diag > mi {
-                    mi = prev_diag;
-                    mpi = (j as i32) - 1;
-                }
-                mi += f_ext;
-
-                let m_j = unsafe { *m_state.get_unchecked(j) };
-                let g = m_j + f_open;
-                if g > wm {
-                    wm = g;
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = (i as i32) - *mp_state.get_unchecked(j);
-                    }
-                }
-                if prev_diag > m_j {
-                    unsafe {
-                        *m_state.get_unchecked_mut(j) = prev_diag;
-                        *mp_state.get_unchecked_mut(j) = (i as i32) - 1;
-                    }
-                }
-                unsafe {
-                    *m_state.get_unchecked_mut(j) += f_ext;
-                }
-
-                if maxwm < wm {
-                    maxwm = wm;
-                    endali = i as i32;
-                    endalj = j as i32;
-                }
-                if wm < localthr {
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = LOCALSTOP;
-                    }
-                    wm = localthr;
-                }
-                unsafe {
-                    let match_score = score_from_row(score_row, j);
-                    *cur.get_unchecked_mut(j) = match_score + wm;
-                }
-            }
-
-            let j = m;
-            let prev_diag = unsafe { *prev.get_unchecked(j - 1) };
-            let mut wm = prev_diag;
-            unsafe {
-                *ijp_row.get_unchecked_mut(j) = 0;
-            }
-
-            let g = mi + f_open;
-            if g > wm {
-                wm = g;
-                unsafe {
-                    *ijp_row.get_unchecked_mut(j) = -((j as i32) - mpi);
-                }
-            }
-            let m_j = unsafe { *m_state.get_unchecked(j) };
-            let g = m_j + f_open;
-            if g > wm {
-                wm = g;
-                unsafe {
-                    *ijp_row.get_unchecked_mut(j) = (i as i32) - *mp_state.get_unchecked(j);
-                }
-            }
-            if prev_diag > m_j {
-                unsafe {
-                    *m_state.get_unchecked_mut(j) = prev_diag;
-                    *mp_state.get_unchecked_mut(j) = (i as i32) - 1;
-                }
-            }
-            unsafe {
-                *m_state.get_unchecked_mut(j) += f_ext;
-            }
-
-            if maxwm < wm {
-                maxwm = wm;
-                endali = i as i32;
-                endalj = j as i32;
-            }
-            if wm < localthr {
-                unsafe {
-                    *ijp_row.get_unchecked_mut(j) = LOCALSTOP;
-                }
-                wm = localthr;
-            }
-            unsafe {
-                *cur.get_unchecked_mut(j) = wm;
-            }
-        } else {
-            for j in 1..=m {
-                let prev_diag = unsafe { *prev.get_unchecked(j - 1) };
-                let mut wm = prev_diag;
-                unsafe {
-                    *ijp_row.get_unchecked_mut(j) = 0;
-                }
-
-                let g = mi + f_open;
-                if g > wm {
-                    wm = g;
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = -((j as i32) - mpi);
-                    }
-                }
-                if prev_diag > mi {
-                    mi = prev_diag;
-                    mpi = (j as i32) - 1;
-                }
-                mi += f_ext;
-
-                let m_j = unsafe { *m_state.get_unchecked(j) };
-                let g = m_j + f_open;
-                if g > wm {
-                    wm = g;
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = (i as i32) - *mp_state.get_unchecked(j);
-                    }
-                }
-                if prev_diag > m_j {
-                    unsafe {
-                        *m_state.get_unchecked_mut(j) = prev_diag;
-                        *mp_state.get_unchecked_mut(j) = (i as i32) - 1;
-                    }
-                }
-                unsafe {
-                    *m_state.get_unchecked_mut(j) += f_ext;
-                }
-
-                if maxwm < wm {
-                    maxwm = wm;
-                    endali = i as i32;
-                    endalj = j as i32;
-                }
-                if wm < localthr {
-                    unsafe {
-                        *ijp_row.get_unchecked_mut(j) = LOCALSTOP;
-                    }
-                    wm = localthr;
-                }
-                unsafe {
-                    *cur.get_unchecked_mut(j) = wm;
-                }
-            }
-        }
+    // Rows 1..=n; see `local_fill` for the row order. Row `i` adds the match score of
+    // seq1[i] (none for i == n, as C reads the terminator there).
+    let seq1_idx: Vec<u8> = seq1.iter().map(|&c| amino_map[c as usize]).collect();
+    let (maxwm, endali, endalj) = crate::local_fill::Fill {
+        n,
+        m,
+        matrix,
+        seq1_idx: &seq1_idx,
+        seq2_idx: &seq2_idx,
+        initverticalw: &initverticalw,
+        f_open,
+        f_ext,
+        localthr,
     }
+    .run(&mut crate::local_fill::State { h: &mut currentw, m_arr: &mut m_arr, mp_arr: &mut mp_arr, ijp: &mut ijp });
 
     // Empty alignment: no positive cell found
     if endali == 0 || endalj == 0 || maxwm <= 0.0 {
